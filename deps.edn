@@ -1,0 +1,6 @@
+{:deps 
+ {org.clojure/clojure       {:mvn/version "1.10.1"}
+  org.clojure/clojurescript {:mvn/version "1.10.597"}
+  org.clojure/spec.alpha    {:mvn/version "0.2.187"}
+  org.clojure/test.check    {:mvn/version "1.1.0"}
+  hiccup                    {:mvn/version "2.0.0-alpha2"}}}

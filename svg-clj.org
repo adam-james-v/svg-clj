@@ -1,0 +1,94 @@
+* ;;
+#+Title: svg-clj
+#+AUTHOR: adam-james
+#+STARTUP: overview
+#+EXCLUDE_TAGS: excl
+#+PROPERTY: header-args :cache yes :noweb yes :results none :mkdirp yes :padline yes :async
+#+HTML_DOCTYPE: html5
+#+OPTIONS: toc:2 num:nil html-style:nil html-postamble:nil html-preamble:nil html5-fancy:t
+
+** deps.edn
+#+NAME: deps.edn
+#+begin_src clojure :tangle ./deps.edn
+{:deps 
+ {org.clojure/clojure       {:mvn/version "1.10.1"}
+  org.clojure/clojurescript {:mvn/version "1.10.597"}
+  org.clojure/spec.alpha    {:mvn/version "0.2.187"}
+  org.clojure/test.check    {:mvn/version "1.1.0"}
+  hiccup                    {:mvn/version "2.0.0-alpha2"}}}
+
+#+end_src
+
+** readme
+#+BEGIN_SRC markdown :tangle ./readme.md
+# svg-clj
+
+A simple DSL for SVG in Clojure/clojurescript.
+
+#+END_SRC
+
+* admin
+** todo
+Some tasks that need to be done on this project.
+
+** roadmap
+Some features that are planned for implementation.
+
+* design
+** intent
+The purpose of this library is to allow users to create simple functional programs that compile to SVG elements. 
+
+The expected kinds of input are .clj files with svg-clj code, STDIN with svg-clj code. The expected output is hiccup-style clojure data structures, and optionally a compiled SVG string to file or STDOUT.
+
+Basically, this is just a library, but I will add a small CLI interface and create a binary distribution so that the library can stand alone as a small utility, perhaps as a useful tool in a bash scripting pipeline.
+
+** structure
+The library uses hiccup syntax to represent the SVG diagrams being created. The user writes functional code to define various elements of the SVG and has access to transformations via utility functions.
+
+Since the library functions emit hiccup data structures, the user can extend and manipulate their data using other clojure libraries or their own approaches. 
+
+The library has two 'groups' of functions:
+
+- elements
+  - container elements (svg, figure...)
+  - composites (custom functions using shapes.. eg. arrow)
+  - shapes
+    - circle
+    - ellipse
+    - line
+    - path
+    - polygon
+    - polyline
+    - rect
+  - text
+  - g
+  - animation (maybe in future)
+
+- transforms
+  - rotate
+  - translate
+  - scale
+  - style
+
+There are utility type functions as well
+- geometric utilities (midpoint, bounds)
+- data manipulation utilities
+
+* test
+#+BEGIN_SRC clojure :tangle ./test/svg_clj/main_test.cljc
+(ns svg-clj.main
+  (:require [svg-clj.main :as svg-clj]
+            [clojure.test :refer [deftest is]]))
+
+#+END_SRC
+
+* ns
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
+(ns svg-clj.main
+  (:require [clojure.string :as s]
+            [hiccup.core :refer [html]]
+            [clojure.test :as test :refer [deftest is]]))
+
+#+END_SRC
+
+ 
