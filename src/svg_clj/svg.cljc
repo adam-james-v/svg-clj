@@ -1,263 +1,3 @@
-* ;;
-#+Title: svg-clj
-#+AUTHOR: adam-james
-#+STARTUP: overview
-#+EXCLUDE_TAGS: excl
-#+PROPERTY: header-args :cache yes :noweb yes :results none :mkdirp yes :padline yes :async
-#+HTML_DOCTYPE: html5
-#+OPTIONS: toc:2 num:nil html-style:nil html-postamble:nil html-preamble:nil html5-fancy:t
-
-** deps.edn
-#+NAME: deps.edn
-#+begin_src clojure :tangle ./deps.edn
-{:deps 
- {org.clojure/clojure       {:mvn/version "1.10.1"}
-  org.clojure/clojurescript {:mvn/version "1.10.597"}
-  org.clojure/spec.alpha    {:mvn/version "0.2.187"}
-  org.clojure/test.check    {:mvn/version "1.1.0"}
-  hiccup                    {:mvn/version "2.0.0-alpha2"}}}
-
-#+end_src
-
-** readme
-#+BEGIN_SRC markdown :tangle ./readme.md
-# svg-clj
-
-A simple DSL for SVG in Clojure/clojurescript.
-
-This is currently a work in progress. Until a stable release is provided, this library is considered to be in a 'prototype' state. Breaking changes are possible until a proper release is acheived.
-
-If you would like to understand my motivations, decisions, and reasoning for the choices I've made in this library, you can read the .org file in the top level of this repo.
-
-[svg-clj.org](https://github.com/adam-james-v/svg-clj/blob/main/svg-clj.org).
-
-#+END_SRC
-
-* admin
-** todo
-Some tasks that need to be done on this project.
-*** TODO [] fix svg fn to properly handle incorrect args (eg. missing [w h sc]
-*** TODO [] build a mechanism for changing rotate behavior from local to global -> probably use *dynamic-var* 
-*** TODO [] build a mechanism for changing transform 'baking' behavior
-*** TODO [] remove forge dependency
-*** TODO [] create an aliases namespace for short-form re-defs eg. (def tr svg/translate)
-** roadmap
-Some features that are planned for implementation.
-
-* design
-** intent
-The purpose of this library is to allow users to create simple functional programs that compile to SVG elements. 
-
-The expected kinds of input are .clj files with svg-clj code, STDIN with svg-clj code. The expected output is hiccup-style clojure data structures, and optionally a compiled SVG string to file or STDOUT.
-
-Basically, this is just a library, but I will add a small CLI interface and create a binary distribution so that the library can stand alone as a small utility, perhaps as a useful tool in a bash scripting pipeline.
-
-** structure
-The library uses hiccup syntax to represent the SVG diagrams being created. The user writes functional code to define various elements of the SVG and has access to transformations via utility functions.
-
-Since the library functions emit hiccup data structures, the user can extend and manipulate their data using other clojure libraries or their own approaches. 
-
-The library has two 'groups' of functions:
-
-- elements
-  - container elements (svg, figure...)
-  - composites (custom functions using shapes.. eg. arrow)
-  - shapes
-    - circle
-    - ellipse
-    - line
-    - path
-    - polygon
-    - polyline
-    - rect
-  - text
-  - g
-  - animation (maybe in future)
-
-- transforms
-  - rotate
-  - translate
-  - scale
-  - style
-
-There are utility type functions as well
-- geometric utilities (midpoint, bounds)
-- data manipulation utilities
-
-** opinionated-approach
-This is not quite a straight wrapper for SVG functionality. I have altered the default behavior of some functions.
-
-For example, a rectangle is drawn centered around the orgin by default. Plain SVG rectangles draw with the first corner located at the origin by default.
-
-All rotations are applied to shapes locally by default. This means that a circle at [10 0] rotated by 90 deg will not appear to move using svg-clj; the shape itself is being spun around it's center, but that center point is not moving. Default SVG behaviour rotates around the origin by default. So, any elements offset from the orgin will move large distances away from their starting positions. This choice was made because it feels more intuitive to draw with local transformation operations in mind.
-
-As much as possible, all transformation calculations are 'baked' into shape coordinates and points directly. This means that a [10 20] rectangle that gets translated by [100 100] will be rendered to SVG as follows:
-
-#+begin_src clojure
-(comment 
-  (translate [100 100] (rect 10 20))
-  ;; => [:rect {:width 10, :height 20, :x 95.0, :y 90.0, :transform "rotate(0 100.0 100.0)"}]
-  (def a *1)
-  (html a)
-  ;; => "<rect height=\"20\" transform=\"rotate(0 100.0 100.0)\" width=\"10\" x=\"95.0\" y=\"90.0\"></rect>"
-)
-#+end_src
-
-* test
-#+BEGIN_SRC clojure :tangle ./test/svg_clj/main_test.cljc
-(ns svg-clj.main
-  (:require [svg-clj.main :as svg-clj]
-            [clojure.test :refer [deftest is]]))
-
-#+END_SRC
-
-* ns
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
-(ns svg-clj.main
-  (:require [clojure.string :as s]
-            [hiccup.core :refer [html]]
-            [clojure.test :as test :refer [deftest is]]))
-
-#+END_SRC
-
-* container-elements
-Any elements that wrap content. Primary function is svg which is the ~container~ element for all other SVG elements.
-
-** svg
-#+begin_src clojure :tangle ./src/svg_clj/main.cljc
-(defn svg
-  "This function wraps `content` in an SVG container element.
-  The SVG container is parameterized by width `w`, height `h`, and scale `sc`."
-  [[w h sc] & content]
-  [:svg {:width  w
-         :height h
-         :viewBox (str "0 0 " w " " h)
-         :xmlns "http://www.w3.org/2000/svg"}
-   [:g {:transform (str "scale(" sc ")")} content]])
-#+end_src
-
-* shapes
-A shape is a hiccup data structure that represents one of the valild SVG elements.
-
-All shape functions will return a vector of the following shape:
-
-~[:tag {:props "value"} "content"]~
-
-The tag and props will always exist, but content may or may not exist. For most geometric shape elements, there is no content. Elements like ~text~ and ~g~ do have content.
-
-As a general term, I use 'element' to refer to the hiccup vector structure. So, ~[:circle {:r 2}]~ is an element as is ~[:p "some paragraph"]~. The vector ~[2 4]~ is not an element.
-
-The term 'properties' (sometimes written 'props') refers to the map in the index 1 of a hiccup vector.
-
-The term 'content' refers to the inner part of a hiccup data structure that is neither the key nor the properties. Content can be nil, length one, or many.
-
-#+begin_src clojure :tangle ./src/svg_clj/main.cljc
-(def svg-elements
-  "The elements provided by the library."
-  #{:circle
-    :ellipse
-    :line
-    :path
-    :polygon
-    :polyline
-    :rect
-    :text
-    :g})
-
-(defn element? 
-  "Checks the key in an element to see if it is an SVG element."
-  [[k props content]]
-  (svg-elements (first item)))
-
-(defn circle
-  [r]
-  [:circle {:cx 0 :cy 0 :r r}])
-
-(defn ellipse
-  [rx ry]
-  [:ellipse {:cx 0 :cy 0 :rx rx :ry ry}])
-
-(defn line
-  [[ax ay] [bx by]]
-  [:line {:x1 ax :y1 ay :x2 bx :y2 by}])
-
-(defn polygon
-  [pts]
-  [:polygon {:points (points->str pts)}])
-
-(defn polyline
-  [pts]
-  [:polyline {:points (points->str pts)}])
-
-(defn rect
-  [w h]
-  [:rect {:width w :height h :x (/ w -2.0) :y (/ h -2.0)}])
-
-(defn text
-  [text]
-  (let [char-w 9.625
-        char-h 10
-        n-chars (count text)
-        x (/ (* n-chars char-w) -2.0)
-        y (/ char-h 2.0)]
-    [:text {:x (/ (* n-chars char-w) -2.0)
-            :y (/ char-h 2.0)
-            :transform (xf-map->str {:rotate [0 (- x) (- y)]})
-            :style {:font-family "monospace"
-                    :font-size 16}} text]))
-
-(defn g
-  [& content]
-  (if (and (= 1 (count content))
-           (not (keyword? (first (first content)))))
-    ;; content is a list of a list of elements
-    (into [:g {}] (first content))
-    ;; content is a single element OR a list of elements
-    (into [:g {}] (filter (complement nil?) content))))
-
-#+end_src
-
-* utils
-** geom
-*** TODO [] make centroid only work on sets of pts of same dimension
-*** TODO [] make centroid more readable. Maybe juxt?
-#+begin_src clojure :tangle ./src/svg_clj/main.cljc
-(defn average
-  [& numbers]
-  (let [n (count numbers)]
-    (/ (apply + numbers) n)))
-
-;; what I used to call 'midpoint' is more accurately called centroid
-(defn centroid
-  "Calculates the arithmetic mean position of all the given `pts`."
-  [pts]
-  (let [ndim (count (first (sort-by count pts)))
-        splits (for [axis (range 0 ndim)]
-                 (map #(nth % axis) pts))]
-    (mapv #(apply average %) splits)))
-        
-
-
-
-;; midpoint arguably only refers to the middle point of a segment.
-
-#+end_src
-
-** path
-The path element is more complicated as there is essentially a DSL for creating valid 'd' property strings. The 'd' property is a string that defines many different renderable paths using a tiny instruction set that works kind of like g-code or the turtle drawing program.
-
-This path function is usable by the user but provides no path generation assistance. There are several functions defined later that handle path generation.
-
-#+begin_src clojure :tangle ./src/svg_clj/main.cljc
-(defn path
-  [d]
-  [:path {:d d
-          :fill-rule "evenodd"}])
-
-#+end_src
-* path
-** path-helpers
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
 ;; types of paths line, arc, quadratic, cubic
 (defn path->pts
   [s]
@@ -365,24 +105,6 @@ This path function is usable by the user but provides no path generation assista
    (-str "A" [rx ry] [x-deg lg sw] p3)
    (when closed " Z")))
 
-#+END_SRC
-
-The path element has a small DSL to create compound curves. This includes the following (taken from [[https://www.w3schools.com/graphics/svg_path.asp]]):
-
-
-    M = moveto
-    L = lineto
-    H = horizontal lineto
-    V = vertical lineto
-    C = curveto
-    S = smooth curveto
-    Q = quadratic Bézier curve
-    T = smooth quadratic Bézier curveto
-    A = elliptical Arc
-    Z = closepath
-
-** polygon-path
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
 (defn path-polygon-str
   [[m & pts]]
   (str 
@@ -422,10 +144,6 @@ The path element has a small DSL to create compound curves. This includes the fo
   (let [paths (map path-polyline-str pts)]
     (path (apply str (interpose "\n" paths)))))
 
-#+END_SRC
-
-** bezier
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
 (declare style-element)
 (defn cubic-bezier-str
   [[x1 y1] [cx1 cy1] [cx2 cy2] [x y]]
@@ -460,16 +178,6 @@ The path element has a small DSL to create compound curves. This includes the fo
      (path 
       (apply str (interpose " " (cons curve1 s-curves)))))))
 
-#+END_SRC
-
-** arc
-The arc command 
-
-A rx ry x-axis-rotation large-arc-flag sweep-flag x y
- 
-a rx ry x-axis-rotation large-arc-flag sweep-flag dx dy
-
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
 (defn arc-str
   [rx ry x-deg lg sw x y]
   (apply str (interpose " " ["a" rx ry x-deg lg sw x y])))
@@ -516,12 +224,6 @@ a rx ry x-axis-rotation large-arc-flag sweep-flag dx dy
      (circle-by-pts p1 p2 p3)
      (path (apply str (interpose " " [m-str a-str]))))))
 
-#+END_SRC
-
-** combine-paths
-These are prototype functions for now. They are used to build compound paths. That is, straight segments combined in various ways with curves. As well, it is necessary for faces with holes. Eg. a square with a smaller shape contained within.
-
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
 (defn merge-paths
   "Merges svg <path> elements together, keeping props from last path in the list."
   [& paths]
@@ -542,12 +244,6 @@ These are prototype functions for now. They are used to build compound paths. Th
   (let [path-string (:d props)]
     [k (assoc props :d (str path-string " Z"))]))
 
-#+END_SRC
-
-* geom-computation
-** bounds
-*** bounds-fn
-#+begin_src clojure :results none :tangle ./src/svg_clj/svg.cljc
 (defn pts->bounds
   [pts]
   (let [xmax (apply max (map first pts))
@@ -559,10 +255,6 @@ These are prototype functions for now. They are used to build compound paths. Th
             [xmax ymax]
             [xmin ymax])))
 
-#+end_src
-
-*** bounds-element
-#+BEGIN_SRC clojure :results none :tangle ./src/svg_clj/svg.cljc
 (defmulti bounds-element
   (fn [element]
     (first element)))
@@ -644,19 +336,11 @@ These are prototype functions for now. They are used to build compound paths. Th
   [[_ props text]]
   [[(:x props) (:y props)]])
 
-#+END_SRC
-
-*** group-bounds
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
 (declare bounds)
 (defmethod bounds-element :g
   [[_ props & content]]
   (pts->bounds (apply concat (map bounds content))))
 
-#+END_SRC
-
-*** interface
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
 (defn bounds
   [& elems]
   (let [elem (first elems)
@@ -674,10 +358,6 @@ These are prototype functions for now. They are used to build compound paths. Th
         :else
         (recur (concat elem elems))))))
 
-#+END_SRC
-** midpoint
-*** midpoint-element
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
 (defmulti midpoint-element
   (fn [element]
     (first element)))
@@ -722,19 +402,11 @@ These are prototype functions for now. They are used to build compound paths. Th
   [[_ props text]]
   [(:x props) (:y props)])
 
-#+END_SRC
-
-*** group-midpoint
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
 (declare midpoint)
 (defmethod midpoint-element :g
   [[_ props & content]]
   (f/midpoint (into #{} (map midpoint content))))
 
-#+END_SRC
-
-*** interface
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
 (defn midpoint
   [& elems]
   (let [elem (first elems)
@@ -752,16 +424,6 @@ These are prototype functions for now. They are used to build compound paths. Th
         :else
         (recur (concat elem elems))))))
 
-#+END_SRC
-
-* transforms
-Transforms are translate, rotate, and scale. All transforms work well for most objects (:g and :text are exceptions). They all transform about the object's center point. This has the effect of 'local first' transformation.
-
-This leads to challenges with groups. Groups must have their midpoint calculated such that rotation and translation can correctly occur about the group's midpoint. Otherwise, a group will not follow the same behaviour as any other element.
-
-** translate
-*** translate-element
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
 (defmulti translate-element 
   (fn [_ element]
     (first element)))
@@ -852,10 +514,6 @@ This leads to challenges with groups. Groups must have their midpoint calculated
                       (update :y + y))]
     [k new-props text]))
 
-#+END_SRC
-
-*** group-translate
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
 ;; experimenting with transform that 'pushes through' group to instead map the translation onto all children in the group
 
 #_(defmethod translate-element :g
@@ -874,10 +532,6 @@ This leads to challenges with groups. Groups must have their midpoint calculated
        (filter (complement nil?))
        (into [k props])))
 
-#+END_SRC
-
-*** interface
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
 (defn translate
   [[x y] & elems]
   (let [elem (first elems)
@@ -900,10 +554,6 @@ This leads to challenges with groups. Groups must have their midpoint calculated
   [[x y] & elems]
   (into [:g {:transform (translate-str x y)}] elems))
 
-#+END_SRC
-** rotate
-*** rotate-element
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
 (defn rotate-element-by-transform
   [deg [k props content]]
   (let [xf (str->xf-map (get props :transform "rotate(0 0 0)"))
@@ -956,22 +606,6 @@ This leads to challenges with groups. Groups must have their midpoint calculated
                       (assoc :y2 y2))]
     [k new-props]))
 
-#+END_SRC
-
-
-This is very buggy. It's got all sorts of problems, including mangling shapes as you change the angle of rotation.
-
-Idea:
- - set center (c) as (first (:pts (first paths))) -> this is the first point that the user specifices when creating a path. Might not be correct, but did seem to fix rotation applied directly to path-polygon data
- 
-Algorithm:
-- get list of pts that make up the path
-- calculate the bounding-box center of these points
-- translate to 0 0 by using the negative values of the bb-center
-- apply rotation by calculating new position of all pts (use rotate-pt)
-- translate new pts to original location by translating to bb-center
-
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
 (defmethod rotate-element :path
   [deg [k props]]
   (let [m (midpoint [k props])
@@ -1034,21 +668,6 @@ Algorithm:
   [deg [k props text]]
   (rotate-element-by-transform deg [k props text]))
 
-#+END_SRC
-
-*** group-rotate
-If I let the rotate 'pass through' a group, it rotates every child element locally. This has the effect of ignoring grouped elements that you do want to rotate about the group's center.
-
-Each child of a group must be rotated around the group's midpoint.
-So,
-- find group midpoint
-- apply rotation to children about group midpoint
-  - rotate child by deg
-  - translate child to new center (rotate its orig midpoint about group midpoint to find new position)
-
-
-
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
 (declare rotate)
 #_(defmethod rotate-element :g
   [deg [k props & content]]
@@ -1083,10 +702,6 @@ So,
                            (translate xfm))))]
     (into [k props] (filter (complement nil?) xfcontent))))
 
-#+END_SRC
-
-*** interface
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
 (defn rotate
   [deg & elems]
   (let [elem (first elems)
@@ -1109,13 +724,6 @@ So,
   [r [x y] & elems]
   (into [:g {:transform (rotate-str r [x y])}] elems))
 
-#+END_SRC
-
-** scale
-SVG items are assumed to be positioned and moved around from their bounding box centers. This means that scaling an element will NOT move it's center position.
-
-*** scale-element
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
 (defn scale-element-by-transform
   [[sx sy] [k props & content]]
   (let [xf (str->xf-map (:transform props))
@@ -1244,11 +852,7 @@ SVG items are assumed to be positioned and moved around from their bounding box 
                    (update :scale (fnil #(map * [sx sy] %) [1 1])))
         new-props (assoc props :transform (xf-map->str new-xf))]
     (into [k new-props] content)))
-  
-#+END_SRC
 
-*** interface
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
 (defn scale
   [sc & elems]
   (let [[sx sy] (if (coll? sc) sc [sc sc])
@@ -1271,15 +875,7 @@ SVG items are assumed to be positioned and moved around from their bounding box 
 (defn scale-g
   [sc & elems]
   (into [:g {:transform (scale-str sc)}] elems))
-#+END_SRC
-** style
-Style transforms allow the user to change any attributes of svg elements that affect appearance. For instance, stroke color, stroke width, and fill.
 
-To consider:
-- classes/ids with style in a CSS file, how can user attach class/id tags?
-- what is proper precedence for style data? should merge always put the 'newest' or keep the existing?
-
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
 ;; change this to just (style)
 (defn style-element
   [style [k props & content]]
@@ -1292,10 +888,6 @@ To consider:
                :stroke color}]
     (into [k (merge props color)] content)))
 
-#+END_SRC
-
-*** interface
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
 (defn color
   [style & elems]
   (let [elem (first elems)
@@ -1312,8 +904,3 @@ To consider:
         
         :else
         (recur style (concat elem elems))))))
-
-#+END_SRC
-* ---
-#+begin_src clojure :tangle ./src/svg_clj/main.cljc
-#+end_src
