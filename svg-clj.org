@@ -41,6 +41,10 @@ Some tasks that need to be done on this project.
 *** TODO [] build a mechanism for changing transform 'baking' behavior
 *** TODO [] remove forge dependency
 *** TODO [] create an aliases namespace for short-form re-defs eg. (def tr svg/translate)
+*** TODO [] make centroid only work on sets of pts of same dimension
+*** TODO [] make centroid more readable. Maybe juxt?s
+
+
 ** roadmap
 Some features that are planned for implementation.
 
@@ -105,7 +109,7 @@ As much as possible, all transformation calculations are 'baked' into shape coor
 
 * test
 #+BEGIN_SRC clojure :tangle ./test/svg_clj/main_test.cljc
-(ns svg-clj.main
+(ns svg-clj.svg-test
   (:require [svg-clj.main :as svg-clj]
             [clojure.test :refer [deftest is]]))
 
@@ -134,6 +138,7 @@ Any elements that wrap content. Primary function is svg which is the ~container~
          :viewBox (str "0 0 " w " " h)
          :xmlns "http://www.w3.org/2000/svg"}
    [:g {:transform (str "scale(" sc ")")} content]])
+
 #+end_src
 
 * shapes
@@ -219,8 +224,6 @@ The term 'content' refers to the inner part of a hiccup data structure that is n
 
 * utils
 ** geom
-*** TODO [] make centroid only work on sets of pts of same dimension
-*** TODO [] make centroid more readable. Maybe juxt?
 #+begin_src clojure :tangle ./src/svg_clj/main.cljc
 (defn average
   [& numbers]
@@ -257,7 +260,7 @@ This path function is usable by the user but provides no path generation assista
 #+end_src
 * path
 ** path-helpers
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 ;; types of paths line, arc, quadratic, cubic
 (defn path->pts
   [s]
@@ -382,7 +385,7 @@ The path element has a small DSL to create compound curves. This includes the fo
     Z = closepath
 
 ** polygon-path
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 (defn path-polygon-str
   [[m & pts]]
   (str 
@@ -425,7 +428,7 @@ The path element has a small DSL to create compound curves. This includes the fo
 #+END_SRC
 
 ** bezier
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 (declare style-element)
 (defn cubic-bezier-str
   [[x1 y1] [cx1 cy1] [cx2 cy2] [x y]]
@@ -469,7 +472,7 @@ A rx ry x-axis-rotation large-arc-flag sweep-flag x y
  
 a rx ry x-axis-rotation large-arc-flag sweep-flag dx dy
 
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 (defn arc-str
   [rx ry x-deg lg sw x y]
   (apply str (interpose " " ["a" rx ry x-deg lg sw x y])))
@@ -521,7 +524,7 @@ a rx ry x-axis-rotation large-arc-flag sweep-flag dx dy
 ** combine-paths
 These are prototype functions for now. They are used to build compound paths. That is, straight segments combined in various ways with curves. As well, it is necessary for faces with holes. Eg. a square with a smaller shape contained within.
 
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 (defn merge-paths
   "Merges svg <path> elements together, keeping props from last path in the list."
   [& paths]
@@ -547,7 +550,7 @@ These are prototype functions for now. They are used to build compound paths. Th
 * geom-computation
 ** bounds
 *** bounds-fn
-#+begin_src clojure :results none :tangle ./src/svg_clj/svg.cljc
+#+begin_src clojure :results none :tangle ./src/svg_clj/main.cljc
 (defn pts->bounds
   [pts]
   (let [xmax (apply max (map first pts))
@@ -562,7 +565,7 @@ These are prototype functions for now. They are used to build compound paths. Th
 #+end_src
 
 *** bounds-element
-#+BEGIN_SRC clojure :results none :tangle ./src/svg_clj/svg.cljc
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 (defmulti bounds-element
   (fn [element]
     (first element)))
@@ -647,7 +650,7 @@ These are prototype functions for now. They are used to build compound paths. Th
 #+END_SRC
 
 *** group-bounds
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 (declare bounds)
 (defmethod bounds-element :g
   [[_ props & content]]
@@ -656,7 +659,7 @@ These are prototype functions for now. They are used to build compound paths. Th
 #+END_SRC
 
 *** interface
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 (defn bounds
   [& elems]
   (let [elem (first elems)
@@ -677,7 +680,7 @@ These are prototype functions for now. They are used to build compound paths. Th
 #+END_SRC
 ** midpoint
 *** midpoint-element
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 (defmulti midpoint-element
   (fn [element]
     (first element)))
@@ -725,7 +728,7 @@ These are prototype functions for now. They are used to build compound paths. Th
 #+END_SRC
 
 *** group-midpoint
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 (declare midpoint)
 (defmethod midpoint-element :g
   [[_ props & content]]
@@ -734,7 +737,7 @@ These are prototype functions for now. They are used to build compound paths. Th
 #+END_SRC
 
 *** interface
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 (defn midpoint
   [& elems]
   (let [elem (first elems)
@@ -761,7 +764,7 @@ This leads to challenges with groups. Groups must have their midpoint calculated
 
 ** translate
 *** translate-element
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 (defmulti translate-element 
   (fn [_ element]
     (first element)))
@@ -855,7 +858,7 @@ This leads to challenges with groups. Groups must have their midpoint calculated
 #+END_SRC
 
 *** group-translate
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 ;; experimenting with transform that 'pushes through' group to instead map the translation onto all children in the group
 
 #_(defmethod translate-element :g
@@ -877,7 +880,7 @@ This leads to challenges with groups. Groups must have their midpoint calculated
 #+END_SRC
 
 *** interface
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 (defn translate
   [[x y] & elems]
   (let [elem (first elems)
@@ -903,7 +906,7 @@ This leads to challenges with groups. Groups must have their midpoint calculated
 #+END_SRC
 ** rotate
 *** rotate-element
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 (defn rotate-element-by-transform
   [deg [k props content]]
   (let [xf (str->xf-map (get props :transform "rotate(0 0 0)"))
@@ -971,7 +974,7 @@ Algorithm:
 - apply rotation by calculating new position of all pts (use rotate-pt)
 - translate new pts to original location by translating to bb-center
 
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 (defmethod rotate-element :path
   [deg [k props]]
   (let [m (midpoint [k props])
@@ -1048,7 +1051,7 @@ So,
 
 
 
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 (declare rotate)
 #_(defmethod rotate-element :g
   [deg [k props & content]]
@@ -1086,7 +1089,7 @@ So,
 #+END_SRC
 
 *** interface
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 (defn rotate
   [deg & elems]
   (let [elem (first elems)
@@ -1115,7 +1118,7 @@ So,
 SVG items are assumed to be positioned and moved around from their bounding box centers. This means that scaling an element will NOT move it's center position.
 
 *** scale-element
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 (defn scale-element-by-transform
   [[sx sy] [k props & content]]
   (let [xf (str->xf-map (:transform props))
@@ -1248,7 +1251,7 @@ SVG items are assumed to be positioned and moved around from their bounding box 
 #+END_SRC
 
 *** interface
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 (defn scale
   [sc & elems]
   (let [[sx sy] (if (coll? sc) sc [sc sc])
@@ -1279,7 +1282,7 @@ To consider:
 - classes/ids with style in a CSS file, how can user attach class/id tags?
 - what is proper precedence for style data? should merge always put the 'newest' or keep the existing?
 
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 ;; change this to just (style)
 (defn style-element
   [style [k props & content]]
@@ -1295,7 +1298,7 @@ To consider:
 #+END_SRC
 
 *** interface
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/svg.cljc
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 (defn color
   [style & elems]
   (let [elem (first elems)
@@ -1314,6 +1317,3 @@ To consider:
         (recur style (concat elem elems))))))
 
 #+END_SRC
-* ---
-#+begin_src clojure :tangle ./src/svg_clj/main.cljc
-#+end_src
