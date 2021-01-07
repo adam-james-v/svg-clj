@@ -1,3 +1,3 @@
-(ns svg-clj.svg-test
-  (:require [svg-clj.main :as svg-clj]
+(ns svg-clj.main-test
+  (:require [svg-clj.main :as svg]
             [clojure.test :refer [deftest is]]))

@@ -109,8 +109,8 @@ As much as possible, all transformation calculations are 'baked' into shape coor
 
 * test
 #+BEGIN_SRC clojure :tangle ./test/svg_clj/main_test.cljc
-(ns svg-clj.svg-test
-  (:require [svg-clj.main :as svg-clj]
+(ns svg-clj.main-test
+  (:require [svg-clj.main :as svg]
             [clojure.test :refer [deftest is]]))
 
 #+END_SRC
@@ -118,9 +118,11 @@ As much as possible, all transformation calculations are 'baked' into shape coor
 * ns
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 (ns svg-clj.main
-  (:require [clojure.string :as s]
+  (:require [clojure.string :as st]
             [hiccup.core :refer [html]]
-            [clojure.test :as test :refer [deftest is]]))
+            [clojure.test :as test :refer [deftest is]]
+            #?(:cljs 
+               [cljs.reader :refer [read-string]])))
 
 #+END_SRC
 
@@ -141,6 +143,35 @@ Any elements that wrap content. Primary function is svg which is the ~container~
 
 #+end_src
 
+* utils
+#+begin_src clojure :tangle ./src/svg_clj/main.cljc
+(defn average
+  [& numbers]
+  (let [n (count numbers)]
+    (/ (apply + numbers) n)))
+
+;; what I used to call 'midpoint' is more accurately called centroid
+(defn centroid
+  "Calculates the arithmetic mean position of all the given `pts`."
+  [pts]
+  (let [ndim (count (first (sort-by count pts)))
+        splits (for [axis (range 0 ndim)]
+                 (map #(nth % axis) pts))]
+    (mapv #(apply average %) splits)))
+
+(defn pt->s
+  "Turns the vector of numbers `pt` into a string.
+  The string is suitably formatted for use in SVG attributes."
+  [pt]
+  (apply str (interpose "," pt)))
+
+(defn s->pt
+  "Turns a string of comma-separated numbers into a vector."
+  [s]
+  (mapv read-string (st/split s #",")))
+
+#+end_src
+
 * shapes
 A shape is a hiccup data structure that represents one of the valild SVG elements.
 
@@ -156,6 +187,7 @@ The term 'properties' (sometimes written 'props') refers to the map in the index
 
 The term 'content' refers to the inner part of a hiccup data structure that is neither the key nor the properties. Content can be nil, length one, or many.
 
+** shapes
 #+begin_src clojure :tangle ./src/svg_clj/main.cljc
 (def svg-elements
   "The elements provided by the library."
@@ -172,7 +204,7 @@ The term 'content' refers to the inner part of a hiccup data structure that is n
 (defn element? 
   "Checks the key in an element to see if it is an SVG element."
   [[k props content]]
-  (svg-elements (first item)))
+  (svg-elements k))
 
 (defn circle
   [r]
@@ -188,28 +220,15 @@ The term 'content' refers to the inner part of a hiccup data structure that is n
 
 (defn polygon
   [pts]
-  [:polygon {:points (points->str pts)}])
+  [:polygon {:points (mapv (pt->s pts))}])
 
 (defn polyline
   [pts]
-  [:polyline {:points (points->str pts)}])
+  [:polyline {:points (mapv (pt->s pts))}])
 
 (defn rect
   [w h]
   [:rect {:width w :height h :x (/ w -2.0) :y (/ h -2.0)}])
-
-(defn text
-  [text]
-  (let [char-w 9.625
-        char-h 10
-        n-chars (count text)
-        x (/ (* n-chars char-w) -2.0)
-        y (/ char-h 2.0)]
-    [:text {:x (/ (* n-chars char-w) -2.0)
-            :y (/ char-h 2.0)
-            :transform (xf-map->str {:rotate [0 (- x) (- y)]})
-            :style {:font-family "monospace"
-                    :font-size 16}} text]))
 
 (defn g
   [& content]
@@ -222,27 +241,17 @@ The term 'content' refers to the inner part of a hiccup data structure that is n
 
 #+end_src
 
-* utils
-** geom
+** text
+Text is a bit different. It is much more complicated to know text's centroid and thus local rotation/translation methods for all other shapes don't easily apply. 
+
+So, like path, text is treated as a very simple wrapper, but has (will have) its own functions for better control/manipulation of text elements.
+
+In particular, you cannot know the exact width and height of a text element without being able to fully render the glyphs of the font. This is currently beyond the scope of the existing function below.
+
 #+begin_src clojure :tangle ./src/svg_clj/main.cljc
-(defn average
-  [& numbers]
-  (let [n (count numbers)]
-    (/ (apply + numbers) n)))
-
-;; what I used to call 'midpoint' is more accurately called centroid
-(defn centroid
-  "Calculates the arithmetic mean position of all the given `pts`."
-  [pts]
-  (let [ndim (count (first (sort-by count pts)))
-        splits (for [axis (range 0 ndim)]
-                 (map #(nth % axis) pts))]
-    (mapv #(apply average %) splits)))
-        
-
-
-
-;; midpoint arguably only refers to the middle point of a segment.
+(defn text
+  [text]
+  [:text {} text])
 
 #+end_src
 
@@ -258,10 +267,91 @@ This path function is usable by the user but provides no path generation assista
           :fill-rule "evenodd"}])
 
 #+end_src
-* path
-** path-helpers
+* path-dsl
+The path element has a small DSL to create compound curves. This includes the following (taken from [[https://www.w3schools.com/graphics/svg_path.asp]]):
+
+  M = moveto
+  L = lineto
+  H = horizontal lineto
+  V = vertical lineto
+  C = curveto
+  S = smooth curveto
+  Q = quadratic Bézier curve
+  T = smooth quadratic Bézier curveto
+  A = elliptical Arc
+  Z = closepath
+
+** new-path-impl
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 ;; types of paths line, arc, quadratic, cubic
+(def segment-types #{:line :hline :vline
+                     :curve :scurve
+                     :quadratic :squadratic
+                     :arc})
+(def path-coords #{:rel :abs})
+(def path-segment-map
+  {:type :line
+   :coords :absolute
+   :end :closed
+   :vals})
+
+(defn path-segments
+  "Split the path string `ps` into a vector of path segment strings."
+  [ps]
+  (-> ps
+      (s/replace #"\n" " ")
+      (s/split #"(?=[A-Za-z])")
+      (#(map s/trim %))))
+
+;; maybe core.match could be used here for better fn readability?
+(defn segment-data
+  "Returns type and coordinate keys of the path segment string `pss`."
+  [pss]
+  (cond 
+    (s/includes? pss "L") {:type :line
+                           :coords :abs} 
+    (s/includes? pss "l") {:type :line
+                           :coords :rel} 
+    (s/includes? pss "H") {:type :hline
+                           :coords :abs} 
+    (s/includes? pss "h") {:type :hline
+                           :coords :rel} 
+    (s/includes? pss "V") {:type :vline
+                           :coords :abs} 
+    (s/includes? pss "v") {:type :vline
+                           :coords :rel} 
+    (s/includes? pss "C") {:type :curve
+                           :coords :abs} 
+    (s/includes? pss "c") {:type :curve
+                           :coords :rel} 
+    (s/includes? pss "S") {:type :scurve
+                           :coords :abs} 
+    (s/includes? pss "s") {:type :scurve
+                           :coords :rel} 
+    (s/includes? pss "Q") {:type :quadratic
+                           :coords :abs} 
+    (s/includes? pss "q") {:type :quadratic
+                           :coords :rel} 
+    (s/includes? pss "T") {:type :squadratic
+                           :coords :abs} 
+    (s/includes? pss "t") {:type :squadratic
+                           :coords :rel}
+    (s/includes? pss "A") {:type :arc
+                           :coords :abs} 
+    (s/includes? pss "a") {:type :arc
+                           :coords :rel}))
+
+  
+
+(defn path-segment-s->map
+  "Transform the path segment string `pss` into a path-segment-map."
+  [[prev curr]]
+  (map segment-data [prev curr]))
+
+#+END_SRC
+
+** old-path-impl
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 (defn path->pts
   [s]
   (as-> s s
@@ -369,20 +459,6 @@ This path function is usable by the user but provides no path generation assista
    (when closed " Z")))
 
 #+END_SRC
-
-The path element has a small DSL to create compound curves. This includes the following (taken from [[https://www.w3schools.com/graphics/svg_path.asp]]):
-
-
-    M = moveto
-    L = lineto
-    H = horizontal lineto
-    V = vertical lineto
-    C = curveto
-    S = smooth curveto
-    Q = quadratic Bézier curve
-    T = smooth quadratic Bézier curveto
-    A = elliptical Arc
-    Z = closepath
 
 ** polygon-path
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc

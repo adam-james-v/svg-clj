@@ -1,7 +1,9 @@
 (ns svg-clj.main
-  (:require [clojure.string :as s]
+  (:require [clojure.string :as st]
             [hiccup.core :refer [html]]
-            [clojure.test :as test :refer [deftest is]]))
+            [clojure.test :as test :refer [deftest is]]
+            #?(:cljs 
+               [cljs.reader :refer [read-string]])))
 
 (defn svg
   "This function wraps `content` in an SVG container element.
@@ -12,6 +14,31 @@
          :viewBox (str "0 0 " w " " h)
          :xmlns "http://www.w3.org/2000/svg"}
    [:g {:transform (str "scale(" sc ")")} content]])
+
+(defn average
+  [& numbers]
+  (let [n (count numbers)]
+    (/ (apply + numbers) n)))
+
+;; what I used to call 'midpoint' is more accurately called centroid
+(defn centroid
+  "Calculates the arithmetic mean position of all the given `pts`."
+  [pts]
+  (let [ndim (count (first (sort-by count pts)))
+        splits (for [axis (range 0 ndim)]
+                 (map #(nth % axis) pts))]
+    (mapv #(apply average %) splits)))
+
+(defn pt->s
+  "Turns the vector of numbers `pt` into a string.
+  The string is suitably formatted for use in SVG attributes."
+  [pt]
+  (apply str (interpose "," pt)))
+
+(defn s->pt
+  "Turns a string of comma-separated numbers into a vector."
+  [s]
+  (mapv read-string (st/split s #",")))
 
 (def svg-elements
   "The elements provided by the library."
@@ -28,7 +55,7 @@
 (defn element? 
   "Checks the key in an element to see if it is an SVG element."
   [[k props content]]
-  (svg-elements (first item)))
+  (svg-elements k))
 
 (defn circle
   [r]
@@ -44,28 +71,15 @@
 
 (defn polygon
   [pts]
-  [:polygon {:points (points->str pts)}])
+  [:polygon {:points (mapv (pt->s pts))}])
 
 (defn polyline
   [pts]
-  [:polyline {:points (points->str pts)}])
+  [:polyline {:points (mapv (pt->s pts))}])
 
 (defn rect
   [w h]
   [:rect {:width w :height h :x (/ w -2.0) :y (/ h -2.0)}])
-
-(defn text
-  [text]
-  (let [char-w 9.625
-        char-h 10
-        n-chars (count text)
-        x (/ (* n-chars char-w) -2.0)
-        y (/ char-h 2.0)]
-    [:text {:x (/ (* n-chars char-w) -2.0)
-            :y (/ char-h 2.0)
-            :transform (xf-map->str {:rotate [0 (- x) (- y)]})
-            :style {:font-family "monospace"
-                    :font-size 16}} text]))
 
 (defn g
   [& content]
@@ -76,24 +90,9 @@
     ;; content is a single element OR a list of elements
     (into [:g {}] (filter (complement nil?) content))))
 
-(defn average
-  [& numbers]
-  (let [n (count numbers)]
-    (/ (apply + numbers) n)))
-
-;; what I used to call 'midpoint' is more accurately called centroid
-(defn centroid
-  "Calculates the arithmetic mean position of all the given `pts`."
-  [pts]
-  (let [ndim (count (first (sort-by count pts)))
-        splits (for [axis (range 0 ndim)]
-                 (map #(nth % axis) pts))]
-    (mapv #(apply average %) splits)))
-        
-
-
-
-;; midpoint arguably only refers to the middle point of a segment.
+(defn text
+  [text]
+  [:text {} text])
 
 (defn path
   [d]
@@ -101,6 +100,70 @@
           :fill-rule "evenodd"}])
 
 ;; types of paths line, arc, quadratic, cubic
+(def segment-types #{:line :hline :vline
+                     :curve :scurve
+                     :quadratic :squadratic
+                     :arc})
+(def path-coords #{:rel :abs})
+(def path-segment-map
+  {:type :line
+   :coords :absolute
+   :end :closed
+   :vals})
+
+(defn path-segments
+  "Split the path string `ps` into a vector of path segment strings."
+  [ps]
+  (-> ps
+      (s/replace #"\n" " ")
+      (s/split #"(?=[A-Za-z])")
+      (#(map s/trim %))))
+
+;; maybe core.match could be used here for better fn readability?
+(defn segment-data
+  "Returns type and coordinate keys of the path segment string `pss`."
+  [pss]
+  (cond 
+    (s/includes? pss "L") {:type :line
+                           :coords :abs} 
+    (s/includes? pss "l") {:type :line
+                           :coords :rel} 
+    (s/includes? pss "H") {:type :hline
+                           :coords :abs} 
+    (s/includes? pss "h") {:type :hline
+                           :coords :rel} 
+    (s/includes? pss "V") {:type :vline
+                           :coords :abs} 
+    (s/includes? pss "v") {:type :vline
+                           :coords :rel} 
+    (s/includes? pss "C") {:type :curve
+                           :coords :abs} 
+    (s/includes? pss "c") {:type :curve
+                           :coords :rel} 
+    (s/includes? pss "S") {:type :scurve
+                           :coords :abs} 
+    (s/includes? pss "s") {:type :scurve
+                           :coords :rel} 
+    (s/includes? pss "Q") {:type :quadratic
+                           :coords :abs} 
+    (s/includes? pss "q") {:type :quadratic
+                           :coords :rel} 
+    (s/includes? pss "T") {:type :squadratic
+                           :coords :abs} 
+    (s/includes? pss "t") {:type :squadratic
+                           :coords :rel}
+    (s/includes? pss "A") {:type :arc
+                           :coords :abs} 
+    (s/includes? pss "a") {:type :arc
+                           :coords :rel}))
+
+  
+
+(defn path-segment-s->map
+  "Transform the path segment string `pss` into a path-segment-map."
+  [[prev curr]]
+  (map segment-data [prev curr]))
+
 (defn path->pts
   [s]
   (as-> s s
