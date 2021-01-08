@@ -29,16 +29,18 @@
                  (map #(nth % axis) pts))]
     (mapv #(apply average %) splits)))
 
-(defn pt->s
-  "Turns the vector of numbers `pt` into a string.
-  The string is suitably formatted for use in SVG attributes."
+(defn v->s
+  "Turns the vector `v` into a string formatted for use in SVG attributes."
   [pt]
   (apply str (interpose "," pt)))
 
-(defn s->pt
-  "Turns a string of comma-separated numbers into a vector."
+(defn s->v
+  "Turns a string of comma or space separated numbers into a vector."
   [s]
-  (mapv read-string (st/split s #",")))
+  (-> s
+      (st/trim)
+      (st/split #"[, ]")
+      (#(mapv read-string %))))
 
 (def svg-elements
   "The elements provided by the library."
@@ -99,70 +101,141 @@
   [:path {:d d
           :fill-rule "evenodd"}])
 
-;; types of paths line, arc, quadratic, cubic
-(def segment-types #{:line :hline :vline
-                     :curve :scurve
-                     :quadratic :squadratic
-                     :arc})
-(def path-coords #{:rel :abs})
-(def path-segment-map
-  {:type :line
-   :coords :absolute
-   :end :closed
-   :vals})
-
-(defn path-segments
-  "Split the path string `ps` into a vector of path segment strings."
+(defn path-command-strings
+  "Split the path string `ps` into a vector of path command strings."
   [ps]
   (-> ps
-      (s/replace #"\n" " ")
-      (s/split #"(?=[A-Za-z])")
-      (#(map s/trim %))))
+      (st/replace #"\n" " ")
+      (st/split #"(?=[A-Za-z])")
+      (#(map st/trim %))))
 
-;; maybe core.match could be used here for better fn readability?
-(defn segment-data
-  "Returns type and coordinate keys of the path segment string `pss`."
-  [pss]
-  (cond 
-    (s/includes? pss "L") {:type :line
-                           :coords :abs} 
-    (s/includes? pss "l") {:type :line
-                           :coords :rel} 
-    (s/includes? pss "H") {:type :hline
-                           :coords :abs} 
-    (s/includes? pss "h") {:type :hline
-                           :coords :rel} 
-    (s/includes? pss "V") {:type :vline
-                           :coords :abs} 
-    (s/includes? pss "v") {:type :vline
-                           :coords :rel} 
-    (s/includes? pss "C") {:type :curve
-                           :coords :abs} 
-    (s/includes? pss "c") {:type :curve
-                           :coords :rel} 
-    (s/includes? pss "S") {:type :scurve
-                           :coords :abs} 
-    (s/includes? pss "s") {:type :scurve
-                           :coords :rel} 
-    (s/includes? pss "Q") {:type :quadratic
-                           :coords :abs} 
-    (s/includes? pss "q") {:type :quadratic
-                           :coords :rel} 
-    (s/includes? pss "T") {:type :squadratic
-                           :coords :abs} 
-    (s/includes? pss "t") {:type :squadratic
-                           :coords :rel}
-    (s/includes? pss "A") {:type :arc
-                           :coords :abs} 
-    (s/includes? pss "a") {:type :arc
-                           :coords :rel}))
+(defn relative?
+  "True if the path segment string `pss` has a relative coordinate command.
+  Relative coordinate commands are lowercase.
+  Absolute coordinate commands are uppercase."
+  [cs]
+  (> (count (st/split cs #"[a-z]")) 1))
 
-  
+(defn coord-sys-key
+  "Returns the command string `cs`'s coord. system key.
+  Key is either :rel or :abs."
+  [cs]
+  (if (relative? cs) :rel :abs))
 
-(defn path-segment-s->map
-  "Transform the path segment string `pss` into a path-segment-map."
-  [[prev curr]]
-  (map segment-data [prev curr]))
+(defn command-key
+  "Returns the command string `cs`'s key."
+  [cs]
+  (let [s (st/upper-case cs)]
+    (cond
+      (s/includes? s "M") :move
+      (s/includes? s "L") :line
+      (s/includes? s "H") :hline
+      (s/includes? s "V") :vline 
+      (s/includes? s "C") :curve 
+      (s/includes? s "S") :scurve
+      (s/includes? s "Q") :quadratic
+      (s/includes? s "T") :squadratic
+      (s/includes? s "A") :arc
+      (s/includes? s "Z") :close)))
+
+(defn command-input
+  [cs]
+  (let [i (st/split cs #"[A-Za-z]")]
+    (when (not (empty? (rest i)))
+      (apply s->v (rest i)))))
+
+(defn command
+  "Transforms a command string `cs` into a map."
+  [cs]
+  {:command  (command-key cs)
+   :coordsys (coord-sys-key cs)
+   :input (command-input cs)})
+
+(defn path-string->commands
+  "Turns path string `ps` into a list of its command maps."
+  [ps]
+  (->> ps
+       (path-command-strings)
+       (map command)))
+
+(defmulti parse-command-input
+  "Parses a command's input into a map of values."
+  :command)
+
+(defmethod parse-command-input :move
+  [{:keys [input]}]
+  (let [[x y] input]
+    {:x x :y y}))
+
+(defmethod parse-command-input :line
+  [{:keys [input]}]
+  (let [[x y] input]
+    {:x x :y y}))
+
+(defmethod parse-command-input :hline
+  [{:keys [input]}]
+  (let [[x] input]
+    {:x x}))
+
+(defmethod parse-command-input :vline
+  [{:keys [input]}]
+  (let [[y] input]
+    {:y y}))
+
+(defmethod parse-command-input :curve
+  [{:keys [input]}]
+  (let [[cx1 cy1 cx2 cy2 x y] input]
+    {:cx1 cx1 :cy1 cy1
+     :cx2 cx2 :cy2 cy2
+     :x x :y y}))
+
+(defmethod parse-command-input :scurve
+  [{:keys [input]}]
+  (let [[cx2 cy2 x y] input]
+    {:cx2 cx2 :cy2 cy2
+     :x x :y y}))
+
+(defmethod parse-command-input :quadratic
+  [{:keys [input]}]
+  (let [[cx cy x y] input]
+    {:cx cx :cy cy
+     :x x :y y}))
+
+(defmethod parse-command-input :squadratic
+  [{:keys [input]}]
+  (let [[x y] input]
+    {:x x :y y}))
+
+(defmethod parse-command-input :arc
+  [{:keys [input]}]
+  (let [[rx ry xrot laf swf x y] input]
+    {:rx rx :ry ry
+     :xrot xrot
+     :laf laf :swf swf
+     :x x :y y}))
+
+(defmethod parse-command-input :close
+  [{:keys [input]}]
+    nil)
+
+(defn convert-l-v-command
+  [[pc cc]]
+  (let [{:keys [x y]} (parse-command-input pc)
+        cci (parse-command-input cc)]
+    (-> cc
+        (assoc :command :line)
+        (assoc :input (into [] (vals (merge {:x x :y y} cci))))))
+
+(defn path-segment
+  "Creates a path segment map from previous command map `pc` and current command map `cc`."
+  [[pc cc]]
+  (let [{:keys [x y]} (parse-command-input pc)
+        cci (parse-command-input cc)]
+    (merge {:type (:command cc)
+            :coordsys (:coordsys cc)
+            :sx x
+            :sy y}
+           cci)))
 
 (defn path->pts
   [s]
