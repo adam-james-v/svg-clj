@@ -42,6 +42,10 @@
       (st/split #"[, ]")
       (#(mapv read-string %))))
 
+(def v+ (partial mapv +))
+(def v- (partial mapv -))
+(def v* (partial mapv *))
+
 (def svg-elements
   "The elements provided by the library."
   #{:circle
@@ -238,6 +242,29 @@
 (defmethod parse-command-input :close
   [{:keys [input]}]
     nil)
+
+(def command-map
+  {:move "M"
+   :line "L"
+   :hline "H"
+   :vline "V"
+   :curve "C"
+   :scurve "S"
+   :quadratic "Q"
+   :squadratic "T"
+   :arc "A"
+   :close "Z"})
+
+(defn cmd->path-string
+  [{:keys [:command :coordsys :input]}]
+  (let [c (if (= coordsys :abs) 
+            (get command-map command)
+            (st/lower-case (get command-map command)))]
+    (str c (apply str (interpose " " input)))))
+
+(defn cmds->path-string
+  [cs]
+  (apply str (interpose " " (map cmd->path-string cs))))
 
 (defn convert-l-v-command
   [[pc cc]]
@@ -746,15 +773,77 @@
                       (update :y2 + y))]
     [k new-props]))
 
-(defmethod translate-element :path
+#_(defmethod translate-element :path
   [[x y] [k props]]
-  (let [path-strings (s/split-lines (:d props))
+  (let [path-strings (st/split-lines (:d props))
         paths (map path-string->path path-strings)
         new-paths (for [path paths]
                     (let [xpts (map #(f/v+ [x y] %) (:pts path))]
                       (path->path-string (assoc path :pts xpts))))
         new-props (assoc props :d (apply str (interpose "\n" new-paths)))]
     [k new-props]))
+
+(defmulti translate-path-command
+  (fn [_ m]
+    (:command m)))
+
+(defmethod translate-path-command :move
+  [[x y] {:keys [:input] :as m}]
+  (assoc m :input (v+ [x y] input)))
+
+(defmethod translate-path-command :line
+  [[x y] {:keys [:input] :as m}]
+  (assoc m :input (v+ [x y] input)))
+
+(defmethod translate-path-command :hline
+  [[x y] {:keys [:input] :as m}]
+  (assoc m :input (v+ [x] input)))
+
+(defmethod translate-path-command :vline
+  [[x y] {:keys [:input] :as m}]
+  (assoc m :input (v+ [y] input)))
+
+;; x y x y x y because input will ahve the form:
+;; [x1 y1 x2 y2 x y] (first two pairs are control points)
+(defmethod translate-path-command :curve
+  [[x y] {:keys [:input] :as m}]
+  (assoc m :input (v+ [x y x y x y] input)))
+
+;; similar approach to above, but one control point is implicit
+(defmethod translate-path-command :scurve
+  [[x y] {:keys [:input] :as m}]
+  (assoc m :input (v+ [x y x y] input)))
+
+(defmethod translate-path-command :quadratic
+  [[x y] {:keys [:input] :as m}]
+  (assoc m :input (v+ [x y x y] input)))
+
+(defmethod translate-path-command :squadratic
+  [[x y] {:keys [:input] :as m}]
+  (assoc m :input (v+ [x y] input)))
+
+;; [rx ry xrot laf swf x y]
+;; rx, ry do not change
+;; xrot also no change
+;; large arc flag and swf again no change
+(defmethod translate-path-command :arc
+  [[x y] {:keys [:input] :as m}]
+  (let [[rx ry xrot laf swf ox oy] input]
+    (assoc m :input [rx ry xrot laf swf (+ x ox) (+ y oy)])))
+
+(defmethod translate-path-command :close
+  [_ cmd]
+  cmd)
+
+(defmethod translate-path-command :default
+  [a cmd]
+  [a cmd])
+
+(defmethod translate-element :path
+  [[x y] [k props]]
+  (let [cmds (path-string->commands (:d props))
+        xcmds (map #(translate-path-command [x y] %) cmds)]
+    [k (assoc props :d (cmds->path-string xcmds))]))
 
 (defmethod translate-element :polygon
   [[x y] [k props]]
@@ -794,16 +883,6 @@
                       (update :x + x)
                       (update :y + y))]
     [k new-props text]))
-
-;; experimenting with transform that 'pushes through' group to instead map the translation onto all children in the group
-
-#_(defmethod translate-element :g
-  [[x y] [k props & content]]
-  (let [xf (str->xf-map (:transform props))
-        new-xf (-> xf
-                   (update :translate (fnil #(map + [x y] %) [0 0])))
-        new-props (assoc props :transform (xf-map->str new-xf))]
-    (into [k new-props] content)))
 
 (declare translate)
 (defmethod translate-element :g

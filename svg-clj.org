@@ -172,6 +172,10 @@ Any elements that wrap content. Primary function is svg which is the ~container~
       (st/split #"[, ]")
       (#(mapv read-string %))))
 
+(def v+ (partial mapv +))
+(def v- (partial mapv -))
+(def v* (partial mapv *))
+
 #+end_src
 
 * shapes
@@ -435,6 +439,42 @@ The commands have different meanings to their inputs, so it's useful to have a m
 (defmethod parse-command-input :close
   [{:keys [input]}]
     nil)
+
+#+END_SRC
+
+*** building-path-strings
+Given a sequence of command maps, produce a path string.
+
+Then, we can losely consider a sequence of command maps to be the internal data structure for path manipulation. This means you can create multi-path path strings by passing a sequence of sequences of command maps.
+
+For each cmd seq., convert to path-string, then apply string to concatenate these path strings into the final string. You can alternatively treat each path string as the attribute for a new path element and draw them separately.
+
+The requirement is that if a user puts a path string into the system but does not transform it in any way, they should expect an equivalent string to be emitted from the cmds->str fn.
+
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
+(def command-map
+  {:move "M"
+   :line "L"
+   :hline "H"
+   :vline "V"
+   :curve "C"
+   :scurve "S"
+   :quadratic "Q"
+   :squadratic "T"
+   :arc "A"
+   :close "Z"})
+
+(defn cmd->path-string
+  [{:keys [:command :coordsys :input]}]
+  (let [c (if (= coordsys :abs) 
+            (get command-map command)
+            (st/lower-case (get command-map command)))]
+    (str c (apply str (interpose " " input)))))
+
+(defn cmds->path-string
+  [cs]
+  (apply str (interpose " " (map cmd->path-string cs))))
+  
 
 #+END_SRC
 
@@ -1020,10 +1060,12 @@ This leads to challenges with groups. Groups must have their midpoint calculated
                       (update :x2 + x)
                       (update :y2 + y))]
     [k new-props]))
+#+END_SRC
 
-(defmethod translate-element :path
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
+#_(defmethod translate-element :path
   [[x y] [k props]]
-  (let [path-strings (s/split-lines (:d props))
+  (let [path-strings (st/split-lines (:d props))
         paths (map path-string->path path-strings)
         new-paths (for [path paths]
                     (let [xpts (map #(f/v+ [x y] %) (:pts path))]
@@ -1031,6 +1073,71 @@ This leads to challenges with groups. Groups must have their midpoint calculated
         new-props (assoc props :d (apply str (interpose "\n" new-paths)))]
     [k new-props]))
 
+(defmulti translate-path-command
+  (fn [_ m]
+    (:command m)))
+
+(defmethod translate-path-command :move
+  [[x y] {:keys [:input] :as m}]
+  (assoc m :input (v+ [x y] input)))
+
+(defmethod translate-path-command :line
+  [[x y] {:keys [:input] :as m}]
+  (assoc m :input (v+ [x y] input)))
+
+(defmethod translate-path-command :hline
+  [[x y] {:keys [:input] :as m}]
+  (assoc m :input (v+ [x] input)))
+
+(defmethod translate-path-command :vline
+  [[x y] {:keys [:input] :as m}]
+  (assoc m :input (v+ [y] input)))
+
+;; x y x y x y because input will ahve the form:
+;; [x1 y1 x2 y2 x y] (first two pairs are control points)
+(defmethod translate-path-command :curve
+  [[x y] {:keys [:input] :as m}]
+  (assoc m :input (v+ [x y x y x y] input)))
+
+;; similar approach to above, but one control point is implicit
+(defmethod translate-path-command :scurve
+  [[x y] {:keys [:input] :as m}]
+  (assoc m :input (v+ [x y x y] input)))
+
+(defmethod translate-path-command :quadratic
+  [[x y] {:keys [:input] :as m}]
+  (assoc m :input (v+ [x y x y] input)))
+
+(defmethod translate-path-command :squadratic
+  [[x y] {:keys [:input] :as m}]
+  (assoc m :input (v+ [x y] input)))
+
+;; [rx ry xrot laf swf x y]
+;; rx, ry do not change
+;; xrot also no change
+;; large arc flag and swf again no change
+(defmethod translate-path-command :arc
+  [[x y] {:keys [:input] :as m}]
+  (let [[rx ry xrot laf swf ox oy] input]
+    (assoc m :input [rx ry xrot laf swf (+ x ox) (+ y oy)])))
+
+(defmethod translate-path-command :close
+  [_ cmd]
+  cmd)
+
+(defmethod translate-path-command :default
+  [a cmd]
+  [a cmd])
+
+(defmethod translate-element :path
+  [[x y] [k props]]
+  (let [cmds (path-string->commands (:d props))
+        xcmds (map #(translate-path-command [x y] %) cmds)]
+    [k (assoc props :d (cmds->path-string xcmds))]))
+
+#+END_SRC
+
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 (defmethod translate-element :polygon
   [[x y] [k props]]
   (let [points (str->points (:points props))
@@ -1074,16 +1181,6 @@ This leads to challenges with groups. Groups must have their midpoint calculated
 
 *** group-translate
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
-;; experimenting with transform that 'pushes through' group to instead map the translation onto all children in the group
-
-#_(defmethod translate-element :g
-  [[x y] [k props & content]]
-  (let [xf (str->xf-map (:transform props))
-        new-xf (-> xf
-                   (update :translate (fnil #(map + [x y] %) [0 0])))
-        new-props (assoc props :transform (xf-map->str new-xf))]
-    (into [k new-props] content)))
-
 (declare translate)
 (defmethod translate-element :g
   [[x y] [k props & content]]
@@ -1532,3 +1629,14 @@ To consider:
         (recur style (concat elem elems))))))
 
 #+END_SRC
+* Misc. notes and stuff...
+Remember in REPL you can't re-def the defmulti dispatch function with some ns magic.
+
+https://clojuredocs.org/clojure.core/defmulti#example-55d9e498e4b0831e02cddf1b
+
+#+begin_src clojure
+(defmulti x (fn[_] :dec)) ;; Can't redefine :(
+(x 0) ;; => 1 ;; STILL :(
+(ns-unmap *ns* 'x) ;; => unmap the var from the namespace
+
+#+end_src
