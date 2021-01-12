@@ -73,11 +73,11 @@
 
 (defn polygon
   [pts]
-  [:polygon {:points (mapv (pt->s pts))}])
+  [:polygon {:points (mapv (v->s pts))}])
 
 (defn polyline
   [pts]
-  [:polyline {:points (mapv (pt->s pts))}])
+  [:polyline {:points (mapv (v->s pts))}])
 
 (defn rect
   [w h]
@@ -109,12 +109,26 @@
       (st/split #"(?=[A-Za-z])")
       (#(map st/trim %))))
 
+;; Clean this up a bit... only issue is incorrectly stating that a Z command is always :abs... it should instead by nil.
+
+;; solution was an if statemnt.. probably can be cleaner than what you see here.
+
+#_(defn relative?
+  "True if the path segment string `pss` has a relative coordinate command.
+  Relative coordinate commands are lowercase.
+  Absolute coordinate commands are uppercase."
+  [cs]
+  (if (= (st/upper-case cs) "Z")
+    nil
+    (> (count (st/split cs #"[a-z]")) 1)))
+
 (defn relative?
   "True if the path segment string `pss` has a relative coordinate command.
   Relative coordinate commands are lowercase.
   Absolute coordinate commands are uppercase."
   [cs]
-  (> (count (st/split cs #"[a-z]")) 1))
+  (let [csx (first (st/split cs #"[a-z]"))]
+    (not (= cs csx))))
 
 (defn coord-sys-key
   "Returns the command string `cs`'s coord. system key.
@@ -122,21 +136,28 @@
   [cs]
   (if (relative? cs) :rel :abs))
 
+
+
+;; Probably want to revisit this approach.
+;; the cond seems replaceable with just a simple MAP
+;; OR consider not using this at all... jsut use the 
+;; strings as their own keys directly.
+
 (defn command-key
   "Returns the command string `cs`'s key."
   [cs]
   (let [s (st/upper-case cs)]
     (cond
-      (s/includes? s "M") :move
-      (s/includes? s "L") :line
-      (s/includes? s "H") :hline
-      (s/includes? s "V") :vline 
-      (s/includes? s "C") :curve 
-      (s/includes? s "S") :scurve
-      (s/includes? s "Q") :quadratic
-      (s/includes? s "T") :squadratic
-      (s/includes? s "A") :arc
-      (s/includes? s "Z") :close)))
+      (st/includes? s "M") :move
+      (st/includes? s "L") :line
+      (st/includes? s "H") :hline
+      (st/includes? s "V") :vline 
+      (st/includes? s "C") :curve 
+      (st/includes? s "S") :scurve
+      (st/includes? s "Q") :quadratic
+      (st/includes? s "T") :squadratic
+      (st/includes? s "A") :arc
+      (st/includes? s "Z") :close)))
 
 (defn command-input
   [cs]
@@ -224,7 +245,7 @@
         cci (parse-command-input cc)]
     (-> cc
         (assoc :command :line)
-        (assoc :input (into [] (vals (merge {:x x :y y} cci))))))
+        (assoc :input (into [] (vals (merge {:x x :y y} cci)))))))
 
 (defn path-segment
   "Creates a path segment map from previous command map `pc` and current command map `cc`."
@@ -234,8 +255,30 @@
     (merge {:type (:command cc)
             :coordsys (:coordsys cc)
             :sx x
-            :sy y}
-           cci)))
+            :sy y
+            :ex (:x cci)
+            :ey (:y cci)})))
+
+(def command-map
+  {:move "M"
+   :line "L"
+   :hline "H"
+   :vline "V"
+   :curve "C"
+   :scurve "S"
+   :quadratic "Q"
+   :squadratic "T"
+   :arc "A"
+   :close "Z"})
+
+(defn path-segment->path-string
+  [{:keys [:type :coordsys :sx :sy :ex :ey]}]
+  (let [ms (str "M" sx " " sy)
+        c (if (= coordsys :abs) 
+            (get command-map type)
+            (st/lower-case (get command-map type)))
+        cs (str c ex " " ey)]
+    (str ms " " cs)))
 
 (defn path->pts
   [s]
