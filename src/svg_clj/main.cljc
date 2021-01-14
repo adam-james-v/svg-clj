@@ -77,11 +77,11 @@
 
 (defn polygon
   [pts]
-  [:polygon {:points (mapv (v->s pts))}])
+  [:polygon {:points (apply str (interpose " " (map v->s pts)))}])
 
 (defn polyline
   [pts]
-  [:polyline {:points (mapv (v->s pts))}])
+  [:polyline {:points (apply str (interpose " " (map v->s pts)))}])
 
 (defn rect
   [w h]
@@ -113,19 +113,6 @@
       (st/split #"(?=[A-Za-z])")
       (#(map st/trim %))))
 
-;; Clean this up a bit... only issue is incorrectly stating that a Z command is always :abs... it should instead by nil.
-
-;; solution was an if statemnt.. probably can be cleaner than what you see here.
-
-#_(defn relative?
-  "True if the path segment string `pss` has a relative coordinate command.
-  Relative coordinate commands are lowercase.
-  Absolute coordinate commands are uppercase."
-  [cs]
-  (if (= (st/upper-case cs) "Z")
-    nil
-    (> (count (st/split cs #"[a-z]")) 1)))
-
 (defn relative?
   "True if the path segment string `pss` has a relative coordinate command.
   Relative coordinate commands are lowercase.
@@ -139,8 +126,6 @@
   Key is either :rel or :abs."
   [cs]
   (if (relative? cs) :rel :abs))
-
-
 
 ;; Probably want to revisit this approach.
 ;; the cond seems replaceable with just a simple MAP
@@ -183,65 +168,45 @@
        (path-command-strings)
        (map command)))
 
-(defmulti parse-command-input
-  "Parses a command's input into a map of values."
-  :command)
+(defn any-vh?
+  [cmds]
+  (not (empty? (filter #{:vline :hline} (map :command cmds)))))
 
-(defmethod parse-command-input :move
-  [{:keys [input]}]
-  (let [[x y] input]
-    {:x x :y y}))
+;; previous commmand is NOT V or H
+;; therefore, you can get the 'cursor position' 
+;; by taking the last 2 args in the input to the command
+;; this is true for every command except v h which only have an X or Y
+(defn convert-vh
+  [[pcmd ccmd]]
+  (if (and (not (any-vh? [pcmd])) ;;prev. cmd must NOT be VH
+           (any-vh? [ccmd])) ;; curr. cmd must be VH
+    (let [[px py] (take-last 2 (:input pcmd))
+          vh (:command ccmd)
+          xinput (cond (= vh :hline) [(first (:input ccmd)) py]
+                       (= vh :vline) [px (first (:input ccmd))])
+          ncmd (-> ccmd
+                   (assoc :command :line)
+                   (assoc :input xinput))]
+      [pcmd ncmd])
+    [pcmd ccmd]))
 
-(defmethod parse-command-input :line
-  [{:keys [input]}]
-  (let [[x y] input]
-    {:x x :y y}))
+(defn convert-first-vh-cmd
+  [cmds]
+  (let [icmd (first cmds)]
+  (cons icmd 
+        (->> cmds
+             (partition 2 1)
+             (map convert-vh)
+             (map second)))))
 
-(defmethod parse-command-input :hline
-  [{:keys [input]}]
-  (let [[x] input]
-    {:x x}))
-
-(defmethod parse-command-input :vline
-  [{:keys [input]}]
-  (let [[y] input]
-    {:y y}))
-
-(defmethod parse-command-input :curve
-  [{:keys [input]}]
-  (let [[cx1 cy1 cx2 cy2 x y] input]
-    {:cx1 cx1 :cy1 cy1
-     :cx2 cx2 :cy2 cy2
-     :x x :y y}))
-
-(defmethod parse-command-input :scurve
-  [{:keys [input]}]
-  (let [[cx2 cy2 x y] input]
-    {:cx2 cx2 :cy2 cy2
-     :x x :y y}))
-
-(defmethod parse-command-input :quadratic
-  [{:keys [input]}]
-  (let [[cx cy x y] input]
-    {:cx cx :cy cy
-     :x x :y y}))
-
-(defmethod parse-command-input :squadratic
-  [{:keys [input]}]
-  (let [[x y] input]
-    {:x x :y y}))
-
-(defmethod parse-command-input :arc
-  [{:keys [input]}]
-  (let [[rx ry xrot laf swf x y] input]
-    {:rx rx :ry ry
-     :xrot xrot
-     :laf laf :swf swf
-     :x x :y y}))
-
-(defmethod parse-command-input :close
-  [{:keys [input]}]
-    nil)
+(defn vh->l
+  [cmds]
+  (let [iters (iterate convert-first-vh-cmd cmds)]
+    (->> iters
+         (partition 2 1)
+         (take-while (fn [[a b]] (not= a b)))
+         (last)
+         (last))))
 
 (def command-map
   {:move "M"
@@ -265,47 +230,6 @@
 (defn cmds->path-string
   [cs]
   (apply str (interpose " " (map cmd->path-string cs))))
-
-(defn convert-l-v-command
-  [[pc cc]]
-  (let [{:keys [x y]} (parse-command-input pc)
-        cci (parse-command-input cc)]
-    (-> cc
-        (assoc :command :line)
-        (assoc :input (into [] (vals (merge {:x x :y y} cci)))))))
-
-(defn path-segment
-  "Creates a path segment map from previous command map `pc` and current command map `cc`."
-  [[pc cc]]
-  (let [{:keys [x y]} (parse-command-input pc)
-        cci (parse-command-input cc)]
-    (merge {:type (:command cc)
-            :coordsys (:coordsys cc)
-            :sx x
-            :sy y
-            :ex (:x cci)
-            :ey (:y cci)})))
-
-(def command-map
-  {:move "M"
-   :line "L"
-   :hline "H"
-   :vline "V"
-   :curve "C"
-   :scurve "S"
-   :quadratic "Q"
-   :squadratic "T"
-   :arc "A"
-   :close "Z"})
-
-(defn path-segment->path-string
-  [{:keys [:type :coordsys :sx :sy :ex :ey]}]
-  (let [ms (str "M" sx " " sy)
-        c (if (= coordsys :abs) 
-            (get command-map type)
-            (st/lower-case (get command-map type)))
-        cs (str c ex " " ey)]
-    (str ms " " cs)))
 
 (defn path->pts
   [s]
@@ -773,6 +697,45 @@
                       (update :y2 + y))]
     [k new-props]))
 
+(defmethod translate-element :polygon
+  [[x y] [k props]]
+  (let [points (str->points (:points props))
+        new-points (points->str (map #(map + [x y] %) points))
+        new-props (assoc props :points new-points)]
+    [k new-props]))
+
+(defmethod translate-element :polyline
+  [[x y] [k props]]
+  (let [points (str->points (:points props))
+        new-points (points->str (map #(map + [x y] %) points))
+        new-props (assoc props :points new-points)]
+    [k new-props]))
+
+(defmethod translate-element :rect
+  [[x y] [k props]]
+  (let [[mx my] (midpoint [k props])
+        xf (str->xf-map (get props :transform "rotate(0 0 0)"))
+        new-xf (-> xf
+                   (assoc-in [:rotate 1] (+ mx x))
+                   (assoc-in [:rotate 2] (+ my y)))
+        new-props (-> props
+                      (assoc :transform (xf-map->str new-xf))
+                      (update :x + x)
+                      (update :y + y))]
+    [k new-props]))
+
+(defmethod translate-element :text
+  [[x y] [k props text]]
+  (let [xf (str->xf-map (get props :transform "rotate(0 0 0)"))
+        new-xf (-> xf
+                   (update-in [:rotate 1] + x)
+                   (update-in [:rotate 2] + y))
+        new-props (-> props
+                      (assoc :transform (xf-map->str new-xf))
+                      (update :x + x)
+                      (update :y + y))]
+    [k new-props text]))
+
 #_(defmethod translate-element :path
   [[x y] [k props]]
   (let [path-strings (st/split-lines (:d props))
@@ -844,45 +807,6 @@
   (let [cmds (path-string->commands (:d props))
         xcmds (map #(translate-path-command [x y] %) cmds)]
     [k (assoc props :d (cmds->path-string xcmds))]))
-
-(defmethod translate-element :polygon
-  [[x y] [k props]]
-  (let [points (str->points (:points props))
-        new-points (points->str (map #(map + [x y] %) points))
-        new-props (assoc props :points new-points)]
-    [k new-props]))
-
-(defmethod translate-element :polyline
-  [[x y] [k props]]
-  (let [points (str->points (:points props))
-        new-points (points->str (map #(map + [x y] %) points))
-        new-props (assoc props :points new-points)]
-    [k new-props]))
-
-(defmethod translate-element :rect
-  [[x y] [k props]]
-  (let [[mx my] (midpoint [k props])
-        xf (str->xf-map (get props :transform "rotate(0 0 0)"))
-        new-xf (-> xf
-                   (assoc-in [:rotate 1] (+ mx x))
-                   (assoc-in [:rotate 2] (+ my y)))
-        new-props (-> props
-                      (assoc :transform (xf-map->str new-xf))
-                      (update :x + x)
-                      (update :y + y))]
-    [k new-props]))
-
-(defmethod translate-element :text
-  [[x y] [k props text]]
-  (let [xf (str->xf-map (get props :transform "rotate(0 0 0)"))
-        new-xf (-> xf
-                   (update-in [:rotate 1] + x)
-                   (update-in [:rotate 2] + y))
-        new-props (-> props
-                      (assoc :transform (xf-map->str new-xf))
-                      (update :x + x)
-                      (update :y + y))]
-    [k new-props text]))
 
 (declare translate)
 (defmethod translate-element :g
@@ -966,19 +890,6 @@
                       (assoc :y2 y2))]
     [k new-props]))
 
-(defmethod rotate-element :path
-  [deg [k props]]
-  (let [m (midpoint [k props])
-        paths (map path-string->path (s/split-lines (:d props)))
-        xpaths (for [path paths]
-                    (let [xpts (->> (:pts path)
-                                    (map #(f/v- % m))
-                                    (map #(rotate-pt deg %))
-                                    (map #(f/v+ % m)))]
-                      (path->path-string (assoc path :pts xpts))))
-        xprops (assoc props :d (apply str (interpose "\n" xpaths)))]
-    [k xprops]))
-
 #_(defmethod rotate-element :polygon
   [deg [k props]]
   (let [points (str->points (:points props))
@@ -1027,6 +938,108 @@
 (defmethod rotate-element :text
   [deg [k props text]]
   (rotate-element-by-transform deg [k props text]))
+
+#_(defmethod rotate-element :path
+  [deg [k props]]
+  (let [m (midpoint [k props])
+        paths (map path-string->path (s/split-lines (:d props)))
+        xpaths (for [path paths]
+                    (let [xpts (->> (:pts path)
+                                    (map #(f/v- % m))
+                                    (map #(rotate-pt deg %))
+                                    (map #(f/v+ % m)))]
+                      (path->path-string (assoc path :pts xpts))))
+        xprops (assoc props :d (apply str (interpose "\n" xpaths)))]
+    [k xprops]))
+
+(defmulti rotate-path-command
+  (fn [_ m]
+    (:command m)))
+
+(defmethod rotate-path-command :move
+  [ctr deg {:keys [:input] :as m}]
+  (let [xpt (->> input
+                 (#(v- % ctr))
+                 (rotate-pt deg)
+                 (v+ ctr))]
+    (assoc m :input xpt)))
+
+(defmethod rotate-path-command :line
+  [ctr deg {:keys [:input] :as m}]
+  (let [xpt (->> input
+                 (#(v- % ctr))
+                 (rotate-pt deg)
+                 (v+ ctr))]
+    (assoc m :input xpt)))
+
+(defmethod rotate-path-command :curve
+  [ctr deg {:keys [:input] :as m}]
+  (let [xinput (->> input
+                    (partition 2)
+                    (map vec)
+                    (map #(v- % ctr))
+                    (map #(rotate-pt deg %))
+                    (map #(v+ % ctr))
+                    (apply concat))]
+    (assoc m :input xinput)))
+
+(defmethod rotate-path-command :scurve
+  [ctr deg {:keys [:input] :as m}]
+  (let [xinput (->> input
+                    (partition 2)
+                    (map vec)
+                    (map #(v- % ctr))
+                    (map #(rotate-pt deg %))
+                    (map #(v+ % ctr))
+                    (apply concat))]
+    (assoc m :input xinput)))
+
+(defmethod rotate-path-command :quadratic
+  [ctr deg {:keys [:input] :as m}]
+  (let [xinput (->> input
+                    (partition 2)
+                    (map vec)
+                    (map #(v- % ctr))
+                    (map #(rotate-pt deg %))
+                    (map #(v+ % ctr))
+                    (apply concat))]
+    (assoc m :input xinput)))
+
+(defmethod rotate-path-command :squadratic
+  [ctr deg {:keys [:input] :as m}]
+  (let [xpt (->> input
+                 (#(v- % ctr))
+                 (rotate-pt deg)
+                 (v+ ctr))]
+    (assoc m :input xpt)))
+
+;; [rx ry xrot laf swf x y]
+;; rx, ry do not change
+;; xrot also no change
+;; large arc flag and swf again no change
+(defmethod rotate-path-command :arc
+  [ctr deg {:keys [:input] :as m}]
+  (let [[rx ry xrot laf swf ox oy] input
+        [nx ny] (->> [ox oy]
+                     (#(v- % ctr))
+                     (rotate-pt deg)
+                     (v+ ctr))]
+    (assoc m :input [rx ry (+ xrot deg) laf swf nx ny])))
+
+(defmethod rotate-path-command :close
+  [_ _ cmd]
+  cmd)
+
+(defmethod rotate-path-command :default
+  [a cmd]
+  [a cmd])
+
+(defmethod rotate-element :path
+  [deg [k props]]
+  (let [ctr (midpoint [k props])
+        cmds (path-string->commands (:d props))
+        xcmds (map #(rotate-path-command ctr deg %) cmds)]
+    [k (assoc props :d (cmds->path-string xcmds))]))
 
 (declare rotate)
 #_(defmethod rotate-element :g
