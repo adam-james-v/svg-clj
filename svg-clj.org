@@ -44,7 +44,8 @@ Some tasks that need to be done on this project.
 *** TODO [] make centroid only work on sets of pts of same dimension
 *** TODO [] make centroid more readable. Maybe juxt?s
 
-
+*** TODO [] fix in utils -- str->xf-map, and related fns.
+*** TODO [] re-implement scale transform. Seems incomplete as is.
 ** roadmap
 Some features that are planned for implementation.
 
@@ -145,13 +146,27 @@ Any elements that wrap content. Primary function is svg which is the ~container~
 
 * utils
 #+begin_src clojure :tangle ./src/svg_clj/main.cljc
+;; vector arithmetic helpers
+(def v+ (partial mapv +))
+(def v- (partial mapv -))
+(def v* (partial mapv *))
+
+;; simple calcs
+(defn to-deg
+  [rad]
+  (* rad (/ 180 Math/PI)))
+
+(defn to-rad
+  [deg]
+  (* deg (/ Math/PI 180)))
+
 (defn average
   [& numbers]
   (let [n (count numbers)]
     (/ (apply + numbers) n)))
 
 ;; what I used to call 'midpoint' is more accurately called centroid
-(defn centroid
+(defn centroid-of-pts
   "Calculates the arithmetic mean position of all the given `pts`."
   [pts]
   (let [ndim (count (first (sort-by count pts)))
@@ -159,6 +174,7 @@ Any elements that wrap content. Primary function is svg which is the ~container~
                  (map #(nth % axis) pts))]
     (mapv #(apply average %) splits)))
 
+;; some string transformation tools
 (defn v->s
   "Turns the vector `v` into a string formatted for use in SVG attributes."
   [pt]
@@ -172,9 +188,26 @@ Any elements that wrap content. Primary function is svg which is the ~container~
       (st/split #"[, ]")
       (#(mapv read-string %))))
 
-(def v+ (partial mapv +))
-(def v- (partial mapv -))
-(def v* (partial mapv *))
+(defn xf-kv->str
+  [[k v]]
+  (str (symbol k) (apply list v)))
+
+(defn str->xf-kv
+  [s]
+  (let [split (st/split s #"\(")
+        key (keyword (first split))
+        val (vec (read-string (str "(" (second split))))]
+    [key val]))
+
+(defn xf-map->str
+  [m]
+  (apply str (interpose "\n" (map xf-kv->str m))))
+
+(defn str->xf-map
+  [s]
+  (if-let [s s]
+    (into {} (map str->xf-kv (st/split-lines s)))
+    {}))
 
 #+end_src
 
@@ -725,7 +758,115 @@ These are prototype functions for now. They are used to build compound paths. Th
 
 #+END_SRC
 
-* geom-computation
+* transforms-computations
+Computations refer to calculatable properties of svg elements. They are bounds and centroid.
+
+Transforms are translate, rotate, and scale. All transforms work well for most objects (:g and :text are exceptions). They all transform about the object's center point. This has the effect of 'local first' transformation.
+
+This leads to challenges with groups. Groups must have their centroid calculated such that rotation and translation can correctly occur about the group's centroid. Internally, this means that the group's centroid is treated as the 'temporary global origin' and all objects are globally rotated about that temp. origin. This has the appearance of a group rotating locally, which is the intended outcome.
+
+** centroid
+*** centroid-element
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
+(defmulti centroid-element
+  (fn [element]
+    (first element)))
+
+(defmethod centroid-element :circle
+  [[_ props]]
+  [(:cx props) (:cy props)])  
+
+(defmethod centroid-element :ellipse
+  [[_ props]]
+  [(:cx props) (:cy props)])
+
+(defmethod centroid-element :line
+  [[_ props]]
+  (let [a (mapv #(get props %) [:x1 :y1])
+        b (mapv #(get props %) [:x2 :y2])]
+    (centroid-of-pts [a b])))
+
+(defmethod centroid-element :polygon
+  [[_ props]]
+  (let [pts (mapv s->v (st/split (:points props) #" "))]
+    (centroid-of-pts pts)))
+
+(defmethod centroid-element :polyline
+  [[_ props]]
+  (let [pts (mapv s->v (st/split (:points props) #" "))]
+    (centroid-of-pts pts)))
+
+(defmethod centroid-element :rect
+  [[_ props]]
+  [(+ (:x props) (/ (:width  props) 2.0))
+   (+ (:y props) (/ (:height props) 2.0))])
+
+;; this is not done yet. Text in general needs a redo.
+(defmethod centroid-element :text
+  [[_ props text]]
+  [(:x props) (:y props)])
+
+#+END_SRC
+
+*** centroid-element-path
+The first idea for calculating path centroid is to get all point data from every command, mapcat them together, and just run centroid-of-pts on that list of points.
+
+I don't know yet if the 'easy' method will be accurate for paths that contain curves and arcs. It is possible that the centroid calculated by pts/control points is not accurate.
+
+Ideas to keep in mind:
+- parametric bezier curve, sample t and regular interval to build a polyline approximating the curve, and calculate centroid from those pts
+- tessellate the whole path and get centroids of every triangle, then centroid of centroids... should be ok
+
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
+(defmulti command->pts :command)
+
+(defmethod command->pts :default
+  [{:keys [:input]}]
+  (mapv vec (partition 2 input)))
+
+;; this is not implemented correctly yet.
+;; just a 'stub' returning the end point of the arc
+(defmethod command->pts :arc
+  [{:keys [:input]}]
+  [(vec (take-last 2 input))])
+
+(defmethod centroid-element :path
+  [[_ props]]
+  (let [cmds (path-string->commands (:d props))
+        pts (mapcat command->pts cmds)]
+    (centroid-of-pts pts)))
+
+#+END_SRC
+
+*** group-centroid
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
+(declare centroid)
+(defmethod centroid-element :g
+  [[_ props & content]]
+  (centroid-of-pts (into #{} (map centroid content))))
+
+#+END_SRC
+
+*** interface
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
+(defn centroid
+  [& elems]
+  (let [elem (first elems)
+        elems (rest elems)]
+    (when elem
+      (cond
+        (and (element? elem) (= 0 (count elems)))
+        (centroid-element elem)
+        
+        (and (element? elem) (< 0 (count elems)))
+        (concat
+         [(centroid-element elem)]
+         [(centroid elems)])
+      
+        :else
+        (recur (concat elem elems))))))
+
+#+END_SRC
 ** bounds
 *** bounds-fn
 #+begin_src clojure :results none :tangle ./src/svg_clj/main.cljc
@@ -752,10 +893,10 @@ These are prototype functions for now. They are used to build compound paths. Th
   [[_ props]]
   (let [c [(:cx props) (:cy props)]
         r (:r props)
-        pts (mapv #(f/v+ c %) [[r 0]
-                               [0 r]
-                               [(- r) 0]
-                               [0 (- r)]])]
+        pts (mapv #(v+ c %) [[r 0]
+                             [0 r]
+                             [(- r) 0]
+                             [0 (- r)]])]
     (pts->bounds pts)))
 
 (declare rotate-pt-around-center)
@@ -768,10 +909,10 @@ These are prototype functions for now. They are used to build compound paths. Th
         c [(:cx props) (:cy props)]
         rx (:rx props)
         ry (:ry props)
-        pts (mapv #(f/v+ c %) [[rx 0]
-                               [0 ry] 
-                               [(- rx) 0]
-                               [0 (- ry)]])
+        pts (mapv #(v+ c %) [[rx 0]
+                             [0 ry] 
+                             [(- rx) 0]
+                             [0 (- ry)]])
         bb (pts->bounds pts)
         obb (mapv #(rotate-pt-around-center deg [mx my] %) bb)
         xpts (mapv #(rotate-pt-around-center deg [mx my] %) pts)
@@ -779,7 +920,7 @@ These are prototype functions for now. They are used to build compound paths. Th
         large-bb (pts->bounds obb)]
     ;; not accurate, but good enough for now
     ;; take the bb to be the average between the small and large
-    (pts->bounds (mapv #(f/midpoint [%1 %2]) small-bb large-bb))))
+    (pts->bounds (mapv #(centroid [%1 %2]) small-bb large-bb))))
 
 (defmethod bounds-element :line
   [[_ props]]
@@ -787,20 +928,14 @@ These are prototype functions for now. They are used to build compound paths. Th
         b (mapv #(get % props) [:x2 :y2])]
     (pts->bounds [a b])))
 
-(defmethod bounds-element :path
-  [[_ props]]
-  (let [path-strings (s/split-lines (:d props))
-        paths (map (comp :pts path-string->path) path-strings)]
-    (pts->bounds (apply concat paths))))
-
 (defmethod bounds-element :polygon
   [[_ props]]
-  (let [pts (str->points (:points props))]
+  (let [pts (mapv s->v (st/split (:points props) #" "))]
     (pts->bounds pts)))
 
 (defmethod bounds-element :polyline
   [[_ props]]
-  (let [pts (str->points (:points props))]
+  (let [pts (mapv s->v (st/split (:points props) #" "))]
     (pts->bounds pts)))
 
 (defmethod bounds-element :rect
@@ -824,6 +959,16 @@ These are prototype functions for now. They are used to build compound paths. Th
 (defmethod bounds-element :text
   [[_ props text]]
   [[(:x props) (:y props)]])
+
+#+END_SRC
+
+*** bounds-element-path
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
+(defmethod bounds-element :path
+  [[_ props]]
+  (let [cmds (path-string->commands (:d props))
+        pts (mapcat command->pts cmds)]
+    (pts->bounds pts)))
 
 #+END_SRC
 
@@ -856,90 +1001,6 @@ These are prototype functions for now. They are used to build compound paths. Th
         (recur (concat elem elems))))))
 
 #+END_SRC
-** midpoint
-*** midpoint-element
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
-(defmulti midpoint-element
-  (fn [element]
-    (first element)))
-
-(defmethod midpoint-element :circle
-  [[_ props]]
-  [(:cx props) (:cy props)])  
-
-(defmethod midpoint-element :ellipse
-  [[_ props]]
-  [(:cx props) (:cy props)])
-
-(defmethod midpoint-element :line
-  [[_ props]]
-  (let [a (mapv #(get props %) [:x1 :y1])
-        b (mapv #(get props %) [:x2 :y2])]
-    (f/midpoint [a b])))
-
-(defmethod midpoint-element :path
-  [[_ props]]
-  (let [path-strings (s/split-lines (:d props))
-        paths (map (comp :pts path-string->path) path-strings)]
-    (f/midpoint (apply concat paths))))
-
-(defmethod midpoint-element :polygon
-  [[_ props]]
-  (let [pts (str->points (:points props))]
-    (f/midpoint pts)))
-
-(defmethod midpoint-element :polyline
-  [[_ props]]
-  (let [pts (str->points (:points props))]
-    (f/midpoint pts)))
-
-(defmethod midpoint-element :rect
-  [[_ props]]
-  [(+ (:x props) (/ (:width  props) 2.0))
-   (+ (:y props) (/ (:height props) 2.0))])
-
-;; this is not done yet. Text in general needs a redo.
-(defmethod midpoint-element :text
-  [[_ props text]]
-  [(:x props) (:y props)])
-
-#+END_SRC
-
-*** group-midpoint
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
-(declare midpoint)
-(defmethod midpoint-element :g
-  [[_ props & content]]
-  (f/midpoint (into #{} (map midpoint content))))
-
-#+END_SRC
-
-*** interface
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
-(defn midpoint
-  [& elems]
-  (let [elem (first elems)
-        elems (rest elems)]
-    (when elem
-      (cond
-        (and (element? elem) (= 0 (count elems)))
-        (midpoint-element elem)
-        
-        (and (element? elem) (< 0 (count elems)))
-        (concat
-         [(midpoint-element elem)]
-         [(midpoint elems)])
-      
-        :else
-        (recur (concat elem elems))))))
-
-#+END_SRC
-
-* transforms
-Transforms are translate, rotate, and scale. All transforms work well for most objects (:g and :text are exceptions). They all transform about the object's center point. This has the effect of 'local first' transformation.
-
-This leads to challenges with groups. Groups must have their midpoint calculated such that rotation and translation can correctly occur about the group's midpoint. Otherwise, a group will not follow the same behaviour as any other element.
-
 ** translate
 *** translate-element
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
@@ -986,25 +1047,27 @@ This leads to challenges with groups. Groups must have their midpoint calculated
 
 (defmethod translate-element :polygon
   [[x y] [k props]]
-  (let [points (str->points (:points props))
-        new-points (points->str (map #(map + [x y] %) points))
-        new-props (assoc props :points new-points)]
-    [k new-props]))
+  (let [pts (mapv s->v (st/split (:points props) #" "))
+        xpts (->> pts 
+                  (map (partial v+ [x y]))
+                  (map v->s))]
+    [k (assoc props :points (apply str (interpose " " xpts)))]))
 
 (defmethod translate-element :polyline
   [[x y] [k props]]
-  (let [points (str->points (:points props))
-        new-points (points->str (map #(map + [x y] %) points))
-        new-props (assoc props :points new-points)]
-    [k new-props]))
+  (let [pts (mapv s->v (st/split (:points props) #" "))
+        xpts (->> pts 
+                  (map (partial v+ [x y]))
+                  (map v->s))]
+    [k (assoc props :points (apply str (interpose " " xpts)))]))
 
 (defmethod translate-element :rect
   [[x y] [k props]]
-  (let [[mx my] (midpoint [k props])
+  (let [[cx cy] (centroid [k props])
         xf (str->xf-map (get props :transform "rotate(0 0 0)"))
         new-xf (-> xf
-                   (assoc-in [:rotate 1] (+ mx x))
-                   (assoc-in [:rotate 2] (+ my y)))
+                   (assoc-in [:rotate 1] (+ cx x))
+                   (assoc-in [:rotate 2] (+ cy y)))
         new-props (-> props
                       (assoc :transform (xf-map->str new-xf))
                       (update :x + x)
@@ -1031,16 +1094,6 @@ To complete the translate implementation, I have to make sure path elements can 
 To do this, I have a second multimethod to handle different commands that can show up in a path string. Command data structures are produced using the path-dsl functions defined earlier.
 
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
-#_(defmethod translate-element :path
-  [[x y] [k props]]
-  (let [path-strings (st/split-lines (:d props))
-        paths (map path-string->path path-strings)
-        new-paths (for [path paths]
-                    (let [xpts (map #(f/v+ [x y] %) (:pts path))]
-                      (path->path-string (assoc path :pts xpts))))
-        new-props (assoc props :d (apply str (interpose "\n" new-paths)))]
-    [k new-props]))
-
 (defmulti translate-path-command
   (fn [_ m]
     (:command m)))
@@ -1136,11 +1189,6 @@ To do this, I have a second multimethod to handle different commands that can sh
         :else
         (recur [x y] (concat elem elems))))))
 
-;; this is the 'old' way.
-(defn translate-g
-  [[x y] & elems]
-  (into [:g {:transform (translate-str x y)}] elems))
-
 #+END_SRC
 ** rotate
 *** rotate-element
@@ -1153,10 +1201,16 @@ To do this, I have a second multimethod to handle different commands that can sh
         new-props (assoc props :transform (xf-map->str new-xf))]
     [k new-props content]))
 
+(defn move-pt
+  [mv pt]
+  (v+ pt mv))
+
+;; check that this works reliably.
+;; I think it fails sometimes on 45, 90, 180, etc. especially when used with path elements
 (defn rotate-pt
   [deg [x y]]
-  (let [c (Math/cos (f/to-rad deg))
-        s (Math/sin (f/to-rad deg))]
+  (let [c (Math/cos (to-rad deg))
+        s (Math/sin (to-rad deg))]
     [(- (* x c) (* y s))
      (+ (* x s) (* y c))]))
 
@@ -1172,10 +1226,6 @@ To do this, I have a second multimethod to handle different commands that can sh
   [deg [k props]]
   (rotate-element-by-transform deg [k props]))
 
-(defn move-pt
-  [mv pt]
-  (mapv + pt mv))
-
 (defn rotate-pt-around-center
   [deg center pt]
   (->> pt
@@ -1187,58 +1237,44 @@ To do this, I have a second multimethod to handle different commands that can sh
   [deg [k props]] 
   (let [pts [[(:x1 props) (:y1 props)] [(:x2 props) (:y2 props)]]
         [[x1 y1] [x2 y2]]  (->> pts
-                                (map #(f/v- % (f/midpoint pts)))
+                                (map #(v- % (centroid-of-pts pts)))
                                 (map #(rotate-pt deg %))
-                                (map #(f/v+ % (f/midpoint pts))))
-        new-props (-> props
-                      (assoc :x1 x1)
-                      (assoc :y1 y1)
-                      (assoc :x2 x2)
-                      (assoc :y2 y2))]
-    [k new-props]))
-
-#_(defmethod rotate-element :polygon
-  [deg [k props]]
-  (let [points (str->points (:points props))
-        center (f/midpoint points)
-        new-points (points->str
-                    (map 
-                     (partial rotate-pt-around-center deg center)
-                     points))
-        new-props (assoc props :points new-points)]
+                                (map #(v+ % (centroid-of-pts pts))))
+        new-props (assoc props :x1 x1 :y1 y1 :x2 x2 :y2 y2)]
     [k new-props]))
 
 (defmethod rotate-element :polygon
   [deg [k props]]
-  (let [m (midpoint [k props])
-        pts (str->points (:points props))
+  (let [ctr (centroid [k props])
+        pts (mapv s->v (st/split (:points props) #" "))
         xpts (->> pts
-                  (map #(f/v- % m))
+                  (map #(v- % ctr))
                   (map #(rotate-pt deg %))
-                  (map #(f/v+ % m))
-                  (points->str))
-        xprops (assoc props :points xpts)]
+                  (map #(v+ % ctr))
+                  (map v->s))
+        xprops (assoc props :points (apply str (interpose " " xpts)))]
     [k xprops]))
 
 (defmethod rotate-element :polyline
   [deg [k props]]
-  (let [points (str->points (:points props))
-        center (f/bb-center-2d points)
-        new-points (points->str
-                    (map 
-                     (partial rotate-pt-around-center deg center)
-                     points))
-        new-props (assoc props :points new-points)]
-    [k new-props]))
+  (let [ctr (centroid [k props])
+        pts (mapv s->v (st/split (:points props) #" "))
+        xpts (->> pts
+                  (map #(v- % ctr))
+                  (map #(rotate-pt deg %))
+                  (map #(v+ % ctr))
+                  (map v->s))
+        xprops (assoc props :points (apply str (interpose " " xpts)))]
+    [k xprops]))
 
 (defmethod rotate-element :rect
   [deg [k props]]
-  (let [[mx my] (midpoint [k props])
+  (let [[cx cy] (centroid [k props])
         xf (str->xf-map (get props :transform "rotate(0 0 0)"))
         new-xf (-> xf
                    (update-in [:rotate 0] + deg)
-                   (assoc-in  [:rotate 1] mx)
-                   (assoc-in  [:rotate 2] my))
+                   (assoc-in  [:rotate 1] cx)
+                   (assoc-in  [:rotate 2] cy))
         new-props (assoc props :transform (xf-map->str new-xf))]
     [k new-props]))
 
@@ -1254,19 +1290,6 @@ To complete the translate implementation, I have to make sure path elements can 
 To do this, I have a second multimethod to handle different commands that can show up in a path string. Command data structures are produced using the path-dsl functions defined earlier.
 
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
-#_(defmethod rotate-element :path
-  [deg [k props]]
-  (let [m (midpoint [k props])
-        paths (map path-string->path (s/split-lines (:d props)))
-        xpaths (for [path paths]
-                    (let [xpts (->> (:pts path)
-                                    (map #(f/v- % m))
-                                    (map #(rotate-pt deg %))
-                                    (map #(f/v+ % m)))]
-                      (path->path-string (assoc path :pts xpts))))
-        xprops (assoc props :d (apply str (interpose "\n" xpaths)))]
-    [k xprops]))
-
 (defmulti rotate-path-command
   (fn [_ m]
     (:command m)))
@@ -1351,7 +1374,7 @@ To do this, I have a second multimethod to handle different commands that can sh
 
 (defmethod rotate-element :path
   [deg [k props]]
-  (let [ctr (midpoint [k props])
+  (let [ctr (centroid [k props])
         cmds (path-string->commands (:d props))
         xcmds (map #(rotate-path-command ctr deg %) cmds)]
     [k (assoc props :d (cmds->path-string xcmds))]))
@@ -1372,35 +1395,19 @@ So,
 
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 (declare rotate)
-#_(defmethod rotate-element :g
-  [deg [k props & content]]
-  (let [[gmx gmy] (f/midpoint (bounds (into [k props] content)))
-        xfcontent (for [child content]
-                    (let [m (midpoint child)
-                          xfm (->> m
-                                   (f/v- [gmx gmy])
-                                   (rotate-pt 180)
-                                   (rotate-pt deg)
-                                   (f/v+ [gmx gmy]))]
-                      (->> child
-                           (translate (f/v* [-1 -1] m))
-                           (rotate deg)
-                           (translate xfm))))]
-    (into [k props] (filter (complement nil?) xfcontent))))
-
 (defmethod rotate-element :g
   [deg [k props & content]]
-  (let [[gmx gmy] (f/midpoint (bounds (into [k props] content)))
+  (let [[gcx gcy] (centroid (bounds (into [k props] content)))
         xfcontent (for [child content]
-                    (let [ch (translate [(- gmx) (- gmy)] child)
-                          m (if (= :g (first ch))
-                              (f/midpoint (bounds ch))
-                              (midpoint ch))
-                          xfm (->> m
+                    (let [ch (translate [(- gcx) (- gcy)] child)
+                          ctr (if (= :g (first ch))
+                                (centroid-of-pts (bounds ch))
+                                (centroid ch))
+                          xfm (->> ctr
                                    (rotate-pt deg)
-                                   (f/v+ [gmx gmy]))]
+                                   (v+ [gcx gcy]))]
                       (->> ch
-                           (translate (f/v* [-1 -1] m))
+                           (translate (v* [-1 -1] ctr))
                            (rotate deg)
                            (translate xfm))))]
     (into [k props] (filter (complement nil?) xfcontent))))
@@ -1426,15 +1433,12 @@ So,
         :else
         (recur deg (concat elem elems))))))
 
-;; old approach
-(defn rotate-g
-  [r [x y] & elems]
-  (into [:g {:transform (rotate-str r [x y])}] elems))
-
 #+END_SRC
 
 ** scale
-SVG items are assumed to be positioned and moved around from their bounding box centers. This means that scaling an element will NOT move it's center position.
+Scale implementation doesn't seem to work correctly in all cases. For example, scaling something down and translating a group containing it will shift it, which is undesired behaviour.
+
+Scale should be 'baked into' all dimensions just like other transforms, where possible.
 
 *** scale-element
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
@@ -1481,8 +1485,7 @@ SVG items are assumed to be positioned and moved around from their bounding box 
 
 (defmethod scale-element :line
   [[sx sy] [k props]]
-  (let [[cx cy] (f/bb-center-2d [[(:x1 props) (:y1 props)]
-                              [(:x2 props) (:y2 props)]])
+  (let [[cx cy] (centroid [k props])
         new-props (-> props
                       (update :x1 #(+ (* (- % cx) sx) cx))
                       (update :y1 #(+ (* (- % cy) sy) cy))
@@ -1495,39 +1498,23 @@ SVG items are assumed to be positioned and moved around from their bounding box 
   [(+ (* (- x cx) sx) cx)
    (+ (* (- y cy) sy) cy)])
 
-(defmethod scale-element :path
-  [[sx sy] [k props]]
-  (let [path-strings (s/split-lines (:d props))
-        paths (map path-string->path path-strings)
-        center (f/bb-center-2d (apply concat (map :pts paths)))
-        new-paths (for [path paths]
-                    (let [xf (partial scale-pt-from-center center [sx sy])
-                          xpts (map xf (:pts path))]
-                      (path->path-string (assoc path :pts xpts))))
-        new-props (assoc props :d (apply str (interpose "\n" new-paths)))]
-    [k new-props]))
-
 (defmethod scale-element :polygon
   [[sx sy] [k props]]
-  (let [points (str->points (:points props))
-        center (f/bb-center-2d points)
-        new-points (points->str
-                    (map 
-                     (partial scale-pt-from-center center [sx sy])
-                     points))
-        new-props (assoc props :points new-points)]
-    [k new-props]))
+  (let [pts (mapv s->v (st/split (:points props) #" "))
+        ctr (centroid [k props])
+        xpts (->> pts
+                  (map (partial scale-pt-from-center ctr [sx sy]))
+                  (map v->s))]
+    [k (assoc props :points (apply str (interpose " " xpts)))]))
 
 (defmethod scale-element :polyline
   [[sx sy] [k props]]
-  (let [points (str->points (:points props))
-        center (f/bb-center-2d points)
-        new-points (points->str
-                    (map 
-                     (partial scale-pt-from-center center [sx sy])
-                     points))
-        new-props (assoc props :points new-points)]
-    [k new-props]))
+  (let [pts (mapv s->v (st/split (:points props) #" "))
+        ctr (centroid [k props])
+        xpts (->> pts
+                  (map (partial scale-pt-from-center ctr [sx sy]))
+                  (map v->s))]
+    [k (assoc props :points (apply str (interpose " " xpts)))]))
 
 (defmethod scale-element :rect
   [[sx sy] [k props]]
@@ -1566,7 +1553,49 @@ SVG items are assumed to be positioned and moved around from their bounding box 
                    (update :scale (fnil #(map * [sx sy] %) [1 1])))
         new-props (assoc props :transform (xf-map->str new-xf))]
     (into [k new-props] content)))
-  
+
+#+END_SRC
+
+*** scale-element-path
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
+#_(defmethod scale-element :path
+  [[sx sy] [k props]]
+  (let [path-strings (st/split-lines (:d props))
+        paths (map path-string->path path-strings)
+        center (f/bb-center-2d (apply concat (map :pts paths)))
+        new-paths (for [path paths]
+                    (let [xf (partial scale-pt-from-center center [sx sy])
+                          xpts (map xf (:pts path))]
+                      (path->path-string (assoc path :pts xpts))))
+        new-props (assoc props :d (apply str (interpose "\n" new-paths)))]
+    [k new-props]))
+
+(defmulti scale-path-command
+  (fn [_ _ m]
+    (:command m)))
+
+(defmethod scale-path-command :default
+  [ctr [sx sy] {:keys [:input] :as m}]
+  (let [pts (mapv vec (partition 2 input))
+        xpts (->> pts
+                  (mapcat (partial scale-pt-from-center ctr [sx sy])))]
+    (assoc m :input (vec xpts))))
+
+;; this is wrong. just a stub to get moving a bit
+(defmethod scale-path-command :arc
+  [ctr [sx sy] {:keys [:input] :as m}]
+  (let [pts [(take-last 2 input)]
+        xpts (->> pts
+                  (mapcat (partial scale-pt-from-center ctr [sx sy])))]
+    (assoc m :input (vec xpts))))
+
+(defmethod scale-element :path
+  [[sx sy] [k props]]
+  (let [ctr (centroid [k props])
+        cmds (path-string->commands (:d props))
+        xcmds (map #(scale-path-command ctr [sx sy] %) cmds)]
+    [k (assoc props :d (cmds->path-string xcmds))]))
+
 #+END_SRC
 
 *** interface
@@ -1589,53 +1618,17 @@ SVG items are assumed to be positioned and moved around from their bounding box 
         :else
         (recur [sx sy] (concat elem elems))))))
 
-;; this is the old method
-(defn scale-g
-  [sc & elems]
-  (into [:g {:transform (scale-str sc)}] elems))
 #+END_SRC
 ** style
 Style transforms allow the user to change any attributes of svg elements that affect appearance. For instance, stroke color, stroke width, and fill.
 
-To consider:
-- classes/ids with style in a CSS file, how can user attach class/id tags?
-- what is proper precedence for style data? should merge always put the 'newest' or keep the existing?
-
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
-;; change this to just (style)
-(defn style-element
+(defn style
   [style [k props & content]]
   (into [k (merge props style)] content))
 
-;; probably delete this
-(defn color-element
-  [color [k props & content]]
-  (let [color {:fill "none"
-               :stroke color}]
-    (into [k (merge props color)] content)))
-
 #+END_SRC
 
-*** interface
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
-(defn color
-  [style & elems]
-  (let [elem (first elems)
-        elems (rest elems)]
-    (when elem
-      (cond
-        (and (element? elem) (= 0 (count elems)))
-        (color-element style elem)
-        
-        (and (element? elem) (< 0 (count elems)))
-        (concat
-         [(color-element style elem)]
-         [(color style elems)])
-        
-        :else
-        (recur style (concat elem elems))))))
-
-#+END_SRC
 * misc-notes
 Remember in REPL you can't re-def the defmulti dispatch function with some ns magic.
 
@@ -1655,3 +1648,6 @@ https://clojuredocs.org/clojure.core/defmulti#example-55d9e498e4b0831e02cddf1b
 - have to update midpoint and bounds impls for paths to use the new command map structure.
 
 - for transformations to work on paths, (rotate especially) it is necessary to have a fn that converts H and V commands into L commands.
+
+
+- for org-mode auto-comlpete in code blocks... look up 'indiret buffer'

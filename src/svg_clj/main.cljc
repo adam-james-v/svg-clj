@@ -15,13 +15,27 @@
          :xmlns "http://www.w3.org/2000/svg"}
    [:g {:transform (str "scale(" sc ")")} content]])
 
+;; vector arithmetic helpers
+(def v+ (partial mapv +))
+(def v- (partial mapv -))
+(def v* (partial mapv *))
+
+;; simple calcs
+(defn to-deg
+  [rad]
+  (* rad (/ 180 Math/PI)))
+
+(defn to-rad
+  [deg]
+  (* deg (/ Math/PI 180)))
+
 (defn average
   [& numbers]
   (let [n (count numbers)]
     (/ (apply + numbers) n)))
 
 ;; what I used to call 'midpoint' is more accurately called centroid
-(defn centroid
+(defn centroid-of-pts
   "Calculates the arithmetic mean position of all the given `pts`."
   [pts]
   (let [ndim (count (first (sort-by count pts)))
@@ -29,6 +43,7 @@
                  (map #(nth % axis) pts))]
     (mapv #(apply average %) splits)))
 
+;; some string transformation tools
 (defn v->s
   "Turns the vector `v` into a string formatted for use in SVG attributes."
   [pt]
@@ -42,9 +57,26 @@
       (st/split #"[, ]")
       (#(mapv read-string %))))
 
-(def v+ (partial mapv +))
-(def v- (partial mapv -))
-(def v* (partial mapv *))
+(defn xf-kv->str
+  [[k v]]
+  (str (symbol k) (apply list v)))
+
+(defn str->xf-kv
+  [s]
+  (let [split (st/split s #"\(")
+        key (keyword (first split))
+        val (vec (read-string (str "(" (second split))))]
+    [key val]))
+
+(defn xf-map->str
+  [m]
+  (apply str (interpose "\n" (map xf-kv->str m))))
+
+(defn str->xf-map
+  [s]
+  (if-let [s s]
+    (into {} (map str->xf-kv (st/split-lines s)))
+    {}))
 
 (def svg-elements
   "The elements provided by the library."
@@ -476,6 +508,84 @@
   (let [path-string (:d props)]
     [k (assoc props :d (str path-string " Z"))]))
 
+(defmulti centroid-element
+  (fn [element]
+    (first element)))
+
+(defmethod centroid-element :circle
+  [[_ props]]
+  [(:cx props) (:cy props)])  
+
+(defmethod centroid-element :ellipse
+  [[_ props]]
+  [(:cx props) (:cy props)])
+
+(defmethod centroid-element :line
+  [[_ props]]
+  (let [a (mapv #(get props %) [:x1 :y1])
+        b (mapv #(get props %) [:x2 :y2])]
+    (centroid-of-pts [a b])))
+
+(defmethod centroid-element :polygon
+  [[_ props]]
+  (let [pts (mapv s->v (st/split (:points props) #" "))]
+    (centroid-of-pts pts)))
+
+(defmethod centroid-element :polyline
+  [[_ props]]
+  (let [pts (mapv s->v (st/split (:points props) #" "))]
+    (centroid-of-pts pts)))
+
+(defmethod centroid-element :rect
+  [[_ props]]
+  [(+ (:x props) (/ (:width  props) 2.0))
+   (+ (:y props) (/ (:height props) 2.0))])
+
+;; this is not done yet. Text in general needs a redo.
+(defmethod centroid-element :text
+  [[_ props text]]
+  [(:x props) (:y props)])
+
+(defmulti command->pts :command)
+
+(defmethod command->pts :default
+  [{:keys [:input]}]
+  (mapv vec (partition 2 input)))
+
+;; this is not implemented correctly yet.
+;; just a 'stub' returning the end point of the arc
+(defmethod command->pts :arc
+  [{:keys [:input]}]
+  [(vec (take-last 2 input))])
+
+(defmethod centroid-element :path
+  [[_ props]]
+  (let [cmds (path-string->commands (:d props))
+        pts (mapcat command->pts cmds)]
+    (centroid-of-pts pts)))
+
+(declare centroid)
+(defmethod centroid-element :g
+  [[_ props & content]]
+  (centroid-of-pts (into #{} (map centroid content))))
+
+(defn centroid
+  [& elems]
+  (let [elem (first elems)
+        elems (rest elems)]
+    (when elem
+      (cond
+        (and (element? elem) (= 0 (count elems)))
+        (centroid-element elem)
+        
+        (and (element? elem) (< 0 (count elems)))
+        (concat
+         [(centroid-element elem)]
+         [(centroid elems)])
+      
+        :else
+        (recur (concat elem elems))))))
+
 (defn pts->bounds
   [pts]
   (let [xmax (apply max (map first pts))
@@ -495,10 +605,10 @@
   [[_ props]]
   (let [c [(:cx props) (:cy props)]
         r (:r props)
-        pts (mapv #(f/v+ c %) [[r 0]
-                               [0 r]
-                               [(- r) 0]
-                               [0 (- r)]])]
+        pts (mapv #(v+ c %) [[r 0]
+                             [0 r]
+                             [(- r) 0]
+                             [0 (- r)]])]
     (pts->bounds pts)))
 
 (declare rotate-pt-around-center)
@@ -511,10 +621,10 @@
         c [(:cx props) (:cy props)]
         rx (:rx props)
         ry (:ry props)
-        pts (mapv #(f/v+ c %) [[rx 0]
-                               [0 ry] 
-                               [(- rx) 0]
-                               [0 (- ry)]])
+        pts (mapv #(v+ c %) [[rx 0]
+                             [0 ry] 
+                             [(- rx) 0]
+                             [0 (- ry)]])
         bb (pts->bounds pts)
         obb (mapv #(rotate-pt-around-center deg [mx my] %) bb)
         xpts (mapv #(rotate-pt-around-center deg [mx my] %) pts)
@@ -522,7 +632,7 @@
         large-bb (pts->bounds obb)]
     ;; not accurate, but good enough for now
     ;; take the bb to be the average between the small and large
-    (pts->bounds (mapv #(f/midpoint [%1 %2]) small-bb large-bb))))
+    (pts->bounds (mapv #(centroid [%1 %2]) small-bb large-bb))))
 
 (defmethod bounds-element :line
   [[_ props]]
@@ -530,20 +640,14 @@
         b (mapv #(get % props) [:x2 :y2])]
     (pts->bounds [a b])))
 
-(defmethod bounds-element :path
-  [[_ props]]
-  (let [path-strings (s/split-lines (:d props))
-        paths (map (comp :pts path-string->path) path-strings)]
-    (pts->bounds (apply concat paths))))
-
 (defmethod bounds-element :polygon
   [[_ props]]
-  (let [pts (str->points (:points props))]
+  (let [pts (mapv s->v (st/split (:points props) #" "))]
     (pts->bounds pts)))
 
 (defmethod bounds-element :polyline
   [[_ props]]
-  (let [pts (str->points (:points props))]
+  (let [pts (mapv s->v (st/split (:points props) #" "))]
     (pts->bounds pts)))
 
 (defmethod bounds-element :rect
@@ -568,6 +672,12 @@
   [[_ props text]]
   [[(:x props) (:y props)]])
 
+(defmethod bounds-element :path
+  [[_ props]]
+  (let [cmds (path-string->commands (:d props))
+        pts (mapcat command->pts cmds)]
+    (pts->bounds pts)))
+
 (declare bounds)
 (defmethod bounds-element :g
   [[_ props & content]]
@@ -586,72 +696,6 @@
         (concat
          [(bounds-element elem)]
          [(bounds elems)])
-      
-        :else
-        (recur (concat elem elems))))))
-
-(defmulti midpoint-element
-  (fn [element]
-    (first element)))
-
-(defmethod midpoint-element :circle
-  [[_ props]]
-  [(:cx props) (:cy props)])  
-
-(defmethod midpoint-element :ellipse
-  [[_ props]]
-  [(:cx props) (:cy props)])
-
-(defmethod midpoint-element :line
-  [[_ props]]
-  (let [a (mapv #(get props %) [:x1 :y1])
-        b (mapv #(get props %) [:x2 :y2])]
-    (f/midpoint [a b])))
-
-(defmethod midpoint-element :path
-  [[_ props]]
-  (let [path-strings (s/split-lines (:d props))
-        paths (map (comp :pts path-string->path) path-strings)]
-    (f/midpoint (apply concat paths))))
-
-(defmethod midpoint-element :polygon
-  [[_ props]]
-  (let [pts (str->points (:points props))]
-    (f/midpoint pts)))
-
-(defmethod midpoint-element :polyline
-  [[_ props]]
-  (let [pts (str->points (:points props))]
-    (f/midpoint pts)))
-
-(defmethod midpoint-element :rect
-  [[_ props]]
-  [(+ (:x props) (/ (:width  props) 2.0))
-   (+ (:y props) (/ (:height props) 2.0))])
-
-;; this is not done yet. Text in general needs a redo.
-(defmethod midpoint-element :text
-  [[_ props text]]
-  [(:x props) (:y props)])
-
-(declare midpoint)
-(defmethod midpoint-element :g
-  [[_ props & content]]
-  (f/midpoint (into #{} (map midpoint content))))
-
-(defn midpoint
-  [& elems]
-  (let [elem (first elems)
-        elems (rest elems)]
-    (when elem
-      (cond
-        (and (element? elem) (= 0 (count elems)))
-        (midpoint-element elem)
-        
-        (and (element? elem) (< 0 (count elems)))
-        (concat
-         [(midpoint-element elem)]
-         [(midpoint elems)])
       
         :else
         (recur (concat elem elems))))))
@@ -699,25 +743,27 @@
 
 (defmethod translate-element :polygon
   [[x y] [k props]]
-  (let [points (str->points (:points props))
-        new-points (points->str (map #(map + [x y] %) points))
-        new-props (assoc props :points new-points)]
-    [k new-props]))
+  (let [pts (mapv s->v (st/split (:points props) #" "))
+        xpts (->> pts 
+                  (map (partial v+ [x y]))
+                  (map v->s))]
+    [k (assoc props :points (apply str (interpose " " xpts)))]))
 
 (defmethod translate-element :polyline
   [[x y] [k props]]
-  (let [points (str->points (:points props))
-        new-points (points->str (map #(map + [x y] %) points))
-        new-props (assoc props :points new-points)]
-    [k new-props]))
+  (let [pts (mapv s->v (st/split (:points props) #" "))
+        xpts (->> pts 
+                  (map (partial v+ [x y]))
+                  (map v->s))]
+    [k (assoc props :points (apply str (interpose " " xpts)))]))
 
 (defmethod translate-element :rect
   [[x y] [k props]]
-  (let [[mx my] (midpoint [k props])
+  (let [[cx cy] (centroid [k props])
         xf (str->xf-map (get props :transform "rotate(0 0 0)"))
         new-xf (-> xf
-                   (assoc-in [:rotate 1] (+ mx x))
-                   (assoc-in [:rotate 2] (+ my y)))
+                   (assoc-in [:rotate 1] (+ cx x))
+                   (assoc-in [:rotate 2] (+ cy y)))
         new-props (-> props
                       (assoc :transform (xf-map->str new-xf))
                       (update :x + x)
@@ -735,16 +781,6 @@
                       (update :x + x)
                       (update :y + y))]
     [k new-props text]))
-
-#_(defmethod translate-element :path
-  [[x y] [k props]]
-  (let [path-strings (st/split-lines (:d props))
-        paths (map path-string->path path-strings)
-        new-paths (for [path paths]
-                    (let [xpts (map #(f/v+ [x y] %) (:pts path))]
-                      (path->path-string (assoc path :pts xpts))))
-        new-props (assoc props :d (apply str (interpose "\n" new-paths)))]
-    [k new-props]))
 
 (defmulti translate-path-command
   (fn [_ m]
@@ -833,11 +869,6 @@
         :else
         (recur [x y] (concat elem elems))))))
 
-;; this is the 'old' way.
-(defn translate-g
-  [[x y] & elems]
-  (into [:g {:transform (translate-str x y)}] elems))
-
 (defn rotate-element-by-transform
   [deg [k props content]]
   (let [xf (str->xf-map (get props :transform "rotate(0 0 0)"))
@@ -846,10 +877,16 @@
         new-props (assoc props :transform (xf-map->str new-xf))]
     [k new-props content]))
 
+(defn move-pt
+  [mv pt]
+  (v+ pt mv))
+
+;; check that this works reliably.
+;; I think it fails sometimes on 45, 90, 180, etc. especially when used with path elements
 (defn rotate-pt
   [deg [x y]]
-  (let [c (Math/cos (f/to-rad deg))
-        s (Math/sin (f/to-rad deg))]
+  (let [c (Math/cos (to-rad deg))
+        s (Math/sin (to-rad deg))]
     [(- (* x c) (* y s))
      (+ (* x s) (* y c))]))
 
@@ -865,10 +902,6 @@
   [deg [k props]]
   (rotate-element-by-transform deg [k props]))
 
-(defn move-pt
-  [mv pt]
-  (mapv + pt mv))
-
 (defn rotate-pt-around-center
   [deg center pt]
   (->> pt
@@ -880,77 +913,50 @@
   [deg [k props]] 
   (let [pts [[(:x1 props) (:y1 props)] [(:x2 props) (:y2 props)]]
         [[x1 y1] [x2 y2]]  (->> pts
-                                (map #(f/v- % (f/midpoint pts)))
+                                (map #(v- % (centroid-of-pts pts)))
                                 (map #(rotate-pt deg %))
-                                (map #(f/v+ % (f/midpoint pts))))
-        new-props (-> props
-                      (assoc :x1 x1)
-                      (assoc :y1 y1)
-                      (assoc :x2 x2)
-                      (assoc :y2 y2))]
-    [k new-props]))
-
-#_(defmethod rotate-element :polygon
-  [deg [k props]]
-  (let [points (str->points (:points props))
-        center (f/midpoint points)
-        new-points (points->str
-                    (map 
-                     (partial rotate-pt-around-center deg center)
-                     points))
-        new-props (assoc props :points new-points)]
+                                (map #(v+ % (centroid-of-pts pts))))
+        new-props (assoc props :x1 x1 :y1 y1 :x2 x2 :y2 y2)]
     [k new-props]))
 
 (defmethod rotate-element :polygon
   [deg [k props]]
-  (let [m (midpoint [k props])
-        pts (str->points (:points props))
+  (let [ctr (centroid [k props])
+        pts (mapv s->v (st/split (:points props) #" "))
         xpts (->> pts
-                  (map #(f/v- % m))
+                  (map #(v- % ctr))
                   (map #(rotate-pt deg %))
-                  (map #(f/v+ % m))
-                  (points->str))
-        xprops (assoc props :points xpts)]
+                  (map #(v+ % ctr))
+                  (map v->s))
+        xprops (assoc props :points (apply str (interpose " " xpts)))]
     [k xprops]))
 
 (defmethod rotate-element :polyline
   [deg [k props]]
-  (let [points (str->points (:points props))
-        center (f/bb-center-2d points)
-        new-points (points->str
-                    (map 
-                     (partial rotate-pt-around-center deg center)
-                     points))
-        new-props (assoc props :points new-points)]
-    [k new-props]))
+  (let [ctr (centroid [k props])
+        pts (mapv s->v (st/split (:points props) #" "))
+        xpts (->> pts
+                  (map #(v- % ctr))
+                  (map #(rotate-pt deg %))
+                  (map #(v+ % ctr))
+                  (map v->s))
+        xprops (assoc props :points (apply str (interpose " " xpts)))]
+    [k xprops]))
 
 (defmethod rotate-element :rect
   [deg [k props]]
-  (let [[mx my] (midpoint [k props])
+  (let [[cx cy] (centroid [k props])
         xf (str->xf-map (get props :transform "rotate(0 0 0)"))
         new-xf (-> xf
                    (update-in [:rotate 0] + deg)
-                   (assoc-in  [:rotate 1] mx)
-                   (assoc-in  [:rotate 2] my))
+                   (assoc-in  [:rotate 1] cx)
+                   (assoc-in  [:rotate 2] cy))
         new-props (assoc props :transform (xf-map->str new-xf))]
     [k new-props]))
 
 (defmethod rotate-element :text
   [deg [k props text]]
   (rotate-element-by-transform deg [k props text]))
-
-#_(defmethod rotate-element :path
-  [deg [k props]]
-  (let [m (midpoint [k props])
-        paths (map path-string->path (s/split-lines (:d props)))
-        xpaths (for [path paths]
-                    (let [xpts (->> (:pts path)
-                                    (map #(f/v- % m))
-                                    (map #(rotate-pt deg %))
-                                    (map #(f/v+ % m)))]
-                      (path->path-string (assoc path :pts xpts))))
-        xprops (assoc props :d (apply str (interpose "\n" xpaths)))]
-    [k xprops]))
 
 (defmulti rotate-path-command
   (fn [_ m]
@@ -1036,41 +1042,25 @@
 
 (defmethod rotate-element :path
   [deg [k props]]
-  (let [ctr (midpoint [k props])
+  (let [ctr (centroid [k props])
         cmds (path-string->commands (:d props))
         xcmds (map #(rotate-path-command ctr deg %) cmds)]
     [k (assoc props :d (cmds->path-string xcmds))]))
 
 (declare rotate)
-#_(defmethod rotate-element :g
-  [deg [k props & content]]
-  (let [[gmx gmy] (f/midpoint (bounds (into [k props] content)))
-        xfcontent (for [child content]
-                    (let [m (midpoint child)
-                          xfm (->> m
-                                   (f/v- [gmx gmy])
-                                   (rotate-pt 180)
-                                   (rotate-pt deg)
-                                   (f/v+ [gmx gmy]))]
-                      (->> child
-                           (translate (f/v* [-1 -1] m))
-                           (rotate deg)
-                           (translate xfm))))]
-    (into [k props] (filter (complement nil?) xfcontent))))
-
 (defmethod rotate-element :g
   [deg [k props & content]]
-  (let [[gmx gmy] (f/midpoint (bounds (into [k props] content)))
+  (let [[gcx gcy] (centroid (bounds (into [k props] content)))
         xfcontent (for [child content]
-                    (let [ch (translate [(- gmx) (- gmy)] child)
-                          m (if (= :g (first ch))
-                              (f/midpoint (bounds ch))
-                              (midpoint ch))
-                          xfm (->> m
+                    (let [ch (translate [(- gcx) (- gcy)] child)
+                          ctr (if (= :g (first ch))
+                                (centroid-of-pts (bounds ch))
+                                (centroid ch))
+                          xfm (->> ctr
                                    (rotate-pt deg)
-                                   (f/v+ [gmx gmy]))]
+                                   (v+ [gcx gcy]))]
                       (->> ch
-                           (translate (f/v* [-1 -1] m))
+                           (translate (v* [-1 -1] ctr))
                            (rotate deg)
                            (translate xfm))))]
     (into [k props] (filter (complement nil?) xfcontent))))
@@ -1091,11 +1081,6 @@
         
         :else
         (recur deg (concat elem elems))))))
-
-;; old approach
-(defn rotate-g
-  [r [x y] & elems]
-  (into [:g {:transform (rotate-str r [x y])}] elems))
 
 (defn scale-element-by-transform
   [[sx sy] [k props & content]]
@@ -1140,8 +1125,7 @@
 
 (defmethod scale-element :line
   [[sx sy] [k props]]
-  (let [[cx cy] (f/bb-center-2d [[(:x1 props) (:y1 props)]
-                              [(:x2 props) (:y2 props)]])
+  (let [[cx cy] (centroid [k props])
         new-props (-> props
                       (update :x1 #(+ (* (- % cx) sx) cx))
                       (update :y1 #(+ (* (- % cy) sy) cy))
@@ -1154,39 +1138,23 @@
   [(+ (* (- x cx) sx) cx)
    (+ (* (- y cy) sy) cy)])
 
-(defmethod scale-element :path
-  [[sx sy] [k props]]
-  (let [path-strings (s/split-lines (:d props))
-        paths (map path-string->path path-strings)
-        center (f/bb-center-2d (apply concat (map :pts paths)))
-        new-paths (for [path paths]
-                    (let [xf (partial scale-pt-from-center center [sx sy])
-                          xpts (map xf (:pts path))]
-                      (path->path-string (assoc path :pts xpts))))
-        new-props (assoc props :d (apply str (interpose "\n" new-paths)))]
-    [k new-props]))
-
 (defmethod scale-element :polygon
   [[sx sy] [k props]]
-  (let [points (str->points (:points props))
-        center (f/bb-center-2d points)
-        new-points (points->str
-                    (map 
-                     (partial scale-pt-from-center center [sx sy])
-                     points))
-        new-props (assoc props :points new-points)]
-    [k new-props]))
+  (let [pts (mapv s->v (st/split (:points props) #" "))
+        ctr (centroid [k props])
+        xpts (->> pts
+                  (map (partial scale-pt-from-center ctr [sx sy]))
+                  (map v->s))]
+    [k (assoc props :points (apply str (interpose " " xpts)))]))
 
 (defmethod scale-element :polyline
   [[sx sy] [k props]]
-  (let [points (str->points (:points props))
-        center (f/bb-center-2d points)
-        new-points (points->str
-                    (map 
-                     (partial scale-pt-from-center center [sx sy])
-                     points))
-        new-props (assoc props :points new-points)]
-    [k new-props]))
+  (let [pts (mapv s->v (st/split (:points props) #" "))
+        ctr (centroid [k props])
+        xpts (->> pts
+                  (map (partial scale-pt-from-center ctr [sx sy]))
+                  (map v->s))]
+    [k (assoc props :points (apply str (interpose " " xpts)))]))
 
 (defmethod scale-element :rect
   [[sx sy] [k props]]
@@ -1226,6 +1194,44 @@
         new-props (assoc props :transform (xf-map->str new-xf))]
     (into [k new-props] content)))
 
+#_(defmethod scale-element :path
+  [[sx sy] [k props]]
+  (let [path-strings (st/split-lines (:d props))
+        paths (map path-string->path path-strings)
+        center (f/bb-center-2d (apply concat (map :pts paths)))
+        new-paths (for [path paths]
+                    (let [xf (partial scale-pt-from-center center [sx sy])
+                          xpts (map xf (:pts path))]
+                      (path->path-string (assoc path :pts xpts))))
+        new-props (assoc props :d (apply str (interpose "\n" new-paths)))]
+    [k new-props]))
+
+(defmulti scale-path-command
+  (fn [_ _ m]
+    (:command m)))
+
+(defmethod scale-path-command :default
+  [ctr [sx sy] {:keys [:input] :as m}]
+  (let [pts (mapv vec (partition 2 input))
+        xpts (->> pts
+                  (mapcat (partial scale-pt-from-center ctr [sx sy])))]
+    (assoc m :input (vec xpts))))
+
+;; this is wrong. just a stub to get moving a bit
+(defmethod scale-path-command :arc
+  [ctr [sx sy] {:keys [:input] :as m}]
+  (let [pts [(take-last 2 input)]
+        xpts (->> pts
+                  (mapcat (partial scale-pt-from-center ctr [sx sy])))]
+    (assoc m :input (vec xpts))))
+
+(defmethod scale-element :path
+  [[sx sy] [k props]]
+  (let [ctr (centroid [k props])
+        cmds (path-string->commands (:d props))
+        xcmds (map #(scale-path-command ctr [sx sy] %) cmds)]
+    [k (assoc props :d (cmds->path-string xcmds))]))
+
 (defn scale
   [sc & elems]
   (let [[sx sy] (if (coll? sc) sc [sc sc])
@@ -1244,36 +1250,6 @@
         :else
         (recur [sx sy] (concat elem elems))))))
 
-;; this is the old method
-(defn scale-g
-  [sc & elems]
-  (into [:g {:transform (scale-str sc)}] elems))
-
-;; change this to just (style)
-(defn style-element
+(defn style
   [style [k props & content]]
   (into [k (merge props style)] content))
-
-;; probably delete this
-(defn color-element
-  [color [k props & content]]
-  (let [color {:fill "none"
-               :stroke color}]
-    (into [k (merge props color)] content)))
-
-(defn color
-  [style & elems]
-  (let [elem (first elems)
-        elems (rest elems)]
-    (when elem
-      (cond
-        (and (element? elem) (= 0 (count elems)))
-        (color-element style elem)
-        
-        (and (element? elem) (< 0 (count elems)))
-        (concat
-         [(color-element style elem)]
-         [(color style elems)])
-        
-        :else
-        (recur style (concat elem elems))))))
