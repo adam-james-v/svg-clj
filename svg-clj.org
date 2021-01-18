@@ -46,9 +46,32 @@ Some tasks that need to be done on this project.
 
 *** TODO [] fix in utils -- str->xf-map, and related fns.
 *** TODO [] re-implement scale transform. Seems incomplete as is.
+*** TODO [] for circle and ellipse, try to remove the transform rotate(0 x y) idea. Seems confusing and unnecessary anyway.
 ** roadmap
 Some features that are planned for implementation.
 
+** misc-notes
+Remember in REPL you can't re-def the defmulti dispatch function with some ns magic.
+
+https://clojuredocs.org/clojure.core/defmulti#example-55d9e498e4b0831e02cddf1b
+
+#+begin_src clojure
+(defmulti x (fn[_] :dec)) ;; Can't redefine :(
+(x 0) ;; => 1 ;; STILL :(
+(ns-unmap *ns* 'x) ;; => unmap the var from the namespace
+
+#+end_src
+
+
+
+- change the name of the midpoint defmulti to centroid... or something along those lines
+
+- have to update midpoint and bounds impls for paths to use the new command map structure.
+
+- for transformations to work on paths, (rotate especially) it is necessary to have a fn that converts H and V commands into L commands.
+
+
+- for org-mode auto-comlpete in code blocks... look up 'indiret buffer'
 * design
 ** intent
 The purpose of this library is to allow users to create simple functional programs that compile to SVG elements. 
@@ -238,6 +261,7 @@ The term 'content' refers to the inner part of a hiccup data structure that is n
     :polyline
     :rect
     :text
+    :image
     :g})
 
 (defn element? 
@@ -268,6 +292,10 @@ The term 'content' refers to the inner part of a hiccup data structure that is n
 (defn rect
   [w h]
   [:rect {:width w :height h :x (/ w -2.0) :y (/ h -2.0)}])
+
+(defn image
+  [url w h]
+  [:image {:href url :width w :height h :x (/ w -2.0) :y (/ h -2.0)}])
 
 (defn g
   [& content]
@@ -485,276 +513,39 @@ The requirement is that if a user puts a path string into the system but does no
 
 #+END_SRC
 
-** old-path-impl
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
-(defn path->pts
-  [s]
-  (as-> s s
-    (s/replace s #"Z" "") ;; removes Z at end of path
-    (s/split s #"\s") ;; split string at spaces
-    (mapcat #(s/split % #"[A-Za-z]") s) ;;splits on alpha chars
-    (filter #(not (= % "")) s)
-    (map read-string s)
-    (vec (map vec (partition 2 s)))))
-
-(defn path-type
-  [s]
-  (cond 
-    (s/includes? s "L") :line
-    (s/includes? s "l") :line
-    (s/includes? s "C") :cubic
-    (s/includes? s "c") :relative-cubic
-    (s/includes? s "Q") :quadratic
-    (s/includes? s "A") :arc))
-
-(defn closed?
-  [s]
-  (= \Z (last s)))
-
-(defmulti path-string->path
-  (fn [s]
-    (path-type s)))
-
-(defmethod path-string->path :default
-  [s]
-  {:type (path-type s)
-   :closed (closed? s)
-   :pts (path->pts s)})
-
-(defmethod path-string->path :arc
-  [s]
-  (let [xs (-> s
-               (s/replace #"[A-Za-z]" "")
-               (s/split #"\s")
-               (#(filter (complement s/blank?) %)))
-        [p1x p1y rx ry x-deg lg sw p3x p3y] xs]
-    {:type :arc
-     :closed (closed? s)
-     :p1 [p1x p1y]
-     :p3 [p3x p3y]
-     :rx rx
-     :ry ry
-     :x-deg x-deg
-     :lg lg
-     :sw sw}))
-
-(defn -str
-  [leader & pts]
-  (apply str (interpose " " (concat [leader] (flatten pts)))))
-
-(defmulti path->path-string
-  (fn [p]
-    (:type p)))
-
-(defmethod path->path-string :line
-  [{:keys [closed pts]}]
-  (let [[m & pts] pts]
-    (str 
-     (-str "M" m) " "
-     (apply str (interpose " " (map (partial -str "L") pts)))
-     (when closed " Z"))))
-
-(defmethod path->path-string :quadratic
-  [{:keys [closed pts]}]
-  (let [[p1 c p2 & pts] pts]
-    (str
-     (-str "M" p1) " "
-     (-str "Q" c p2) " "
-     (apply str (interpose " "
-                       (map #(apply (partial -str "T") %) (partition 2 pts))))
-     (when closed " Z"))))
-
-(defmethod path->path-string :cubic
-  [{:keys [closed pts]}]
-  (let [[p1 c1 c2 p2  & pts] pts]
-    (str
-     (-str "M" p1) " "
-     (-str "C" c1 c2 p2) " "
-     (apply str (interpose 
-                 " " 
-                 (map #(apply (partial -str "S") %) (partition 2 pts))))
-     (when closed " Z"))))
-
-(defmethod path->path-string :relative-cubic
-  [{:keys [closed pts]}]
-  (let [[p1 c1 c2 p2  & pts] pts]
-    (str
-     (-str "M" p1) " "
-     (-str "c" c1 c2 p2) " "
-     (apply str (interpose 
-                 " " 
-                 (map #(apply (partial -str "") %) (partition 2 pts))))
-     (when closed " Z"))))
-
-(defmethod path->path-string :arc
-  [{:keys [p1 p3 rx ry x-deg lg sw closed]}]
-  (str
-   (-str "M" p1) " "
-   (-str "A" [rx ry] [x-deg lg sw] p3)
-   (when closed " Z")))
-
-#+END_SRC
-
 ** polygon-path
+The polygon-path function is a way to create valid path strings from a set of points. The idea is that any call to the polygon fn can be replaced with polygon-path and no visual difference would occur.
+
+Then, paths can be further manipulated by combine and merge.
+
+Convert list of pts into list of commands.
+- first command will be a MOVE command
+- last command will be a CLOSE command
+  - can generalize this to polyline by having a close? flag
+
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
-(defn path-polygon-str
-  [[m & pts]]
-  (str 
-   (-str "M" m) " "
-   (apply str 
-          (interpose " " (map (partial -str "L") pts)))
-   " Z"))
+(defn pt->l
+  [pt]
+  {:command :line
+   :coordsys :abs
+   :input (vec pt)})
 
-(defn path-polyline-str
-  [[m & pts]]
-  (str 
-   (-str "M" m) " "
-   (apply str 
-          (interpose " " (map (partial -str "L") pts)))))
+(defn pt->m
+  [pt]
+  {:command :move
+   :coordsys :abs
+   :input (vec pt)})
 
-(defn centered-path-polygon
-  [& pts]
-  (let [m (f/midpoint (apply concat pts))
-        xpts (for [spts pts] (mapv #(f/v- % m) spts))
-        paths (map path-polygon-str xpts)]
-    (path (apply str (interpose "\n" paths)))))
-
-(defn centered-path-polyline
-  [& pts]
-  (let [m (f/midpoint (apply concat pts))
-        xpts (for [spts pts] (mapv #(f/v- % m) spts))
-        paths (map path-polyline-str xpts)]
-    (path (apply str (interpose "\n" paths)))))
-
-(defn path-polygon
-  [& pts]
-  (let [paths (map path-polygon-str pts)]
-    (path (apply str (interpose "\n" paths)))))
-
-(defn path-polyline
-  [& pts]
-  (let [paths (map path-polyline-str pts)]
-    (path (apply str (interpose "\n" paths)))))
-
-#+END_SRC
-
-** bezier
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
-(declare style-element)
-(defn cubic-bezier-str
-  [[x1 y1] [cx1 cy1] [cx2 cy2] [x y]]
-  (let [m-str (str "M " x1 " " y1 " ")
-        c-str (apply str (interpose " " ["C" cx1 cy1 cx2 cy2 x y]))]
-    (str m-str c-str)))
-
-(defn s-bezier-str
-  [[cx1 cy1] [x y]]
-  (apply str (interpose " " ["S" cx1 cy1 x y])))
-
-(defn cubic-bezier
+(defn polygon-path
   [pts]
-  (let [curve1 (apply cubic-bezier-str (take 4 pts))
-        s-curves (map #(apply s-bezier-str %)
-                      (partition 2 (drop 4 pts)))]
-    (path 
-     (apply str (interpose " " (cons curve1 s-curves))))))
-
-#_(defn cubic-bezier-debug
-  [pts]
-  (let [curve1 (apply cubic-bezier-str (take 4 pts))
-        s-curves (map #(apply s-bezier-str %)
-                      (partition 2 (drop 4 pts)))]
-    (g
-     (style-element
-      {:stroke "black"
-       :stroke-width 1}
-      (g
-       (map #(translate % (circle 2)) pts)
-       (polyline pts)))
-     (path 
-      (apply str (interpose " " (cons curve1 s-curves)))))))
-
-#+END_SRC
-
-** arc
-The arc command 
-
-A rx ry x-axis-rotation large-arc-flag sweep-flag x y
- 
-a rx ry x-axis-rotation large-arc-flag sweep-flag dx dy
-
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
-(defn arc-str
-  [rx ry x-deg lg sw x y]
-  (apply str (interpose " " ["a" rx ry x-deg lg sw x y])))
-
-;; arc drawing can be done in a few ways.
-;; could implement different drawing methods w/ defmethod,
-;; dispatch on :key OR on 'shape' of the args?
-
-(defn large-arc-flag
-  [p1 p2 p3]
-  (let [[p1b p2b p3b] (map #(conj % 0) [p1 p2 p3])
-        c (drop-last (f/center-from-pts p1b p2b p3b))
-        a1 (f/angle-from-pts p1 c p2)
-        a2 (f/angle-from-pts p2 c p3)
-        a (+ a1 a2)]
-    (if (< 180 a) 1 0)))
-
-;; figure out how to properly set sweep flag.
-;; this breaks when p1 and p3 are swapped (even though 
-;; the arc should be drawn the same.. it also breaks
-;; when p2 is in Q4
-
-(defn sweep-flag
-  [p1 p2 p3]
-  (let [[p1b p2b p3b] (map #(conj % 0) [p1 p2 p3])
-        c (drop-last (f/center-from-pts p1b p2b p3b))]
-    (if (or (> (second p2) (second c))
-            (> (first p2) (first c))) 0 1)))
-
-(declare circle-by-pts)
-(declare translate)
-(declare rotate)
-(declare scale)
-(defn arc
-  [p1 p2 p3]
-  (let [[p1b p2b p3b] (map #(conj % 0) [p1 p2 p3]) 
-        r (f/radius-from-pts p1b p2b p3b)
-        m-str (apply str (interpose " " (cons "M" p1)))
-        a-str (apply str 
-                     (interpose " " (concat ["A" r r 0 
-                                             (large-arc-flag p1 p2 p3)
-                                             (sweep-flag p1 p2 p3)] p3)))]
-    (g
-     (circle-by-pts p1 p2 p3)
-     (path (apply str (interpose " " [m-str a-str]))))))
-
-#+END_SRC
-
-** combine-paths
-These are prototype functions for now. They are used to build compound paths. That is, straight segments combined in various ways with curves. As well, it is necessary for faces with holes. Eg. a square with a smaller shape contained within.
-
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
-(defn merge-paths
-  "Merges svg <path> elements together, keeping props from last path in the list."
-  [& paths]
-  (let [props (second (last paths))
-        d (apply str (interpose "\n" (map #(get-in % [1 :d]) paths)))]
-    [:path (assoc props :d d)]))
-
-(defn join-paths
-  [& paths]
-  (let [props (second (last paths))
-        strings (concat [(get-in (first paths) [1 :d])] 
-                        (mapv #(s/replace (get-in % [1 :d]) #"M" "L") (rest paths)))
-        d (apply str (interpose "\n" strings))]
-    [:path (assoc props :d d)]))
-
-(defn close-path
-  [[k props]]
-  (let [path-string (:d props)]
-    [k (assoc props :d (str path-string " Z"))]))
+  (let [open (pt->m (first pts))
+        close {:command :close :coordsys :abs :input nil}]
+    (-> (map pt->l (rest pts))
+        (conj open)
+        (vec)
+        (conj close)
+        (cmds->path-string)
+        (path))))
 
 #+END_SRC
 
@@ -797,6 +588,11 @@ This leads to challenges with groups. Groups must have their centroid calculated
     (centroid-of-pts pts)))
 
 (defmethod centroid-element :rect
+  [[_ props]]
+  [(+ (:x props) (/ (:width  props) 2.0))
+   (+ (:y props) (/ (:height props) 2.0))])
+
+(defmethod centroid-element :image
   [[_ props]]
   [(+ (:x props) (/ (:width  props) 2.0))
    (+ (:y props) (/ (:height props) 2.0))])
@@ -955,6 +751,23 @@ Ideas to keep in mind:
         xpts (mapv #(rotate-pt-around-center deg [mx my] %) pts)]
     (pts->bounds xpts)))
 
+(defmethod bounds-element :image
+  [[_ props]]
+  (let [xf (str->xf-map (get props :transform "rotate(0 0 0)"))
+        deg (get-in xf [:rotate 0])
+        mx (get-in xf [:rotate 1])
+        my (get-in xf [:rotate 2])
+        x (:x props)
+        y (:y props)
+        w (:width props)
+        h (:height props)
+        pts [[x y]
+             [(+ x w) y]
+             [(+ x w) (+ y h)]
+             [x (+ y h)]]
+        xpts (mapv #(rotate-pt-around-center deg [mx my] %) pts)]
+    (pts->bounds xpts)))
+
 ;; this is not done yet. Text in general needs a redo.
 (defmethod bounds-element :text
   [[_ props text]]
@@ -1062,6 +875,19 @@ Ideas to keep in mind:
     [k (assoc props :points (apply str (interpose " " xpts)))]))
 
 (defmethod translate-element :rect
+  [[x y] [k props]]
+  (let [[cx cy] (centroid [k props])
+        xf (str->xf-map (get props :transform "rotate(0 0 0)"))
+        new-xf (-> xf
+                   (assoc-in [:rotate 1] (+ cx x))
+                   (assoc-in [:rotate 2] (+ cy y)))
+        new-props (-> props
+                      (assoc :transform (xf-map->str new-xf))
+                      (update :x + x)
+                      (update :y + y))]
+    [k new-props]))
+
+(defmethod translate-element :image
   [[x y] [k props]]
   (let [[cx cy] (centroid [k props])
         xf (str->xf-map (get props :transform "rotate(0 0 0)"))
@@ -1278,6 +1104,17 @@ To do this, I have a second multimethod to handle different commands that can sh
         new-props (assoc props :transform (xf-map->str new-xf))]
     [k new-props]))
 
+(defmethod rotate-element :image
+  [deg [k props]]
+  (let [[cx cy] (centroid [k props])
+        xf (str->xf-map (get props :transform "rotate(0 0 0)"))
+        new-xf (-> xf
+                   (update-in [:rotate 0] + deg)
+                   (assoc-in  [:rotate 1] cx)
+                   (assoc-in  [:rotate 2] cy))
+        new-props (assoc props :transform (xf-map->str new-xf))]
+    [k new-props]))
+
 (defmethod rotate-element :text
   [deg [k props text]]
   (rotate-element-by-transform deg [k props text]))
@@ -1291,7 +1128,7 @@ To do this, I have a second multimethod to handle different commands that can sh
 
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 (defmulti rotate-path-command
-  (fn [_ m]
+  (fn [_ _ m]
     (:command m)))
 
 (defmethod rotate-path-command :move
@@ -1397,7 +1234,7 @@ So,
 (declare rotate)
 (defmethod rotate-element :g
   [deg [k props & content]]
-  (let [[gcx gcy] (centroid (bounds (into [k props] content)))
+  (let [[gcx gcy] (centroid-of-pts (bounds (into [k props] content)))
         xfcontent (for [child content]
                     (let [ch (translate [(- gcx) (- gcy)] child)
                           ctr (if (= :g (first ch))
@@ -1529,6 +1366,19 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
                       (update :y #(+ (* (- % cy) sy) cy)))]
     [k new-props]))
 
+(defmethod scale-element :image
+  [[sx sy] [k props]]
+  (let [cx (+ (:x props) (/ (:width props) 2.0))
+        cy (+ (:y props) (/ (:height props) 2.0))
+        w (* sx (:width props))
+        h (* sy (:height props))
+        new-props (-> props
+                      (assoc :width w)
+                      (assoc :height h)
+                      (update :x #(+ (* (- % cx) sx) cx))
+                      (update :y #(+ (* (- % cy) sy) cy)))]
+    [k new-props]))
+
 (defmethod scale-element :text
   [[sx sy] [k props text]]
   (let [xf (str->xf-map (get props :transform "rotate(0 0 0)"))
@@ -1629,25 +1479,73 @@ Style transforms allow the user to change any attributes of svg elements that af
 
 #+END_SRC
 
-* misc-notes
-Remember in REPL you can't re-def the defmulti dispatch function with some ns magic.
+* manual-testing
+Convert these snippets into proper tests.
 
-https://clojuredocs.org/clojure.core/defmulti#example-55d9e498e4b0831e02cddf1b
+#+begin_src clojure :tangle ./test/svg_clj/main_test.cljc
+;; just starting with some basics. 
+;; more complete tests coming soon
 
-#+begin_src clojure
-(defmulti x (fn[_] :dec)) ;; Can't redefine :(
-(x 0) ;; => 1 ;; STILL :(
-(ns-unmap *ns* 'x) ;; => unmap the var from the namespace
+(def test-circle (circle 5))
+(def test-ellipse (ellipse 5 10))
+(def test-line (line [0 0] [10 20]))
+(def test-path (polygon-path [ [0 0] [10 20] [40 50] [20 10] ]))
+(def test-polygon (polygon [ [0 0] [10 20] [40 50] [20 10] ]))
+(def test-polyline (polyline [ [0 0] [10 20] [40 50] [20 10] ]))
+(def test-rect (rect 60 30))
+(def test-image (image "https://www.fillmurray.com/g/200/300" 200 300))
+(def test-g (g test-circle
+               test-ellipse
+               test-line
+               test-path
+               test-polygon
+               test-polyline
+               test-rect
+               test-image))
+
+(def test-shapes [test-circle
+                  #_test-ellipse
+                  #_test-line
+                  #_test-path
+                  #_test-polygon
+                  #_test-polyline
+                  #_test-rect
+                  #_test-image])
+
+(deftest basic-shapes-test
+  (is (= test-circle [:circle {:cx 0 :cy 0 :r 5}]))
+  (is (= test-ellipse [:ellipse {:cx 0 :cy 0 :rx 5 :ry 10}]))
+  (is (= test-line [:line {:x1 0 :y1 0 :x2 10 :y2 20}]))
+  (is (= test-path [:path {:d "M0 0 L10 20 L40 50 L20 10 Z"
+                           :fill-rule "evenodd"}]))
+  (is (= test-polygon [:polygon {:points "0,0 10,20 40,50 20,10"}]))
+  (is (= test-polyline [:polyline {:points "0,0 10,20 40,50 20,10"}]))
+  (is (= test-rect [:rect {:x -30.0 :y -15.0 :width 60 :height 30}]))
+  (is (= test-image [:image 
+                     {:href "https://www.fillmurray.com/g/200/300"
+                      :x -100.0 :y -150.0 
+                      :width 200 :height 300}])))
+
+(deftest basic-translate-test
+  (is (= (->> test-circle (translate [10 10]))
+         [:circle {:r 5 :cx 10 :cy 10 :transform "rotate(0 10 10)"}]))
+  (is (= (->> test-ellipse (translate [10 10]))
+         [:ellipse {:rx 5 :ry 10 :cx 10 :cy 10 :transform "rotate(0 10 10)"}]))
+  (is (= (->> test-line (translate [10 10]))
+         [:line {:x1 10 :y1 10 :x2 20 :y2 30}]))
+  (is (= (->> test-path (translate [10 10]))
+         [:path {:d "M10 10 L20 30 L50 60 L30 20 Z"
+                 :fill-rule "evenodd"}]))
+  (is (= (->> test-polygon (translate [10 10]))
+         [:polygon {:points "10,10 20,30 50,60 30,20"}]))
+  (is (= (->> test-polyline (translate [10 10]))
+         [:polyline {:points "10,10 20,30 50,60 30,20"}]))
+  (is (= (->> test-rect (translate [10 10]))
+         [:rect {:x -20.0 :y -5.0 :width 60 :height 30 :transform "rotate(0 10.0 10.0)"}]))
+  (is (= (->> test-image (translate [10 10]))
+         [:image {:href "https://www.fillmurray.com/g/200/300"
+                  :x -90.0 :y -140.0
+                  :width 200 :height 300
+                  :transform "rotate(0 10.0 10.0)"}])))
 
 #+end_src
-
-
-
-- change the name of the midpoint defmulti to centroid... or something along those lines
-
-- have to update midpoint and bounds impls for paths to use the new command map structure.
-
-- for transformations to work on paths, (rotate especially) it is necessary to have a fn that converts H and V commands into L commands.
-
-
-- for org-mode auto-comlpete in code blocks... look up 'indiret buffer'

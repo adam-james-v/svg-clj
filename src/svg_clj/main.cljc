@@ -88,6 +88,7 @@
     :polyline
     :rect
     :text
+    :image
     :g})
 
 (defn element? 
@@ -118,6 +119,10 @@
 (defn rect
   [w h]
   [:rect {:width w :height h :x (/ w -2.0) :y (/ h -2.0)}])
+
+(defn image
+  [url w h]
+  [:image {:href url :width w :height h :x (/ w -2.0) :y (/ h -2.0)}])
 
 (defn g
   [& content]
@@ -263,250 +268,28 @@
   [cs]
   (apply str (interpose " " (map cmd->path-string cs))))
 
-(defn path->pts
-  [s]
-  (as-> s s
-    (s/replace s #"Z" "") ;; removes Z at end of path
-    (s/split s #"\s") ;; split string at spaces
-    (mapcat #(s/split % #"[A-Za-z]") s) ;;splits on alpha chars
-    (filter #(not (= % "")) s)
-    (map read-string s)
-    (vec (map vec (partition 2 s)))))
+(defn pt->l
+  [pt]
+  {:command :line
+   :coordsys :abs
+   :input (vec pt)})
 
-(defn path-type
-  [s]
-  (cond 
-    (s/includes? s "L") :line
-    (s/includes? s "l") :line
-    (s/includes? s "C") :cubic
-    (s/includes? s "c") :relative-cubic
-    (s/includes? s "Q") :quadratic
-    (s/includes? s "A") :arc))
+(defn pt->m
+  [pt]
+  {:command :move
+   :coordsys :abs
+   :input (vec pt)})
 
-(defn closed?
-  [s]
-  (= \Z (last s)))
-
-(defmulti path-string->path
-  (fn [s]
-    (path-type s)))
-
-(defmethod path-string->path :default
-  [s]
-  {:type (path-type s)
-   :closed (closed? s)
-   :pts (path->pts s)})
-
-(defmethod path-string->path :arc
-  [s]
-  (let [xs (-> s
-               (s/replace #"[A-Za-z]" "")
-               (s/split #"\s")
-               (#(filter (complement s/blank?) %)))
-        [p1x p1y rx ry x-deg lg sw p3x p3y] xs]
-    {:type :arc
-     :closed (closed? s)
-     :p1 [p1x p1y]
-     :p3 [p3x p3y]
-     :rx rx
-     :ry ry
-     :x-deg x-deg
-     :lg lg
-     :sw sw}))
-
-(defn -str
-  [leader & pts]
-  (apply str (interpose " " (concat [leader] (flatten pts)))))
-
-(defmulti path->path-string
-  (fn [p]
-    (:type p)))
-
-(defmethod path->path-string :line
-  [{:keys [closed pts]}]
-  (let [[m & pts] pts]
-    (str 
-     (-str "M" m) " "
-     (apply str (interpose " " (map (partial -str "L") pts)))
-     (when closed " Z"))))
-
-(defmethod path->path-string :quadratic
-  [{:keys [closed pts]}]
-  (let [[p1 c p2 & pts] pts]
-    (str
-     (-str "M" p1) " "
-     (-str "Q" c p2) " "
-     (apply str (interpose " "
-                       (map #(apply (partial -str "T") %) (partition 2 pts))))
-     (when closed " Z"))))
-
-(defmethod path->path-string :cubic
-  [{:keys [closed pts]}]
-  (let [[p1 c1 c2 p2  & pts] pts]
-    (str
-     (-str "M" p1) " "
-     (-str "C" c1 c2 p2) " "
-     (apply str (interpose 
-                 " " 
-                 (map #(apply (partial -str "S") %) (partition 2 pts))))
-     (when closed " Z"))))
-
-(defmethod path->path-string :relative-cubic
-  [{:keys [closed pts]}]
-  (let [[p1 c1 c2 p2  & pts] pts]
-    (str
-     (-str "M" p1) " "
-     (-str "c" c1 c2 p2) " "
-     (apply str (interpose 
-                 " " 
-                 (map #(apply (partial -str "") %) (partition 2 pts))))
-     (when closed " Z"))))
-
-(defmethod path->path-string :arc
-  [{:keys [p1 p3 rx ry x-deg lg sw closed]}]
-  (str
-   (-str "M" p1) " "
-   (-str "A" [rx ry] [x-deg lg sw] p3)
-   (when closed " Z")))
-
-(defn path-polygon-str
-  [[m & pts]]
-  (str 
-   (-str "M" m) " "
-   (apply str 
-          (interpose " " (map (partial -str "L") pts)))
-   " Z"))
-
-(defn path-polyline-str
-  [[m & pts]]
-  (str 
-   (-str "M" m) " "
-   (apply str 
-          (interpose " " (map (partial -str "L") pts)))))
-
-(defn centered-path-polygon
-  [& pts]
-  (let [m (f/midpoint (apply concat pts))
-        xpts (for [spts pts] (mapv #(f/v- % m) spts))
-        paths (map path-polygon-str xpts)]
-    (path (apply str (interpose "\n" paths)))))
-
-(defn centered-path-polyline
-  [& pts]
-  (let [m (f/midpoint (apply concat pts))
-        xpts (for [spts pts] (mapv #(f/v- % m) spts))
-        paths (map path-polyline-str xpts)]
-    (path (apply str (interpose "\n" paths)))))
-
-(defn path-polygon
-  [& pts]
-  (let [paths (map path-polygon-str pts)]
-    (path (apply str (interpose "\n" paths)))))
-
-(defn path-polyline
-  [& pts]
-  (let [paths (map path-polyline-str pts)]
-    (path (apply str (interpose "\n" paths)))))
-
-(declare style-element)
-(defn cubic-bezier-str
-  [[x1 y1] [cx1 cy1] [cx2 cy2] [x y]]
-  (let [m-str (str "M " x1 " " y1 " ")
-        c-str (apply str (interpose " " ["C" cx1 cy1 cx2 cy2 x y]))]
-    (str m-str c-str)))
-
-(defn s-bezier-str
-  [[cx1 cy1] [x y]]
-  (apply str (interpose " " ["S" cx1 cy1 x y])))
-
-(defn cubic-bezier
+(defn polygon-path
   [pts]
-  (let [curve1 (apply cubic-bezier-str (take 4 pts))
-        s-curves (map #(apply s-bezier-str %)
-                      (partition 2 (drop 4 pts)))]
-    (path 
-     (apply str (interpose " " (cons curve1 s-curves))))))
-
-#_(defn cubic-bezier-debug
-  [pts]
-  (let [curve1 (apply cubic-bezier-str (take 4 pts))
-        s-curves (map #(apply s-bezier-str %)
-                      (partition 2 (drop 4 pts)))]
-    (g
-     (style-element
-      {:stroke "black"
-       :stroke-width 1}
-      (g
-       (map #(translate % (circle 2)) pts)
-       (polyline pts)))
-     (path 
-      (apply str (interpose " " (cons curve1 s-curves)))))))
-
-(defn arc-str
-  [rx ry x-deg lg sw x y]
-  (apply str (interpose " " ["a" rx ry x-deg lg sw x y])))
-
-;; arc drawing can be done in a few ways.
-;; could implement different drawing methods w/ defmethod,
-;; dispatch on :key OR on 'shape' of the args?
-
-(defn large-arc-flag
-  [p1 p2 p3]
-  (let [[p1b p2b p3b] (map #(conj % 0) [p1 p2 p3])
-        c (drop-last (f/center-from-pts p1b p2b p3b))
-        a1 (f/angle-from-pts p1 c p2)
-        a2 (f/angle-from-pts p2 c p3)
-        a (+ a1 a2)]
-    (if (< 180 a) 1 0)))
-
-;; figure out how to properly set sweep flag.
-;; this breaks when p1 and p3 are swapped (even though 
-;; the arc should be drawn the same.. it also breaks
-;; when p2 is in Q4
-
-(defn sweep-flag
-  [p1 p2 p3]
-  (let [[p1b p2b p3b] (map #(conj % 0) [p1 p2 p3])
-        c (drop-last (f/center-from-pts p1b p2b p3b))]
-    (if (or (> (second p2) (second c))
-            (> (first p2) (first c))) 0 1)))
-
-(declare circle-by-pts)
-(declare translate)
-(declare rotate)
-(declare scale)
-(defn arc
-  [p1 p2 p3]
-  (let [[p1b p2b p3b] (map #(conj % 0) [p1 p2 p3]) 
-        r (f/radius-from-pts p1b p2b p3b)
-        m-str (apply str (interpose " " (cons "M" p1)))
-        a-str (apply str 
-                     (interpose " " (concat ["A" r r 0 
-                                             (large-arc-flag p1 p2 p3)
-                                             (sweep-flag p1 p2 p3)] p3)))]
-    (g
-     (circle-by-pts p1 p2 p3)
-     (path (apply str (interpose " " [m-str a-str]))))))
-
-(defn merge-paths
-  "Merges svg <path> elements together, keeping props from last path in the list."
-  [& paths]
-  (let [props (second (last paths))
-        d (apply str (interpose "\n" (map #(get-in % [1 :d]) paths)))]
-    [:path (assoc props :d d)]))
-
-(defn join-paths
-  [& paths]
-  (let [props (second (last paths))
-        strings (concat [(get-in (first paths) [1 :d])] 
-                        (mapv #(s/replace (get-in % [1 :d]) #"M" "L") (rest paths)))
-        d (apply str (interpose "\n" strings))]
-    [:path (assoc props :d d)]))
-
-(defn close-path
-  [[k props]]
-  (let [path-string (:d props)]
-    [k (assoc props :d (str path-string " Z"))]))
+  (let [open (pt->m (first pts))
+        close {:command :close :coordsys :abs :input nil}]
+    (-> (map pt->l (rest pts))
+        (conj open)
+        (vec)
+        (conj close)
+        (cmds->path-string)
+        (path))))
 
 (defmulti centroid-element
   (fn [element]
@@ -537,6 +320,11 @@
     (centroid-of-pts pts)))
 
 (defmethod centroid-element :rect
+  [[_ props]]
+  [(+ (:x props) (/ (:width  props) 2.0))
+   (+ (:y props) (/ (:height props) 2.0))])
+
+(defmethod centroid-element :image
   [[_ props]]
   [(+ (:x props) (/ (:width  props) 2.0))
    (+ (:y props) (/ (:height props) 2.0))])
@@ -667,6 +455,23 @@
         xpts (mapv #(rotate-pt-around-center deg [mx my] %) pts)]
     (pts->bounds xpts)))
 
+(defmethod bounds-element :image
+  [[_ props]]
+  (let [xf (str->xf-map (get props :transform "rotate(0 0 0)"))
+        deg (get-in xf [:rotate 0])
+        mx (get-in xf [:rotate 1])
+        my (get-in xf [:rotate 2])
+        x (:x props)
+        y (:y props)
+        w (:width props)
+        h (:height props)
+        pts [[x y]
+             [(+ x w) y]
+             [(+ x w) (+ y h)]
+             [x (+ y h)]]
+        xpts (mapv #(rotate-pt-around-center deg [mx my] %) pts)]
+    (pts->bounds xpts)))
+
 ;; this is not done yet. Text in general needs a redo.
 (defmethod bounds-element :text
   [[_ props text]]
@@ -758,6 +563,19 @@
     [k (assoc props :points (apply str (interpose " " xpts)))]))
 
 (defmethod translate-element :rect
+  [[x y] [k props]]
+  (let [[cx cy] (centroid [k props])
+        xf (str->xf-map (get props :transform "rotate(0 0 0)"))
+        new-xf (-> xf
+                   (assoc-in [:rotate 1] (+ cx x))
+                   (assoc-in [:rotate 2] (+ cy y)))
+        new-props (-> props
+                      (assoc :transform (xf-map->str new-xf))
+                      (update :x + x)
+                      (update :y + y))]
+    [k new-props]))
+
+(defmethod translate-element :image
   [[x y] [k props]]
   (let [[cx cy] (centroid [k props])
         xf (str->xf-map (get props :transform "rotate(0 0 0)"))
@@ -954,12 +772,23 @@
         new-props (assoc props :transform (xf-map->str new-xf))]
     [k new-props]))
 
+(defmethod rotate-element :image
+  [deg [k props]]
+  (let [[cx cy] (centroid [k props])
+        xf (str->xf-map (get props :transform "rotate(0 0 0)"))
+        new-xf (-> xf
+                   (update-in [:rotate 0] + deg)
+                   (assoc-in  [:rotate 1] cx)
+                   (assoc-in  [:rotate 2] cy))
+        new-props (assoc props :transform (xf-map->str new-xf))]
+    [k new-props]))
+
 (defmethod rotate-element :text
   [deg [k props text]]
   (rotate-element-by-transform deg [k props text]))
 
 (defmulti rotate-path-command
-  (fn [_ m]
+  (fn [_ _ m]
     (:command m)))
 
 (defmethod rotate-path-command :move
@@ -1050,7 +879,7 @@
 (declare rotate)
 (defmethod rotate-element :g
   [deg [k props & content]]
-  (let [[gcx gcy] (centroid (bounds (into [k props] content)))
+  (let [[gcx gcy] (centroid-of-pts (bounds (into [k props] content)))
         xfcontent (for [child content]
                     (let [ch (translate [(- gcx) (- gcy)] child)
                           ctr (if (= :g (first ch))
@@ -1157,6 +986,19 @@
     [k (assoc props :points (apply str (interpose " " xpts)))]))
 
 (defmethod scale-element :rect
+  [[sx sy] [k props]]
+  (let [cx (+ (:x props) (/ (:width props) 2.0))
+        cy (+ (:y props) (/ (:height props) 2.0))
+        w (* sx (:width props))
+        h (* sy (:height props))
+        new-props (-> props
+                      (assoc :width w)
+                      (assoc :height h)
+                      (update :x #(+ (* (- % cx) sx) cx))
+                      (update :y #(+ (* (- % cy) sy) cy)))]
+    [k new-props]))
+
+(defmethod scale-element :image
   [[sx sy] [k props]]
   (let [cx (+ (:x props) (/ (:width props) 2.0))
         cy (+ (:y props) (/ (:height props) 2.0))
