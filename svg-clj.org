@@ -143,7 +143,8 @@ As much as possible, all transformation calculations are 'baked' into shape coor
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 (ns svg-clj.main
   (:require [clojure.string :as st]
-            [hiccup.core :refer [html]]
+            #?(:clj
+               [hiccup.core :refer [html]])
             [clojure.test :as test :refer [deftest is]]
             #?(:cljs 
                [cljs.reader :refer [read-string]])))
@@ -546,6 +547,17 @@ Convert list of pts into list of commands.
         (conj close)
         (cmds->path-string)
         (path))))
+
+#+END_SRC
+
+** merge-paths
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
+(defn merge-paths
+  "Merges svg <path> elements together, keeping props from last path in the list."
+  [& paths]
+  (let [props (second (last paths))
+        d (apply str (interpose " " (map #(get-in % [1 :d]) paths)))]
+    [:path (assoc props :d d)]))
 
 #+END_SRC
 

@@ -1,6 +1,7 @@
 (ns svg-clj.main
   (:require [clojure.string :as st]
-            [hiccup.core :refer [html]]
+            #?(:clj
+               [hiccup.core :refer [html]])
             [clojure.test :as test :refer [deftest is]]
             #?(:cljs 
                [cljs.reader :refer [read-string]])))
@@ -290,6 +291,13 @@
         (conj close)
         (cmds->path-string)
         (path))))
+
+(defn merge-paths
+  "Merges svg <path> elements together, keeping props from last path in the list."
+  [& paths]
+  (let [props (second (last paths))
+        d (apply str (interpose " " (map #(get-in % [1 :d]) paths)))]
+    [:path (assoc props :d d)]))
 
 (defmulti centroid-element
   (fn [element]
