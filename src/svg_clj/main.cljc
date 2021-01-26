@@ -428,7 +428,7 @@
         large-bb (pts->bounds obb)]
     ;; not accurate, but good enough for now
     ;; take the bb to be the average between the small and large
-    (pts->bounds (mapv #(centroid [%1 %2]) small-bb large-bb))))
+    (pts->bounds (mapv #(centroid-of-pts [%1 %2]) small-bb large-bb))))
 
 (defmethod bounds-element :line
   [[_ props]]

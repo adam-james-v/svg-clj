@@ -728,7 +728,7 @@ Ideas to keep in mind:
         large-bb (pts->bounds obb)]
     ;; not accurate, but good enough for now
     ;; take the bb to be the average between the small and large
-    (pts->bounds (mapv #(centroid [%1 %2]) small-bb large-bb))))
+    (pts->bounds (mapv #(centroid-of-pts [%1 %2]) small-bb large-bb))))
 
 (defmethod bounds-element :line
   [[_ props]]
@@ -1239,8 +1239,6 @@ So,
 - apply rotation to children about group midpoint
   - rotate child by deg
   - translate child to new center (rotate its orig midpoint about group midpoint to find new position)
-
-
 
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 (declare rotate)
