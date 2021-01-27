@@ -15,7 +15,7 @@
   org.clojure/clojurescript {:mvn/version "1.10.597"}
   org.clojure/spec.alpha    {:mvn/version "0.2.187"}
   org.clojure/test.check    {:mvn/version "1.1.0"}
-  hiccup                    {:mvn/version "2.0.0-alpha2"}}}
+  hiccup/hiccup                    {:mvn/version "2.0.0-alpha2"}}}
 
 #+end_src
 
@@ -36,19 +36,36 @@ If you would like to understand my motivations, decisions, and reasoning for the
 * admin
 ** todo
 Some tasks that need to be done on this project.
-*** TODO [] fix svg fn to properly handle incorrect args (eg. missing [w h sc]
-*** TODO [] build a mechanism for changing rotate behavior from local to global -> probably use *dynamic-var* 
-*** TODO [] build a mechanism for changing transform 'baking' behavior
-*** TODO [] remove forge dependency
-*** TODO [] create an aliases namespace for short-form re-defs eg. (def tr svg/translate)
-*** TODO [] make centroid only work on sets of pts of same dimension
-*** TODO [] make centroid more readable. Maybe juxt?s
-
-*** TODO [] fix in utils -- str->xf-map, and related fns.
-*** TODO [] re-implement scale transform. Seems incomplete as is.
-*** TODO [] for circle and ellipse, try to remove the transform rotate(0 x y) idea. Seems confusing and unnecessary anyway.
+*** DONE remove forge dependency
+*** TODO fix svg fn to properly handle incorrect args (eg. missing [w h sc]
+*** TODO build a mechanism for changing rotate behavior from local to global -> probably use *dynamic-var* 
+*** TODO build a mechanism for changing transform 'baking' behavior
+*** TODO make centroid only work on sets of pts of same dimension
+*** TODO make centroid more readable. Maybe juxt?s
+*** TODO fix in utils -- str->xf-map, and related fns.
+*** TODO re-implement scale transform. incomplete as is.
+*** TODO for circle and ellipse, try to remove the transform rotate(0 x y) idea. Seems confusing and unnecessary anyway.
+*** TODO org-mode auto-comlpete in code blocks... look up 'indiret buffer'
 ** roadmap
 Some features that are planned for implementation.
+
+*** candidate-features
+Should I add these to the svg-clj library? Or should they be some different library?
+
+I think these make more sense in separate libraries. Perhaps as ns inside a 2d-cad-drawing lib or something along those lines. 
+
+- math helpers
+  - to-deg
+  - to-rad
+  - vector arithemetic helpers v* v+ v-
+- drawing features  
+  - regular-polygon-pts  
+  - offset
+- 'composite' shapes and containers
+  - arrows
+  - dimensions
+  - figure containers
+  - 
 
 ** misc-notes
 Remember in REPL you can't re-def the defmulti dispatch function with some ns magic.
@@ -62,16 +79,6 @@ https://clojuredocs.org/clojure.core/defmulti#example-55d9e498e4b0831e02cddf1b
 
 #+end_src
 
-
-
-- change the name of the midpoint defmulti to centroid... or something along those lines
-
-- have to update midpoint and bounds impls for paths to use the new command map structure.
-
-- for transformations to work on paths, (rotate especially) it is necessary to have a fn that converts H and V commands into L commands.
-
-
-- for org-mode auto-comlpete in code blocks... look up 'indiret buffer'
 * design
 ** intent
 The purpose of this library is to allow users to create simple functional programs that compile to SVG elements. 
@@ -320,6 +327,7 @@ In particular, you cannot know the exact width and height of a text element with
 (defn text
   [text]
   [:text {} text])
+
 
 #+end_src
 
