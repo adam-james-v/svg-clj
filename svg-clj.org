@@ -740,8 +740,8 @@ Ideas to keep in mind:
 
 (defmethod bounds-element :line
   [[_ props]]
-  (let [a (mapv #(get % props) [:x1 :y1])
-        b (mapv #(get % props) [:x2 :y2])]
+  (let [a (mapv #(get props %) [:x1 :y1])
+        b (mapv #(get props %) [:x2 :y2])]
     (pts->bounds [a b])))
 
 (defmethod bounds-element :polygon
