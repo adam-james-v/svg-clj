@@ -1,9 +1,11 @@
 (ns svg-clj.main
   (:require [clojure.string :as st]
+            [clojure.spec.alpha :as s]
+            [clojure.pprint :as pp]
+            [clojure.data.xml :as xml]
             #?(:clj
                [hiccup.core :refer [html]])
-            [clojure.test :as test :refer [deftest is]]
-            #?(:cljs 
+            #?(:cljs
                [cljs.reader :refer [read-string]])))
 
 (defn svg
@@ -30,25 +32,21 @@
   [deg]
   (* deg (/ Math/PI 180)))
 
+(defn round
+  [num places]
+  (let [d (Math/pow 10 places)]
+    (/ (Math/round (* num d)) d)))
+
 (defn average
   [& numbers]
   (let [n (count numbers)]
     (/ (apply + numbers) n)))
 
-;; what I used to call 'midpoint' is more accurately called centroid
-(defn centroid-of-pts
-  "Calculates the arithmetic mean position of all the given `pts`."
-  [pts]
-  (let [ndim (count (first (sort-by count pts)))
-        splits (for [axis (range 0 ndim)]
-                 (map #(nth % axis) pts))]
-    (mapv #(apply average %) splits)))
-
 ;; some string transformation tools
 (defn v->s
   "Turns the vector `v` into a string formatted for use in SVG attributes."
-  [pt]
-  (apply str (interpose "," pt)))
+  [v]
+  (apply str (interpose "," v)))
 
 (defn s->v
   "Turns a string of comma or space separated numbers into a vector."
@@ -56,6 +54,7 @@
   (-> s
       (st/trim)
       (st/split #"[, ]")
+      (#(filter (complement empty?) %))
       (#(mapv read-string %))))
 
 (defn xf-kv->str
@@ -79,8 +78,11 @@
     (into {} (map str->xf-kv (st/split-lines s)))
     {}))
 
-(def svg-elements
-  "The elements provided by the library."
+(s/def ::pt2d (s/tuple number? number?))
+(s/def ::pts (s/coll-of ::pt2d))
+
+(def svg-element-keys
+  "SVG elements provided by the library."
   #{:circle
     :ellipse
     :line
@@ -92,41 +94,133 @@
     :image
     :g})
 
-(defn element? 
-  "Checks the key in an element to see if it is an SVG element."
-  [[k props content]]
-  (svg-elements k))
+(s/def ::basic-element
+  (s/cat :tag svg-element-keys
+         :props map?))
+
+(s/def ::text-element
+  (s/cat :tag #{:text}
+         :props map?
+         :content string?))
+
+(s/def ::g-element
+  (s/cat :tag #{:g}
+         :props map?
+         :content (s/* ::svg-element)))
+
+(s/def ::svg-element
+  (s/or :basic (s/spec ::basic-element)
+        :text (s/spec ::text-element)
+        :group (s/spec ::g-element)))
+
+(s/def ::path-element
+  (s/cat :tag #{:path}
+         :props (s/keys :req-un [::d]) 
+         :content (s/* ::svg-element)))
+
+(s/def ::groupable
+  (s/or :flat (s/* (s/spec ::svg-element))
+        :nested (s/cat :a (s/* (s/spec ::svg-element)))))
+
+(defn pt2d? [a] (s/valid? ::pt2d a))
+(defn pts? [s] (s/valid? ::pts s))
+
+(defn element?
+  "Checks if `elem` is an SVG element."
+  [elem]
+  (s/valid? ::svg-element elem)
+  #_(or (s/valid? ::basic-element elem)
+      (s/valid? ::text-element elem)
+      (s/valid? ::g-element elem)
+      (s/valid? ::path-element elem)))
+
+(defn path-string-allowed? 
+  [string] 
+  (empty? (st/replace string #"[MmZzLlHhVvCcSsQqTtAaeE0-9-,.\s]" "")))
+
+(defn path-string-valid-syntax?
+  [string]
+  (nil? (re-find #"[a-zA-Z][a-zA-Z]" string)))
+
+(defn path-string-valid-start?
+  [string]
+  (nil? (re-find #"^[0-9-,.]" string)))
+
+(defn path-string-valid-end?
+  [string]
+  (nil? (re-find #".*[-,.]$" string)))
+
+(defn path-string-single-command?
+  [string]
+  (= 1 (count (re-seq #"[A-DF-Za-df-z]" string))))
+
+(s/def ::path-string
+  (s/and string?
+         (complement empty?)
+         path-string-allowed?
+         path-string-valid-syntax?
+         path-string-valid-start?
+         path-string-valid-end?
+         (complement path-string-single-command?)))
+
+(s/def ::command-string
+  (s/and string?
+         (complement empty?)
+         path-string-allowed?
+         path-string-valid-syntax?
+         path-string-valid-start?
+         path-string-valid-end?
+         path-string-single-command?))
+
+(def commands #{"M" "L" "H" "V" "C" "S" "Q" "T" "A" "Z"})
+(s/def ::command commands)
+(s/def ::coordsys #{:rel :abs})
+(s/def ::input (s/or :data (s/+ number?)
+                     :nil nil?))
+(s/def ::command-map
+  (s/keys :req-un [::command ::coordsys ::input]))
+
+(s/def ::bounds
+  (s/tuple ::pt2d ::pt2d ::pt2d ::pt2d))
 
 (defn circle
   [r]
+  {:pre [(number? r)]}
   [:circle {:cx 0 :cy 0 :r r}])
 
 (defn ellipse
   [rx ry]
+  {:pre [(number? rx) (number? ry)]}
   [:ellipse {:cx 0 :cy 0 :rx rx :ry ry}])
 
 (defn line
   [[ax ay] [bx by]]
+  {:pre [(pt2d? [ax ay]) (pt2d? [bx by])]}
   [:line {:x1 ax :y1 ay :x2 bx :y2 by}])
 
 (defn polygon
   [pts]
+  {:pre [(pts? pts)]}
   [:polygon {:points (apply str (interpose " " (map v->s pts)))}])
 
 (defn polyline
   [pts]
+  {:pre [(pts? pts)]}
   [:polyline {:points (apply str (interpose " " (map v->s pts)))}])
 
 (defn rect
   [w h]
+  {:pre [(number? w) (number? h)]}
   [:rect {:width w :height h :x (/ w -2.0) :y (/ h -2.0)}])
 
 (defn image
   [url w h]
+  {:pre [(string? url) (number? w) (number? h)]}
   [:image {:href url :width w :height h :x (/ w -2.0) :y (/ h -2.0)}])
 
 (defn g
   [& content]
+  {:pre [(s/valid? ::groupable content)]}
   (if (and (= 1 (count content))
            (not (keyword? (first (first content)))))
     ;; content is a list of a list of elements
@@ -136,86 +230,73 @@
 
 (defn text
   [text]
-  [:text {} text])
+  {:pre [(string? text)]}
+  [:text {:x 0 :y 0} text])
 
 (defn path
   [d]
+  {:pre [(s/valid? ::path-string d)]}
   [:path {:d d
           :fill-rule "evenodd"}])
 
-(defn path-command-strings
+(defn- path-command-strings
   "Split the path string `ps` into a vector of path command strings."
   [ps]
+  {:pre [(s/valid? ::path-string ps)]}
   (-> ps
       (st/replace #"\n" " ")
-      (st/split #"(?=[A-Za-z])")
-      (#(map st/trim %))))
+      (st/split #"(?=[A-DF-Za-df-z])")
+      (#(map st/trim %))
+      (#(filter (complement empty?) %))))
 
-(defn relative?
-  "True if the path segment string `pss` has a relative coordinate command.
+(defn- relative?
+  "True if the path command string `cs` has a relative coordinate command.
   Relative coordinate commands are lowercase.
   Absolute coordinate commands are uppercase."
   [cs]
+  {:pre [(s/valid? ::command-string cs)]}
   (let [csx (first (st/split cs #"[a-z]"))]
     (not (= cs csx))))
 
-(defn coord-sys-key
+(defn- coord-sys-key
   "Returns the command string `cs`'s coord. system key.
   Key is either :rel or :abs."
   [cs]
+  {:pre [(s/valid? ::command-string cs)]}
   (if (relative? cs) :rel :abs))
 
-;; Probably want to revisit this approach.
-;; the cond seems replaceable with just a simple MAP
-;; OR consider not using this at all... jsut use the 
-;; strings as their own keys directly.
-
-(defn command-key
-  "Returns the command string `cs`'s key."
+(defn- command-input
   [cs]
-  (let [s (st/upper-case cs)]
-    (cond
-      (st/includes? s "M") :move
-      (st/includes? s "L") :line
-      (st/includes? s "H") :hline
-      (st/includes? s "V") :vline 
-      (st/includes? s "C") :curve 
-      (st/includes? s "S") :scurve
-      (st/includes? s "Q") :quadratic
-      (st/includes? s "T") :squadratic
-      (st/includes? s "A") :arc
-      (st/includes? s "Z") :close)))
-
-(defn command-input
-  [cs]
-  (let [i (st/split cs #"[A-Za-z]")]
+  {:pre [(s/valid? ::command-string cs)]}
+  (let [i (st/split cs #"[A-DF-Za-df-z]")]
     (when (not (empty? (rest i)))
       (apply s->v (rest i)))))
 
-(defn command
+(defn- command
   "Transforms a command string `cs` into a map."
   [cs]
-  {:command  (command-key cs)
+  {:pre [(s/valid? ::command-string cs)]}
+  {:command  (st/upper-case (re-find #"[A-DF-Za-df-z]" cs))
    :coordsys (coord-sys-key cs)
    :input (command-input cs)})
 
-(defn path-string->commands
+(defn- path-string->commands
   "Turns path string `ps` into a list of its command maps."
   [ps]
+  {:pre [(s/valid? ::path-string ps)]}
   (->> ps
        (path-command-strings)
        (map command)))
 
-(defn any-vh?
+(defn- any-vh?
   [cmds]
+  {:pre [(s/valid? (s/coll-of ::command-map) cmds)]}
   (not (empty? (filter #{:vline :hline} (map :command cmds)))))
 
-;; previous commmand is NOT V or H
-;; therefore, you can get the 'cursor position' 
-;; by taking the last 2 args in the input to the command
-;; this is true for every command except v h which only have an X or Y
-(defn convert-vh
+(defn- convert-vh
   [[pcmd ccmd]]
+  {:pre [(s/valid? ::command-map pcmd)
+         (s/valid? ::command-map ccmd)]}
   (if (and (not (any-vh? [pcmd])) ;;prev. cmd must NOT be VH
            (any-vh? [ccmd])) ;; curr. cmd must be VH
     (let [[px py] (take-last 2 (:input pcmd))
@@ -228,8 +309,9 @@
       [pcmd ncmd])
     [pcmd ccmd]))
 
-(defn convert-first-vh-cmd
+(defn- convert-first-vh-cmd
   [cmds]
+  {:pre [(s/valid? (s/coll-of ::command-map) cmds)]}
   (let [icmd (first cmds)]
   (cons icmd 
         (->> cmds
@@ -237,67 +319,73 @@
              (map convert-vh)
              (map second)))))
 
-(defn vh->l
+(defn- vh->l
   [cmds]
+  {:pre [(s/valid? (s/coll-of ::command-map) cmds)]}
   (let [iters (iterate convert-first-vh-cmd cmds)]
     (->> iters
          (partition 2 1)
          (take-while (fn [[a b]] (not= a b)))
-         (last)
-         (last))))
+         last
+         last)))
 
-(def command-map
-  {:move "M"
-   :line "L"
-   :hline "H"
-   :vline "V"
-   :curve "C"
-   :scurve "S"
-   :quadratic "Q"
-   :squadratic "T"
-   :arc "A"
-   :close "Z"})
-
-(defn cmd->path-string
-  [{:keys [:command :coordsys :input]}]
-  (let [c (if (= coordsys :abs) 
-            (get command-map command)
-            (st/lower-case (get command-map command)))]
+(defn- cmd->path-string
+  [{:keys [:command :coordsys :input] :as cmd}]
+  {:pre [(s/valid? ::command-map cmd)]}
+  (let [c (if (= coordsys :abs)
+            command
+            (st/lower-case command))]
     (str c (apply str (interpose " " input)))))
 
-(defn cmds->path-string
-  [cs]
-  (apply str (interpose " " (map cmd->path-string cs))))
+(defn- cmds->path-string
+  [cmds]
+  {:pre [(s/valid? (s/coll-of ::command-map) cmds)]}
+  (apply str (interpose " " (map cmd->path-string cmds))))
 
-(defn pt->l
+(defn merge-paths
+  "Merges a list of path elements together, keeping props from last path in the list."
+  [& paths]
+  {:pre [(s/valid? (s/coll-of ::path-element) paths)]}
+  (let [props (second (last paths))
+        d (apply str (interpose " " (map #(get-in % [1 :d]) paths)))]
+    [:path (assoc props :d d)]))
+
+(defn- pt->l
   [pt]
-  {:command :line
+  {:pre [(s/valid? ::pt2d pt)]}
+  {:command "L"
    :coordsys :abs
    :input (vec pt)})
 
-(defn pt->m
+(defn- pt->m
   [pt]
-  {:command :move
+  {:pre [(s/valid? ::pt2d pt)]}
+  {:command "M"
    :coordsys :abs
    :input (vec pt)})
 
 (defn polygon-path
   [pts]
+  {:pre [(s/valid? ::pts pts)]}
   (let [open (pt->m (first pts))
-        close {:command :close :coordsys :abs :input nil}]
+        close {:command "Z"
+               :coordsys :abs
+               :input nil}]
     (-> (map pt->l (rest pts))
         (conj open)
-        (vec)
+        vec
         (conj close)
-        (cmds->path-string)
-        (path))))
+        cmds->path-string
+        path)))
 
-(defn merge-paths
-  "Merges svg <path> elements together, keeping props from last path in the list."
-  [& paths]
-  (let [props (second (last paths))
-        d (apply str (interpose " " (map #(get-in % [1 :d]) paths)))]
-    [:path (assoc props :d d)]))
+(defn centroid-of-pts
+  "Calculates the arithmetic mean position of all the given `pts`."
+  [pts]
+  {:pre [(s/valid? ::pts pts)]}
+  (let [ndim (count (first (sort-by count pts)))
+        splits (for [axis (range 0 ndim)]
+                 (map #(nth % axis) pts))]
+    (mapv #(apply average %) splits)))
 
 (defmulti centroid-element
   (fn [element]
@@ -350,7 +438,7 @@
 
 ;; this is not implemented correctly yet.
 ;; just a 'stub' returning the end point of the arc
-(defmethod command->pts :arc
+(defmethod command->pts "A"
   [{:keys [:input]}]
   [(vec (take-last 2 input))])
 
@@ -367,23 +455,17 @@
 
 (defn centroid
   [& elems]
-  (let [elem (first elems)
-        elems (rest elems)]
-    (when elem
-      (cond
-        (and (element? elem) (= 0 (count elems)))
-        (centroid-element elem)
-        
-        (and (element? elem) (< 0 (count elems)))
-        (concat
-         [(centroid-element elem)]
-         [(centroid elems)])
-      
-        :else
-        (recur (concat elem elems))))))
+  {:pre [(s/valid? ::groupable elems)]}
+  (if (and (= 1 (count elems))
+           (not (keyword? (first (first elems)))))
+    ;; content is a list of a list of elements
+    (recur (first elems))
+    ;; content is a single element OR a list of elements
+    (centroid-of-pts (mapv centroid-element elems))))
 
 (defn pts->bounds
   [pts]
+  {:pre [(s/valid? ::pts pts)]}
   (let [xmax (apply max (map first pts))
         ymax (apply max (map second pts))
         xmin (apply min (map first pts))
@@ -498,20 +580,13 @@
 
 (defn bounds
   [& elems]
-  (let [elem (first elems)
-        elems (rest elems)]
-    (when elem
-      (cond
-        (and (element? elem) (= 0 (count elems)))
-        (bounds-element elem)
-        
-        (and (element? elem) (< 0 (count elems)))
-        (concat
-         [(bounds-element elem)]
-         [(bounds elems)])
-      
-        :else
-        (recur (concat elem elems))))))
+  {:pre [(s/valid? ::groupable elems)]}
+  (if (and (= 1 (count elems))
+           (not (keyword? (first (first elems)))))
+    ;; content is a list of a list of elements
+    (recur (first elems))
+    ;; content is a single element OR a list of elements
+    (pts->bounds (mapcat bounds-element elems))))
 
 (defmulti translate-element 
   (fn [_ element]
@@ -612,38 +687,38 @@
   (fn [_ m]
     (:command m)))
 
-(defmethod translate-path-command :move
+(defmethod translate-path-command "M"
   [[x y] {:keys [:input] :as m}]
   (assoc m :input (v+ [x y] input)))
 
-(defmethod translate-path-command :line
+(defmethod translate-path-command "L"
   [[x y] {:keys [:input] :as m}]
   (assoc m :input (v+ [x y] input)))
 
-(defmethod translate-path-command :hline
+(defmethod translate-path-command "H"
   [[x y] {:keys [:input] :as m}]
   (assoc m :input (v+ [x] input)))
 
-(defmethod translate-path-command :vline
+(defmethod translate-path-command "V"
   [[x y] {:keys [:input] :as m}]
   (assoc m :input (v+ [y] input)))
 
 ;; x y x y x y because input will ahve the form:
 ;; [x1 y1 x2 y2 x y] (first two pairs are control points)
-(defmethod translate-path-command :curve
+(defmethod translate-path-command "C"
   [[x y] {:keys [:input] :as m}]
   (assoc m :input (v+ [x y x y x y] input)))
 
 ;; similar approach to above, but one control point is implicit
-(defmethod translate-path-command :scurve
+(defmethod translate-path-command "S"
   [[x y] {:keys [:input] :as m}]
   (assoc m :input (v+ [x y x y] input)))
 
-(defmethod translate-path-command :quadratic
+(defmethod translate-path-command "Q"
   [[x y] {:keys [:input] :as m}]
   (assoc m :input (v+ [x y x y] input)))
 
-(defmethod translate-path-command :squadratic
+(defmethod translate-path-command "T"
   [[x y] {:keys [:input] :as m}]
   (assoc m :input (v+ [x y] input)))
 
@@ -651,12 +726,12 @@
 ;; rx, ry do not change
 ;; xrot also no change
 ;; large arc flag and swf again no change
-(defmethod translate-path-command :arc
+(defmethod translate-path-command "A"
   [[x y] {:keys [:input] :as m}]
   (let [[rx ry xrot laf swf ox oy] input]
     (assoc m :input [rx ry xrot laf swf (+ x ox) (+ y oy)])))
 
-(defmethod translate-path-command :close
+(defmethod translate-path-command "Z"
   [_ cmd]
   cmd)
 
@@ -680,6 +755,10 @@
 
 (defn translate
   [[x y] & elems]
+  {:pre [(s/valid?
+          (s/or :one (s/coll-of ::svg-element)
+                :many (s/cat :elems (s/coll-of ::svg-element))) elems)
+         (s/valid? ::pt2d [x y])]}
   (let [elem (first elems)
         elems (rest elems)]
     (when elem
@@ -707,8 +786,6 @@
   [mv pt]
   (v+ pt mv))
 
-;; check that this works reliably.
-;; I think it fails sometimes on 45, 90, 180, etc. especially when used with path elements
 (defn rotate-pt
   [deg [x y]]
   (let [c (Math/cos (to-rad deg))
@@ -799,7 +876,7 @@
   (fn [_ _ m]
     (:command m)))
 
-(defmethod rotate-path-command :move
+(defmethod rotate-path-command "M"
   [ctr deg {:keys [:input] :as m}]
   (let [xpt (->> input
                  (#(v- % ctr))
@@ -807,7 +884,7 @@
                  (v+ ctr))]
     (assoc m :input xpt)))
 
-(defmethod rotate-path-command :line
+(defmethod rotate-path-command "L"
   [ctr deg {:keys [:input] :as m}]
   (let [xpt (->> input
                  (#(v- % ctr))
@@ -815,7 +892,7 @@
                  (v+ ctr))]
     (assoc m :input xpt)))
 
-(defmethod rotate-path-command :curve
+(defmethod rotate-path-command "C"
   [ctr deg {:keys [:input] :as m}]
   (let [xinput (->> input
                     (partition 2)
@@ -826,7 +903,7 @@
                     (apply concat))]
     (assoc m :input xinput)))
 
-(defmethod rotate-path-command :scurve
+(defmethod rotate-path-command "S"
   [ctr deg {:keys [:input] :as m}]
   (let [xinput (->> input
                     (partition 2)
@@ -837,7 +914,7 @@
                     (apply concat))]
     (assoc m :input xinput)))
 
-(defmethod rotate-path-command :quadratic
+(defmethod rotate-path-command "Q"
   [ctr deg {:keys [:input] :as m}]
   (let [xinput (->> input
                     (partition 2)
@@ -848,7 +925,7 @@
                     (apply concat))]
     (assoc m :input xinput)))
 
-(defmethod rotate-path-command :squadratic
+(defmethod rotate-path-command "T"
   [ctr deg {:keys [:input] :as m}]
   (let [xpt (->> input
                  (#(v- % ctr))
@@ -860,7 +937,7 @@
 ;; rx, ry do not change
 ;; xrot also no change
 ;; large arc flag and swf again no change
-(defmethod rotate-path-command :arc
+(defmethod rotate-path-command "A"
   [ctr deg {:keys [:input] :as m}]
   (let [[rx ry xrot laf swf ox oy] input
         [nx ny] (->> [ox oy]
@@ -869,7 +946,7 @@
                      (v+ ctr))]
     (assoc m :input [rx ry (+ xrot deg) laf swf nx ny])))
 
-(defmethod rotate-path-command :close
+(defmethod rotate-path-command "Z"
   [_ _ cmd]
   cmd)
 
@@ -1068,7 +1145,7 @@
     (assoc m :input (vec xpts))))
 
 ;; this is wrong. just a stub to get moving a bit
-(defmethod scale-path-command :arc
+(defmethod scale-path-command "A"
   [ctr [sx sy] {:keys [:input] :as m}]
   (let [pts [(take-last 2 input)]
         xpts (->> pts
@@ -1103,3 +1180,28 @@
 (defn style
   [style [k props & content]]
   (into [k (merge props style)] content))
+
+(defn xml->hiccup
+  [xml]
+  (if-let [t (:tag xml)]
+    (let [elem [t]
+          elem (if-let [attrs (:attrs xml)]
+                 (conj elem attrs)
+                 elem)]
+      (into elem (map xml->hiccup (:content xml))))
+    xml))
+
+(defn ->edn
+  [str]
+  (->> (xml/parse-str str 
+                      :skip-whitespace true
+                      :namespace-aware false)
+       xml->hiccup
+       #_(tree-seq vector? rest)
+       #_(filter vector?)
+       #_(filter #(= :svg (first %)))
+       #_first))
+
+(defn unwrap-elements
+  [edn]
+  (filter element? edn))
