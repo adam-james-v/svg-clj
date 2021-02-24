@@ -1,7 +1,7 @@
 (ns svg-clj.main
   (:require [clojure.string :as st]
             [clojure.spec.alpha :as s]
-            [clojure.data.xml :as xml]
+            #?(:clj [clojure.data.xml :as xml])
             [svg-clj.utils :as utils]
             [svg-clj.specs :as specs]
             [svg-clj.transforms :as transforms]
@@ -118,30 +118,33 @@
   {:pre [(string? text)]}
   [:text {:x 0 :y 0} text])
 
-(defn xml->hiccup
-  [xml]
-  (if-let [t (:tag xml)]
-    (let [elem [t]
-          elem (if-let [attrs (:attrs xml)]
-                 (conj elem attrs)
-                 elem)]
-      (into elem (map xml->hiccup (:content xml))))
-    xml))
+#?(:clj
+   (defn xml->hiccup
+     [xml]
+     (if-let [t (:tag xml)]
+       (let [elem [t]
+             elem (if-let [attrs (:attrs xml)]
+                    (conj elem attrs)
+                    elem)]
+         (into elem (map xml->hiccup (:content xml))))
+       xml)))
 
-(defn ->edn
-  [str]
-  (->> (xml/parse-str str 
-                      :skip-whitespace true
-                      :namespace-aware false)
-       xml->hiccup
-       #_(tree-seq vector? rest)
-       #_(filter vector?)
-       #_(filter #(= :svg (first %)))
-       #_first))
+#?(:clj
+   (defn ->edn
+     [str]
+     (->> (xml/parse-str str 
+                         :skip-whitespace true
+                         :namespace-aware false)
+          xml->hiccup
+          #_(tree-seq vector? rest)
+          #_(filter vector?)
+          #_(filter #(= :svg (first %)))
+          #_first)))
 
-(defn unwrap-elements
-  [edn]
-  (filter specs/element? edn))
+#?(:clj
+   (defn unwrap-elements
+     [edn]
+     (filter specs/element? edn)))
 
 (defn style
   [style [k props & content]]

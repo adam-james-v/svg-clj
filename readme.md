@@ -34,6 +34,14 @@ These circles are produced by the following code:
 (html circles)
 ```
 
+### Deps.edn
+
+```clj
+svg-clj/svg-clj {:git/url "https://github.com/adam-james-v/svg-clj"
+                 :sha "grab-latest-sha"}}
+```
+
+
 If you would like to understand my motivations, decisions, and reasoning for the choices I've made in this library, you can read the .org file in the top level of this repo.
 
 [svg-clj.org](https://github.com/adam-james-v/svg-clj/blob/main/svg-clj.org). I attempt to do literate programming in my org files, but I have a scattered approach, so please be patient if you're reading the notes; they may not always make sense. Proper documentation is, naturally, a key element in bringing this project from prototype to release.
