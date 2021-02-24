@@ -118,9 +118,12 @@
          :props (s/keys :req-un [::d]) 
          :content (s/* ::svg-element)))
 
-(s/def ::groupable
+#_(s/def ::groupable
   (s/or :flat (s/* (s/spec ::svg-element))
         :nested (s/cat :a (s/* (s/spec ::svg-element)))))
+(s/def ::groupable
+  (s/or :flat (s/every ::svg-element)
+        :nested (s/coll-of (s/every ::svg-element))))
 
 (defn pt2d? [a] (s/valid? ::pt2d a))
 (defn pts? [s] (s/valid? ::pts s))
@@ -128,11 +131,7 @@
 (defn element?
   "Checks if `elem` is an SVG element."
   [elem]
-  (s/valid? ::svg-element elem)
-  #_(or (s/valid? ::basic-element elem)
-      (s/valid? ::text-element elem)
-      (s/valid? ::g-element elem)
-      (s/valid? ::path-element elem)))
+  (s/valid? ::svg-element elem))
 
 (defn path-string-allowed? 
   [string] 
@@ -780,7 +779,7 @@
         new-xf (-> xf
                    (update-in [:rotate 0] + deg))
         new-props (assoc props :transform (xf-map->str new-xf))]
-    [k new-props content]))
+    (vec (filter (complement nil?) [k new-props (when content content)]))))
 
 (defn move-pt
   [mv pt]
@@ -976,8 +975,26 @@
                       (->> ch
                            (translate (v* [-1 -1] ctr))
                            (rotate deg)
-                           (translate xfm))))]
+                           (translate-element xfm))))]
     (into [k props] (filter (complement nil?) xfcontent))))
+
+(defn asdf
+  [deg [k props & content]]
+  (let [[gcx gcy] (centroid-of-pts (bounds (into [k props] content)))
+        xfcontent (for [child content]
+                    #_child
+                    (let [ch (translate [(- gcx) (- gcy)] child)
+                          ctr (if (= :g (first ch))
+                                (centroid-of-pts (bounds ch))
+                                (centroid ch))
+                          xfm (->> ctr
+                                   (rotate-pt deg)
+                                   (v+ [gcx gcy]))]
+                      (->> ch
+                           (translate (v* [-1 -1] ctr))
+                           (rotate deg)
+                           (translate xfm))))]
+    xfcontent #_(into [k props] (filter (complement nil?) xfcontent))))
 
 (defn rotate
   [deg & elems]

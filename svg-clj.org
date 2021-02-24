@@ -13,9 +13,10 @@
 {:deps 
  {org.clojure/clojure       {:mvn/version "1.10.1"}
   org.clojure/clojurescript {:mvn/version "1.10.597"}
-  #_org.clojure/spec.alpha    #_{:mvn/version "0.2.187"}
+  org.clojure/spec.alpha    {:mvn/version "0.2.187"}
   org.clojure/test.check    {:mvn/version "1.1.0"}
   org.clojure/data.xml      {:mvn/version "0.0.8"}
+  hawk/hawk                 {:mvn/version "0.2.11"}
   hiccup/hiccup             {:mvn/version "2.0.0-alpha2"}}}
 #+end_src
 
@@ -78,6 +79,18 @@ https://clojuredocs.org/clojure.core/defmulti#example-55d9e498e4b0831e02cddf1b
 (ns-unmap *ns* 'x) ;; => unmap the var from the namespace
 
 #+end_src
+
+
+Maikerusan suggests:
+
+A mechanism for setting up global defaults when a user has loaded the library.
+Config would control:
+ - all shapes centering behaviour (eg. center at centroid, corner, whatever)
+
+ - whether translate/rotate are 'baked' or not.
+   - 'baked' is the default and means you technically lose information when compiling to SVG (eg you cannot tell that a line was translated if the coords have the translate baked in)
+
+
 
 * design
 ** intent
@@ -273,9 +286,12 @@ Any elements that wrap content. Primary function is svg which is the ~container~
          :props (s/keys :req-un [::d]) 
          :content (s/* ::svg-element)))
 
-(s/def ::groupable
+#_(s/def ::groupable
   (s/or :flat (s/* (s/spec ::svg-element))
         :nested (s/cat :a (s/* (s/spec ::svg-element)))))
+(s/def ::groupable
+  (s/or :flat (s/every ::svg-element)
+        :nested (s/coll-of (s/every ::svg-element))))
 
 (defn pt2d? [a] (s/valid? ::pt2d a))
 (defn pts? [s] (s/valid? ::pts s))
@@ -283,11 +299,7 @@ Any elements that wrap content. Primary function is svg which is the ~container~
 (defn element?
   "Checks if `elem` is an SVG element."
   [elem]
-  (s/valid? ::svg-element elem)
-  #_(or (s/valid? ::basic-element elem)
-      (s/valid? ::text-element elem)
-      (s/valid? ::g-element elem)
-      (s/valid? ::path-element elem)))
+  (s/valid? ::svg-element elem))
 
 (defn path-string-allowed? 
   [string] 
@@ -1242,6 +1254,10 @@ To do this, I have a second multimethod to handle different commands that can sh
 #+END_SRC
 ** rotate
 *** rotate-element
+Rotate-element-by-transform leaves 'nil' for content. I filtered that out, but I suspect there's a cleaner way to do it.
+
+Consider refactor at some point.
+
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 (defn rotate-element-by-transform
   [deg [k props content]]
@@ -1249,7 +1265,7 @@ To do this, I have a second multimethod to handle different commands that can sh
         new-xf (-> xf
                    (update-in [:rotate 0] + deg))
         new-props (assoc props :transform (xf-map->str new-xf))]
-    [k new-props content]))
+    (vec (filter (complement nil?) [k new-props (when content content)]))))
 
 (defn move-pt
   [mv pt]
@@ -1466,12 +1482,34 @@ So,
                       (->> ch
                            (translate (v* [-1 -1] ctr))
                            (rotate deg)
-                           (translate xfm))))]
+                           (translate-element xfm))))]
     (into [k props] (filter (complement nil?) xfcontent))))
+
+(defn asdf
+  [deg [k props & content]]
+  (let [[gcx gcy] (centroid-of-pts (bounds (into [k props] content)))
+        xfcontent (for [child content]
+                    #_child
+                    (let [ch (translate [(- gcx) (- gcy)] child)
+                          ctr (if (= :g (first ch))
+                                (centroid-of-pts (bounds ch))
+                                (centroid ch))
+                          xfm (->> ctr
+                                   (rotate-pt deg)
+                                   (v+ [gcx gcy]))]
+                      (->> ch
+                           (translate (v* [-1 -1] ctr))
+                           (rotate deg)
+                           (translate xfm))))]
+    xfcontent #_(into [k props] (filter (complement nil?) xfcontent))))
+
 
 #+END_SRC
 
 *** interface
+I have to make sure rotate does not return elements with 'nil' content at the ends.
+
+
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 (defn rotate
   [deg & elems]
@@ -1805,4 +1843,102 @@ Style transforms allow the user to change any attributes of svg elements that af
                   :width 200 :height 300
                   :transform "rotate(0 10.0 10.0)"}])))
 
-#+end_sr
+#+end_src
+
+* watcher
+this can be run with clj -m qblock.watcher qblock.cljc in terminal.
+
+#+begin_src clojure :tangle ./src/svg_clj/watcher.cljc
+(ns svg-clj.watcher
+  (:require [clojure.string :as st]
+            [svg-clj.main :refer :all]
+            [hiccup.core :refer [html]]
+            [hawk.core :as hawk]))
+ 
+(defn design-watch
+  [f]
+  (hawk/watch!
+   [{:paths [f]
+     :handler
+     (fn [ctx e]
+       (require '[svg-clj.main :refer :all]
+                '[hiccup.core :refer [html]])
+       (->> (slurp f)
+            (format "[%s]")
+            load-string
+            (filter (complement var?))
+            html
+            (spit "test.html"))
+       ctx)}]))
+
+(defn -main [& args] (design-watch (first args)))
+#+end_src
+* WIP
+This is a WIP file for a more complex drawing to be used in tests. This will use all transforms, all shapes, etc.
+
+#+begin_src clojure :tangle ./test.cljc
+(defn show-debug-geom
+  [elem]
+  (let [ctr (centroid elem)
+        bds (bounds elem)]
+    (g elem
+       (g (->> (polygon bds)
+               (style {:fill "none"
+                       :stroke "red"
+                       :stroke-width "3px"}))
+          (->> (circle 2)
+               (translate ctr)
+               (style {:fill "red"}))))))
+
+(def a (g (->> (circle 50)
+               (translate [100 100])
+               (style {:fill "pink"
+                    :stroke-width "5px"
+                       :stroke "hotpink"}))
+          (->> (circle 10)
+               (translate [15 15])
+               (style {:fill "pink"
+                    :stroke-width "5px"
+                       :stroke "hotpink"}))))
+
+(def basic-group
+  (g
+   (rect 20 20)
+   (->> (rect 20 20) (translate [20 0]))
+   (->> (rect 20 20) (translate [0 20]))
+   (->> (rect 20 20) (translate [20 20]))))
+
+(def basics [(circle 80)
+             (rect 70 120)
+             (ellipse 40 80)
+             (line [0 0] [100 100])
+             (polygon [ [0 0] [30 0] [30 20] [15 10] [0 20] ])
+             (polyline [ [0 0] [30 0] [30 20] [15 10] [0 20] ])
+             (polygon-path [ [0 0] [30 0] [30 20] [15 10] [0 20] ])
+             (text "this is text")
+             (image "https://www.fillmurray.com/300/200" 100 67)
+             basic-group])
+
+(def doc
+  (->>
+   (for [elem basics]
+     (->> 
+      (svg [200 200 1]
+           (->> elem
+                (translate [100 100])
+                (rotate 35)
+                (style {:fill "pink"
+                        :stroke-width "2px"
+                        :stroke "hotpink"})
+                show-debug-geom))
+      (style {:style {:outline "1px solid blue"
+                      :margin "10px"}})))
+   (partition-all 3)
+   (interpose [:br])))
+
+[:html
+ [:body
+  [:p "tests"]
+  doc]]
+
+#+end_src
