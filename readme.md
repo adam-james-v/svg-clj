@@ -1,6 +1,6 @@
 # svg-clj
 
-A simple DSL for SVG in Clojure/Clojurescript.
+A helper library for creating SVGs in Clojure/Clojurescript.
 
 This is currently a work in progress. Until a stable release is provided, this library is considered to be in a 'prototype' state. Breaking changes are possible until a proper release is achieved.
 
