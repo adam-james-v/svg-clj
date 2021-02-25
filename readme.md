@@ -2,6 +2,8 @@
 
 A helper library for creating SVGs in Clojure/Clojurescript.
 
+You can play around with the library [here](https://adam-james-v.github.io/dev/svg-clj/)
+
 This is currently a work in progress. Until a stable release is provided, this library is considered to be in a 'prototype' state. Breaking changes are possible until a proper release is achieved.
 
 ![An SVG Image of Circles Spiralling, shrinking, and fading towards the image center.](https://github.com/adam-james-v/svg-clj/blob/main/examples/circles.svg "Circles")
