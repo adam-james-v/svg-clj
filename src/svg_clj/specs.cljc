@@ -177,7 +177,7 @@
   :args (s/cat :url string? :w number? :h number?)
   :ret ::svg-element)
 
-(s/fdef g
+#_(s/fdef g
   :args ::groupable
   :ret ::svg-element)
 

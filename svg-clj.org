@@ -24,7 +24,7 @@
 #+BEGIN_SRC markdown :tangle ./readme.md
 # svg-clj
 
-A simple DSL for SVG in Clojure/Clojurescript.
+A helper library for creating SVGs in Clojure/Clojurescript.
 
 This is currently a work in progress. Until a stable release is provided, this library is considered to be in a 'prototype' state. Breaking changes are possible until a proper release is achieved.
 
@@ -518,11 +518,11 @@ If the entire sequence has NO V or H, done.
   [cmds]
   {:pre [(s/valid? (s/coll-of :svg-clj.specs/command-map) cmds)]}
   (let [icmd (first cmds)]
-  (cons icmd 
-        (->> cmds
-             (partition 2 1)
-             (map convert-vh)
-             (map second)))))
+    (cons icmd 
+          (->> cmds
+               (partition 2 1)
+               (map convert-vh)
+               (map second)))))
 
 (defn- vh->l
   [cmds]
@@ -1795,7 +1795,7 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
 
 **** spec
  #+begin_src clojure :tangle ./src/svg_clj/specs.cljc
- (s/fdef g
+ #_(s/fdef g
    :args ::groupable
    :ret ::svg-element)
  #+end_src
@@ -2036,7 +2036,7 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
               (translate [(/ (+ 5 (* a 4)) 2) 0])
               (translate (rotate-pt (* a -40) [20 0]))
               (style {:stroke 
-                      (str "rgba(30,30,30," 
+                      (str "rgba(163,190,140," 
                            (/ (inc a) 10.0) ")")
                       :stroke-width "2px"
                       :fill "none"}))))

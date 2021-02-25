@@ -61,7 +61,7 @@
               (translate [(/ (+ 5 (* a 4)) 2) 0])
               (translate (rotate-pt (* a -40) [20 0]))
               (style {:stroke 
-                      (str "rgba(30,30,30," 
+                      (str "rgba(163,190,140," 
                            (/ (inc a) 10.0) ")")
                       :stroke-width "2px"
                       :fill "none"}))))

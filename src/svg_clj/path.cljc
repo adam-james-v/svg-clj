@@ -81,11 +81,11 @@
   [cmds]
   {:pre [(s/valid? (s/coll-of :svg-clj.specs/command-map) cmds)]}
   (let [icmd (first cmds)]
-  (cons icmd 
-        (->> cmds
-             (partition 2 1)
-             (map convert-vh)
-             (map second)))))
+    (cons icmd 
+          (->> cmds
+               (partition 2 1)
+               (map convert-vh)
+               (map second)))))
 
 (defn- vh->l
   [cmds]
