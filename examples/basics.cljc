@@ -1,25 +1,30 @@
 (ns examples.basics
   (:require [hiccup.core :refer [html]]
-            [svg-clj.transforms :refer [rotate-pt]]
-            #?(:clj 
-               [svg-clj.main :refer :all]
-               :cljs
-               [svg-clj.main :refer [svg
-                                     circle
-                                     ellipse
-                                     rect
-                                     line
-                                     polygon
-                                     polyline
-                                     polygon-path
-                                     text
-                                     g
-                                     image
-                                     style
-                                     bounds
-                                     centroid
-                                     translate
-                                     rotate]])))
+            [svg-clj.path :refer [circle-path
+                                  line-path
+                                  rect-path
+                                  polyline-path
+                                  polygon-path
+                                  bezier
+                                  arc]]
+            [svg-clj.main :refer [svg
+                                  circle
+                                  ellipse
+                                  rect
+                                  line
+                                  polygon
+                                  polyline
+                                  text
+                                  g
+                                  image
+                                  style
+                                  centroid
+                                  bounds
+                                  translate
+                                  rotate
+                                  rotate-pt
+                                  scale
+                                  merge-paths]]))
 
 (defn show-debug-geom
   [elem]
@@ -37,12 +42,12 @@
 (def a (g (->> (circle 50)
                (translate [100 100])
                (style {:fill "pink"
-                    :stroke-width "5px"
+                       :stroke-width "5px"
                        :stroke "hotpink"}))
           (->> (circle 10)
                (translate [15 15])
                (style {:fill "pink"
-                    :stroke-width "5px"
+                       :stroke-width "5px"
                        :stroke "hotpink"}))))
 
 (def basic-group
@@ -54,9 +59,9 @@
 
 (def circles
   (svg 
-   [200 200]
+   [200 200 1]
    (->>
-    (g (for [a (range 0 12)]
+    (apply g (for [a (range 0 12)]
          (->> (circle (+ 5 (* a 4)))
               (translate [(/ (+ 5 (* a 4)) 2) 0])
               (translate (rotate-pt (* a -40) [20 0]))
@@ -66,16 +71,21 @@
                       :stroke-width "2px"
                       :fill "none"}))))
     (translate [100 100]))))
- 
-(def basics [(circle 80)
-             (rect 70 120)
+
+(def basics [(arc [0 0] [50 0] 90)
+             (circle-path 40)
+             (bezier [0 0] [30 20] [80 40] [120 180])
+             (circle 80)
+             (rect-path 70 120)
              (ellipse 40 80)
              (line [0 0] [100 100])
+             (line-path [0 0] [100 100])
              (polygon [ [0 0] [30 0] [30 20] [15 10] [0 20] ])
              (polyline [ [0 0] [30 0] [30 20] [15 10] [0 20] ])
              (polygon-path [ [0 0] [30 0] [30 20] [15 10] [0 20] ])
              (text "this is text")
              (image "https://www.fillmurray.com/300/200" 100 67)
+             (merge-paths (rect-path 100 100) (rect-path 80 80))
              basic-group])
 
 (def doc
@@ -85,7 +95,7 @@
       (svg [200 200 1]
            (->> elem
                 (translate [100 100])
-                (rotate 35)
+                (rotate 90)
                 (style {:fill "pink"
                         :stroke-width "2px"
                         :stroke "hotpink"})
@@ -102,4 +112,4 @@
    [:body
     [:h1 "Basic Geometry Examples"]
     doc
-    circles]]))
+    #_circles]]))

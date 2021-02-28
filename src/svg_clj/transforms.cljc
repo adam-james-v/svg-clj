@@ -2,13 +2,34 @@
    (:require [clojure.string :as st]
              [clojure.spec.alpha :as s]
              [svg-clj.specs :as specs]
-             [svg-clj.utils :as utils]
+             [svg-clj.utils :as utils :refer [move-pt
+                                              rotate-pt
+                                              rotate-pt-around-center]]
              [svg-clj.path :as path]))
+
+(defmulti command->pts :command)
+
+(defmethod command->pts :default
+  [{:keys [input]}]
+  (mapv vec (partition 2 input)))
+
+;; this is not implemented correctly yet.
+;; just a 'stub' returning the end point of the arc
+(defmethod command->pts "A"
+  [{:keys [input cursor]}]
+  (let [[rx ry deg laf sw x y] input
+        b [x y]
+        #_ctr #_[(- x (* (Math/cos (utils/to-rad deg)) rx))
+             (- y (* (Math/sin (utils/to-rad deg)) rx))]
+        ctr (utils/v+ cursor [rx 0])
+        sa (utils/angle-from-pts cursor ctr b)
+        angle (if (= 1 laf) (- 360 sa) sa)
+        mids (mapv #(rotate-pt-around-center % ctr cursor) (rest (range 0 angle 90)))]
+    (conj mids b)))
 
 (defn centroid-of-pts
   "Calculates the arithmetic mean position of all the given `pts`."
   [pts]
-  {:pre [(s/valid? :svg-clj.specs/pts pts)]}
   (let [ndim (count (first (sort-by count pts)))
         splits (for [axis (range 0 ndim)]
                  (map #(nth % axis) pts))]
@@ -57,23 +78,11 @@
   [[_ props text]]
   [(:x props) (:y props)])
 
-(defmulti command->pts :command)
-
-(defmethod command->pts :default
-  [{:keys [:input]}]
-  (mapv vec (partition 2 input)))
-
-;; this is not implemented correctly yet.
-;; just a 'stub' returning the end point of the arc
-(defmethod command->pts "A"
-  [{:keys [:input]}]
-  [(vec (take-last 2 input))])
-
 (defmethod centroid-element :path
   [[_ props]]
   (let [cmds (path/path-string->commands (:d props))
         pts (mapcat command->pts cmds)]
-    (centroid-of-pts pts)))
+    (centroid-of-pts (vec (into #{} pts)))))
 
 (declare centroid)
 (defmethod centroid-element :g
@@ -92,7 +101,6 @@
 
 (defn pts->bounds
   [pts]
-  {:pre [(s/valid? :svg-clj.specs/pts pts)]}
   (let [xmax (apply max (map first pts))
         ymax (apply max (map second pts))
         xmin (apply min (map first pts))
@@ -116,7 +124,6 @@
                              [0 (- r)]])]
     (pts->bounds pts)))
 
-(declare rotate-pt-around-center)
 (defmethod bounds-element :ellipse
   [[_ props]]
   (let [xf (utils/str->xf-map  (get props :transform "rotate(0 0 0)"))
@@ -414,17 +421,6 @@
         new-props (assoc props :transform (utils/xf-map->str new-xf))]
     (vec (filter (complement nil?) [k new-props (when content content)]))))
 
-(defn move-pt
-  [mv pt]
-  (utils/v+ pt mv))
-
-(defn rotate-pt
-  [deg [x y]]
-  (let [c (Math/cos (utils/to-rad deg))
-        s (Math/sin (utils/to-rad deg))]
-    [(- (* x c) (* y s))
-     (+ (* x s) (* y c))]))
-
 (defmulti rotate-element
   (fn [_ element]
     (first element)))
@@ -436,13 +432,6 @@
 (defmethod rotate-element :ellipse
   [deg [k props]]
   (rotate-element-by-transform deg [k props]))
-
-(defn rotate-pt-around-center
-  [deg center pt]
-  (->> pt
-       (move-pt (map - center))
-       (rotate-pt deg)
-       (move-pt center)))
 
 (defmethod rotate-element :line
   [deg [k props]] 

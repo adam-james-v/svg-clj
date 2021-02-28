@@ -26,7 +26,7 @@ These circles are produced by the following code:
              (svg/translate [(/ (+ 5 (* a 4)) 2) 0])
              (svg/translate (rotate-pt (* a -40) [20 0]))
              (svg/style 
-               {:stroke (str "rgba(30,30,30," (/ (inc a) 10.0) ")")
+               {:stroke (str "rgba(163,190,140," (/ (inc a) 10.0) ")")
                 :stroke-width "2px"
                 :fill "none"}))))
     (svg/translate [100 100]))))
