@@ -1301,10 +1301,6 @@ To do this, I have a second multimethod to handle different commands that can sh
 
   For example, a shape sitting at [10 10] being translated by [10 10] will be located at [20 20] after translation."
   [[x y] & elems]
-  {:pre [(s/valid?
-          (s/or :one (s/coll-of :svg-clj.specs/svg-element)
-                :many (s/cat :elems (s/coll-of :svg-clj.specs/svg-element))) elems)
-         (s/valid? :svg-clj.specs/pt2d [x y])]}
   (let [elem (first elems)
         elems (rest elems)]
     (when elem
@@ -1752,12 +1748,15 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
         (recur [sx sy] (concat elem elems))))))
 
 #+END_SRC
-* main
+* sandbox
+This is a namespace idea for 'first time users' or people who just want to quickly try the library without requiring any other namespaces.
+
+This is just an idea for now. I am second-guessing the interning approach in svg-clj.main (largely due to cljs incompatibility).
 ** ns
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
-(ns svg-clj.main
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/sandbox.clj
+(ns svg-clj.sandbox
   (:require [clojure.string :as st]
-            #?(:clj [clojure.data.xml :as xml])
+            [clojure.data.xml :as xml]
             [svg-clj.utils :as utils]
             [svg-clj.specs :as specs]
             [svg-clj.transforms :as transforms]
@@ -1781,6 +1780,16 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
 (intern-with-meta 'path/path)
 (intern-with-meta 'path/merge-paths)
 (intern-with-meta 'path/polygon-path)
+#+END_SRC
+
+* main
+** ns
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
+(ns svg-clj.main
+  (:require [clojure.string :as st]
+            #?(:clj [clojure.data.xml :as xml])
+            [svg-clj.utils :as utils]
+            [svg-clj.specs :as specs]))
 #+END_SRC
 
 ** container-elements
@@ -2106,15 +2115,26 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
 
 #+begin_src clojure :tangle ./examples/basics.cljc
 (ns examples.basics
-  (:require [hiccup.core :refer [html]]
-            [svg-clj.path :refer [circle-path
+  (:require [clojure.string :as st]
+            [clojure.java.shell :refer [sh]]
+            [hiccup.core :refer [html]]
+            [svg-clj.utils :as utils]
+            [svg-clj.path :refer [path
+                                  merge-paths
+                                  circle-path
                                   line-path
                                   rect-path
                                   polyline-path
                                   polygon-path
                                   bezier
                                   arc]]
-            [svg-clj.main :refer [svg
+            [svg-clj.transforms :refer [centroid
+                                        bounds
+                                        translate
+                                        rotate
+                                        scale]]
+            [svg-clj.main :refer [->edn
+                                  svg
                                   circle
                                   ellipse
                                   rect
@@ -2124,14 +2144,7 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
                                   text
                                   g
                                   image
-                                  style
-                                  centroid
-                                  bounds
-                                  translate
-                                  rotate
-                                  rotate-pt
-                                  scale
-                                  merge-paths]]))
+                                  style]]))
 
 (defn show-debug-geom
   [elem]
@@ -2171,7 +2184,7 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
     (apply g (for [a (range 0 12)]
          (->> (circle (+ 5 (* a 4)))
               (translate [(/ (+ 5 (* a 4)) 2) 0])
-              (translate (rotate-pt (* a -40) [20 0]))
+              (translate (utils/rotate-pt (* a -40) [20 0]))
               (style {:stroke 
                       (str "rgba(163,190,140," 
                            (/ (inc a) 10.0) ")")
@@ -2231,3 +2244,4 @@ fn that appends to existing bezier
     #_circles]]))
 
 #+end_src
+

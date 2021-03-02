@@ -394,10 +394,6 @@
 
   For example, a shape sitting at [10 10] being translated by [10 10] will be located at [20 20] after translation."
   [[x y] & elems]
-  {:pre [(s/valid?
-          (s/or :one (s/coll-of :svg-clj.specs/svg-element)
-                :many (s/cat :elems (s/coll-of :svg-clj.specs/svg-element))) elems)
-         (s/valid? :svg-clj.specs/pt2d [x y])]}
   (let [elem (first elems)
         elems (rest elems)]
     (when elem

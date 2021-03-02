@@ -1,13 +1,24 @@
 (ns examples.basics
-  (:require [hiccup.core :refer [html]]
-            [svg-clj.path :refer [circle-path
+  (:require [clojure.string :as st]
+            [clojure.java.shell :refer [sh]]
+            [hiccup.core :refer [html]]
+            [svg-clj.utils :as utils]
+            [svg-clj.path :refer [path
+                                  merge-paths
+                                  circle-path
                                   line-path
                                   rect-path
                                   polyline-path
                                   polygon-path
                                   bezier
                                   arc]]
-            [svg-clj.main :refer [svg
+            [svg-clj.transforms :refer [centroid
+                                        bounds
+                                        translate
+                                        rotate
+                                        scale]]
+            [svg-clj.main :refer [->edn
+                                  svg
                                   circle
                                   ellipse
                                   rect
@@ -17,14 +28,7 @@
                                   text
                                   g
                                   image
-                                  style
-                                  centroid
-                                  bounds
-                                  translate
-                                  rotate
-                                  rotate-pt
-                                  scale
-                                  merge-paths]]))
+                                  style]]))
 
 (defn show-debug-geom
   [elem]
@@ -64,7 +68,7 @@
     (apply g (for [a (range 0 12)]
          (->> (circle (+ 5 (* a 4)))
               (translate [(/ (+ 5 (* a 4)) 2) 0])
-              (translate (rotate-pt (* a -40) [20 0]))
+              (translate (utils/rotate-pt (* a -40) [20 0]))
               (style {:stroke 
                       (str "rgba(163,190,140," 
                            (/ (inc a) 10.0) ")")
