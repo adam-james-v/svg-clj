@@ -1,5 +1,5 @@
 (ns svg-clj.transforms
-   (:require [clojure.string :as st]
+   (:require [clojure.string :as str]
              [clojure.spec.alpha :as s]
              [svg-clj.specs :as specs]
              [svg-clj.utils :as utils :refer [move-pt
@@ -55,12 +55,12 @@
 
 (defmethod centroid-element :polygon
   [[_ props]]
-  (let [pts (mapv utils/s->v (st/split (:points props) #" "))]
+  (let [pts (mapv utils/s->v (str/split (:points props) #" "))]
     (centroid-of-pts pts)))
 
 (defmethod centroid-element :polyline
   [[_ props]]
-  (let [pts (mapv utils/s->v (st/split (:points props) #" "))]
+  (let [pts (mapv utils/s->v (str/split (:points props) #" "))]
     (centroid-of-pts pts)))
 
 (defmethod centroid-element :rect
@@ -154,12 +154,12 @@
 
 (defmethod bounds-element :polygon
   [[_ props]]
-  (let [pts (mapv utils/s->v (st/split (:points props) #" "))]
+  (let [pts (mapv utils/s->v (str/split (:points props) #" "))]
     (pts->bounds pts)))
 
 (defmethod bounds-element :polyline
   [[_ props]]
-  (let [pts (mapv utils/s->v (st/split (:points props) #" "))]
+  (let [pts (mapv utils/s->v (str/split (:points props) #" "))]
     (pts->bounds pts)))
 
 (defmethod bounds-element :rect
@@ -267,7 +267,7 @@
 
 (defmethod translate-element :polygon
   [[x y] [k props]]
-  (let [pts (mapv utils/s->v (st/split (:points props) #" "))
+  (let [pts (mapv utils/s->v (str/split (:points props) #" "))
         xpts (->> pts 
                   (map (partial utils/v+ [x y]))
                   (map utils/v->s))]
@@ -275,7 +275,7 @@
 
 (defmethod translate-element :polyline
   [[x y] [k props]]
-  (let [pts (mapv utils/s->v (st/split (:points props) #" "))
+  (let [pts (mapv utils/s->v (str/split (:points props) #" "))
         xpts (->> pts 
                   (map (partial utils/v+ [x y]))
                   (map utils/v->s))]
@@ -400,14 +400,16 @@
       (cond
         (and (specs/element? elem) (= 0 (count elems)))
         (translate-element [x y] elem)
-        
         (and (specs/element? elem) (< 0 (count elems)))
         (concat
          [(translate-element [x y] elem)]
          [(translate [x y] elems)])
-      
         :else
         (recur [x y] (concat elem elems))))))
+
+(defn translate2
+  [[x y] & elems]
+  (map #(translate-element [x y] %) (first elems)))
 
 (defn rotate-element-by-transform
   [deg [k props content]]
@@ -442,7 +444,7 @@
 (defmethod rotate-element :polygon
   [deg [k props]]
   (let [ctr (centroid [k props])
-        pts (mapv utils/s->v (st/split (:points props) #" "))
+        pts (mapv utils/s->v (str/split (:points props) #" "))
         xpts (->> pts
                   (map #(utils/v- % ctr))
                   (map #(rotate-pt deg %))
@@ -454,7 +456,7 @@
 (defmethod rotate-element :polyline
   [deg [k props]]
   (let [ctr (centroid [k props])
-        pts (mapv utils/s->v (st/split (:points props) #" "))
+        pts (mapv utils/s->v (str/split (:points props) #" "))
         xpts (->> pts
                   (map #(utils/v- % ctr))
                   (map #(rotate-pt deg %))
@@ -674,7 +676,7 @@
 
 (defmethod scale-element :polygon
   [[sx sy] [k props]]
-  (let [pts (mapv utils/s->v (st/split (:points props) #" "))
+  (let [pts (mapv utils/s->v (str/split (:points props) #" "))
         ctr (centroid [k props])
         xpts (->> pts
                   (map (partial scale-pt-from-center ctr [sx sy]))
@@ -683,7 +685,7 @@
 
 (defmethod scale-element :polyline
   [[sx sy] [k props]]
-  (let [pts (mapv utils/s->v (st/split (:points props) #" "))
+  (let [pts (mapv utils/s->v (str/split (:points props) #" "))
         ctr (centroid [k props])
         xpts (->> pts
                   (map (partial scale-pt-from-center ctr [sx sy]))

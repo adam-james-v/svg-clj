@@ -1,5 +1,5 @@
 (ns svg-clj.utils
-  (:require [clojure.string :as st]
+  (:require [clojure.string :as str]
             #?(:cljs
                [cljs.reader :refer [read-string]])))
 
@@ -26,7 +26,7 @@
   [& numbers]
   (let [n (count numbers)]
     (/ (apply + numbers) n)))
-
+ 
 ;; some string transformation tools
 (defn v->s
   "Turns the vector `v` into a string formatted for use in SVG attributes."
@@ -37,8 +37,8 @@
   "Turns a string of comma or space separated numbers into a vector."
   [s]
   (-> s
-      (st/trim)
-      (st/split #"[, ]")
+      (str/trim)
+      (str/split #"[, ]")
       (#(filter (complement empty?) %))
       (#(mapv read-string %))))
 
@@ -48,7 +48,7 @@
 
 (defn str->xf-kv
   [s]
-  (let [split (st/split s #"\(")
+  (let [split (str/split s #"\(")
         key (keyword (first split))
         val (vec (read-string (str "(" (second split))))]
     [key val]))
@@ -60,7 +60,7 @@
 (defn str->xf-map
   [s]
   (if-let [s s]
-    (into {} (map str->xf-kv (st/split-lines s)))
+    (into {} (map str->xf-kv (str/split-lines s)))
     {}))
 
 ;; geom

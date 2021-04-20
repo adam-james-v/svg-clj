@@ -1,5 +1,17 @@
 (ns svg-clj.main-test
-  (:require [svg-clj.main :as svg :refer :all]
+  (:require [svg-clj.main :as svg :refer [circle
+                                          ellipse
+                                          g
+                                          image
+                                          line
+                                          polygon
+                                          polyline
+                                          rect
+                                          style
+                                          svg
+                                          text]]
+            [svg-clj.transforms :as tf]
+            [svg-clj.path :as p]
             [clojure.test :refer [deftest is]]
             [clojure.spec.alpha :as s]
             [clojure.spec.test.alpha :as stest]))

@@ -1,5 +1,5 @@
 (ns svg-clj.specs
-  (:require [clojure.string :as st]
+  (:require [clojure.string :as str]
             [clojure.spec.alpha :as s]))
             
 (s/def ::pt2d (s/tuple number? number?))
@@ -56,7 +56,7 @@
 
 (defn path-string-allowed? 
   [string] 
-  (empty? (st/replace string #"[MmZzLlHhVvCcSsQqTtAaeE0-9-,.\s]" "")))
+  (empty? (str/replace string #"[MmZzLlHhVvCcSsQqTtAaeE0-9-,.\s]" "")))
 
 (defn path-string-valid-syntax?
   [string]

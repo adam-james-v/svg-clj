@@ -1,5 +1,5 @@
 (ns svg-clj.path
-  (:require [clojure.string :as st]
+  (:require [clojure.string :as str]
             [clojure.spec.alpha :as s]
             [svg-clj.utils :as utils]
             [svg-clj.specs :as specs]))
@@ -15,9 +15,9 @@
   "Split the path string `ps` into a vector of path command strings."
   [ps]
   (-> ps
-      (st/replace #"\n" " ")
-      (st/split #"(?=[A-DF-Za-df-z])")
-      (#(map st/trim %))
+      (str/replace #"\n" " ")
+      (str/split #"(?=[A-DF-Za-df-z])")
+      (#(map str/trim %))
       (#(filter (complement empty?) %))))
 
 (defn- relative?
@@ -26,7 +26,7 @@
   Absolute coordinate commands are uppercase."
   [cs]
   {:pre [(s/valid? :svg-clj.specs/command-string cs)]}
-  (let [csx (first (st/split cs #"[a-z]"))]
+  (let [csx (first (str/split cs #"[a-z]"))]
     (not (= cs csx))))
 
 (defn- coord-sys-key
@@ -37,14 +37,14 @@
 
 (defn- command-input
   [cs]
-  (let [i (st/split cs #"[A-DF-Za-df-z]")]
+  (let [i (str/split cs #"[A-DF-Za-df-z]")]
     (when (not (empty? (rest i)))
       (apply utils/s->v (rest i)))))
 
 (defn- command
   "Transforms a command string `cs` into a map."
   [cs]
-  {:command  (st/upper-case (re-find #"[A-DF-Za-df-z]" cs))
+  {:command  (str/upper-case (re-find #"[A-DF-Za-df-z]" cs))
    :coordsys (coord-sys-key cs)
    :input (command-input cs)})
 
@@ -101,7 +101,7 @@
   [{:keys [:command :coordsys :input] :as cmd}]
   (let [c (if (= coordsys :abs)
             command
-            (st/lower-case command))]
+            (str/lower-case command))]
     (str c (apply str (interpose " " input)))))
 
 (defn cmds->path-string

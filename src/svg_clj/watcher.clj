@@ -1,9 +1,19 @@
 (ns svg-clj.watcher
   (:require [clojure.string :as st]
-            [svg-clj.main :refer :all]
-            [hiccup.core :refer [html]]
-            [hawk.core :as hawk]))
- 
+            [hiccup2.core :refer [html]]
+            [hawk.core :as hawk]
+            [svg-clj.main :refer [circle
+                                  ellipse
+                                  g
+                                  image
+                                  line
+                                  polygon
+                                  polyline
+                                  rect
+                                  style
+                                  svg
+                                  text]]))
+
 (defn design-watch
   [f]
   (hawk/watch!

@@ -1,9 +1,10 @@
 (ns svg-clj.sandbox
-  (:require [clojure.string :as st]
+  (:require [clojure.string :as str]
             [clojure.data.xml :as xml]
             [svg-clj.utils :as utils]
+            [svg-clj.main :as svg]
             [svg-clj.specs :as specs]
-            [svg-clj.transforms :as transforms]
+            [svg-clj.transforms :as tf]
             [svg-clj.path :as path]))
 
 ;; thanks to help from walterl and seancorfield on Clojurians Slack
