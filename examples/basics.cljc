@@ -98,8 +98,8 @@
      (->> 
       (svg [200 200 1]
            (->> elem
-                (translate [100 100])
-                (rotate 90)
+                (translate [80 80])
+                (rotate 45)
                 (style {:fill "pink"
                         :stroke-width "2px"
                         :stroke "hotpink"})

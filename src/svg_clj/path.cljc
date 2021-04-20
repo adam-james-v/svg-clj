@@ -102,17 +102,17 @@
   (let [c (if (= coordsys :abs)
             command
             (str/lower-case command))]
-    (str c (apply str (interpose " " input)))))
+    (str c (str/join " " input))))
 
 (defn cmds->path-string
   [cmds]
-  (apply str (interpose " " (map cmd->path-string cmds))))
+  (str/join " " (map cmd->path-string cmds)))
 
 (defn merge-paths
   "Merges a list of path elements together, keeping props from last path in the list."
   [& paths]
   (let [props (second (last paths))
-        d (apply str (interpose " " (map #(get-in % [1 :d]) paths)))]
+        d (str/join " " (map #(get-in % [1 :d]) paths))]
     [:path (assoc props :d d)]))
 
 (defn- pt->l

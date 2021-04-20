@@ -17,7 +17,11 @@
   org.clojure/test.check    {:mvn/version "1.1.0"}
   org.clojure/data.xml      {:mvn/version "0.0.8"}
   hawk/hawk                 {:mvn/version "0.2.11"}
-  hiccup/hiccup             {:mvn/version "2.0.0-alpha2"}}}
+  hiccup/hiccup             {:mvn/version "2.0.0-alpha2"}}
+ :aliases {:test {:extra-paths ["test"]
+                 :extra-deps {com.cognitect/test-runner {:git/url "https://github.com/cognitect-labs/test-runner.git"
+                                                         :sha "209b64504cb3bd3b99ecfec7937b358a879f55c1"}}
+                 :main-opts ["-m" "cognitect.test-runner"]}}}
 
 #+end_src
 
@@ -130,8 +134,8 @@ Remember in REPL you can't re-def the defmulti dispatch function with some ns ma
 https://clojuredocs.org/clojure.core/defmulti#example-55d9e498e4b0831e02cddf1b
 
 #+begin_src clojure
-(defmulti x (fn[_] :dec)) ;; Can't redefine :(
-(x 0) ;; => 1 ;; STILL :(
+(defmulti x (fn[_] :dec)) ;; Can't redefine
+(x 0) ;; => 1 ;; STILL 
 (ns-unmap *ns* 'x) ;; => unmap the var from the namespace
 
 #+end_src
@@ -217,24 +221,6 @@ As much as possible, all transformation calculations are 'baked' into shape coor
 
  - translate keeps specs in the fn body, but spec has slow runtime so make it optional or replace somehow
 
-
- - use str/join instead of the interpose " " pattern where possible. 
- #+begin_src clojure
- ;; rewrite polygon
-
- (defn polygon
-   [pts]
-   [:polygon {:points (apply str (interpose " " (map utils/v->s pts)))}])
-
- (defn polygon
-   [pts]
-   [:polygon {:points (str/join " " (mapv utils/v->s pts))}])
-
-
- #+end_src
-
- - :refer :all is deprecated 
-
    --- for 'playground' or quick and dirty REPL work, I still kinda think it's ok. weak argument, but... I'm lazy when I'm in the CLJ repl.
 
  - hiccup/html deprecated use hiccup2
@@ -247,7 +233,6 @@ As much as possible, all transformation calculations are 'baked' into shape coor
 strictly speaking, translate and rotate are not operating on streams of data, but rather on objects
  - assoc and dissoc use thread first -> you do a thing to a single 'object'
  - map and filter use thread last    -> map and filter will work on lists... lazy, infinite, all possible. 
-
 
 * utils
 #+begin_src clojure :tangle ./src/svg_clj/utils.cljc
@@ -284,7 +269,7 @@ strictly speaking, translate and rotate are not operating on streams of data, bu
 (defn v->s
   "Turns the vector `v` into a string formatted for use in SVG attributes."
   [v]
-  (apply str (interpose "," v)))
+  (str/join "," v))
 
 (defn s->v
   "Turns a string of comma or space separated numbers into a vector."
@@ -308,7 +293,7 @@ strictly speaking, translate and rotate are not operating on streams of data, bu
 
 (defn xf-map->str
   [m]
-  (apply str (interpose "\n" (map xf-kv->str m))))
+  (str/join "\n" (map xf-kv->str m)))
 
 (defn str->xf-map
   [s]
@@ -659,11 +644,11 @@ The requirement is that if a user puts a path string into the system but does no
   (let [c (if (= coordsys :abs)
             command
             (str/lower-case command))]
-    (str c (apply str (interpose " " input)))))
+    (str c (str/join " " input))))
 
 (defn cmds->path-string
   [cmds]
-  (apply str (interpose " " (map cmd->path-string cmds))))
+  (str/join " " (map cmd->path-string cmds)))
 #+END_SRC
 
 ** merge-paths
@@ -672,7 +657,7 @@ The requirement is that if a user puts a path string into the system but does no
   "Merges a list of path elements together, keeping props from last path in the list."
   [& paths]
   (let [props (second (last paths))
-        d (apply str (interpose " " (map #(get-in % [1 :d]) paths)))]
+        d (str/join " " (map #(get-in % [1 :d]) paths))]
     [:path (assoc props :d d)]))
 #+END_SRC
 
@@ -863,53 +848,8 @@ Transforms are translate, rotate, and scale. All transforms work well for most o
 
 This leads to challenges with groups. Groups must have their centroid calculated such that rotation and translation can correctly occur about the group's centroid. Internally, this means that the group's centroid is treated as the 'temporary global origin' and all objects are globally rotated about that temp. origin. This has the appearance of a group rotating locally, which is the intended outcome.
 
------
-fixes needed
------
-
-If I run translate on a list of elements, it incorrectly nests everything, so I get N levels of depth, where N is number of elements in the list. It's just wrong.
-
-But, if I map translate-element over the list, it works correctly.
-
-Basically, i think I should remove the need for the 'interface' fn and just have users directly use the translate-elemtn, rotate-elem, etc. This should also eliminate the problem where I'm using spec in conditional branching directly.
-
-#+begin_src clojure
-;; very wrong
-(comment 
-(tf/rotate 45 b)
-([:circle {:cx 0, :cy 0, :r 2, :transform "rotate(45 0 0)"}]
- ([:circle {:cx 0, :cy 0, :r 2, :transform "rotate(45 0 0)"}]
-  ([:circle {:cx 0, :cy 0, :r 2, :transform "rotate(45 0 0)"}]
-   ([:circle {:cx 0, :cy 0, :r 2, :transform "rotate(45 0 0)"}]
-    ([:circle {:cx 0, :cy 0, :r 2, :transform "rotate(45 0 0)"}]
-     ([:circle {:cx 0, :cy 0, :r 2, :transform "rotate(45 0 0)"}]
-      ([:circle {:cx 0, :cy 0, :r 2, :transform "rotate(45 0 0)"}]
-       ([:circle {:cx 0, :cy 0, :r 2, :transform "rotate(45 0 0)"}]
-        ([:circle {:cx 0, :cy 0, :r 2, :transform "rotate(45 0 0)"}]
-         [:circle {:cx 0, :cy 0, :r 2, :transform "rotate(45 0 0)"}])))))))))
-
-)
-
-;; correct output
-(comment
-(map #(tf/translate [10 10] %) b)
-([:circle {:cx 10, :cy 10, :r 2, :transform "rotate(0 10 10)"}]
- [:circle {:cx 10, :cy 10, :r 2, :transform "rotate(0 10 10)"}]
- [:circle {:cx 10, :cy 10, :r 2, :transform "rotate(0 10 10)"}]
- [:circle {:cx 10, :cy 10, :r 2, :transform "rotate(0 10 10)"}]
- [:circle {:cx 10, :cy 10, :r 2, :transform "rotate(0 10 10)"}]
- [:circle {:cx 10, :cy 10, :r 2, :transform "rotate(0 10 10)"}]
- [:circle {:cx 10, :cy 10, :r 2, :transform "rotate(0 10 10)"}]
- [:circle {:cx 10, :cy 10, :r 2, :transform "rotate(0 10 10)"}]
- [:circle {:cx 10, :cy 10, :r 2, :transform "rotate(0 10 10)"}]
- [:circle {:cx 10, :cy 10, :r 2, :transform "rotate(0 10 10)"}])
-
-)
-
-#+end_src
 
 So, I either should fix the interface fn or eliminate it entirely.
-
 
 ** ns
 #+begin_src clojure :tangle ./src/svg_clj/transforms.cljc
@@ -946,13 +886,14 @@ For transforms, it is necessary to extract basic point data from commands. In ge
         angle (if (= 1 laf) (- 360 sa) sa)
         mids (mapv #(rotate-pt-around-center % ctr cursor) (rest (range 0 angle 90)))]
     (conj mids b)))
+
 #+END_SRC
 
 ** centroid
 *** centroid-element
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
 (defn centroid-of-pts
-  "Calculates the arithmetic mean position of all the given `pts`."
+  "Calculates the arithmetic mean position of the given `pts`."
   [pts]
   (let [ndim (count (first (sort-by count pts)))
         splits (for [axis (range 0 ndim)]
@@ -1047,6 +988,7 @@ Ideas to keep in mind:
     (recur (first elems))
     ;; content is a single element OR a list of elements
     (centroid-of-pts (mapv centroid-element elems))))
+
 #+END_SRC
 
 **** spec
@@ -1198,6 +1140,7 @@ Ideas to keep in mind:
     (recur (first elems))
     ;; content is a single element OR a list of elements
     (pts->bounds (mapcat bounds-element elems))))
+
 #+END_SRC
 
 **** spec
@@ -1209,11 +1152,17 @@ Ideas to keep in mind:
 ** translate
 *** translate-element
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
-(defmulti translate-element 
+(defmulti translate
   (fn [_ element]
-    (first element)))
+    (if (keyword? (first element))
+      (first element)
+      :list)))
 
-(defmethod translate-element :circle
+(defmethod translate :list
+  [[x y] elems]
+  (map #(translate [x y] %) elems))
+
+(defmethod translate :circle
   [[x y] [k props]]
   (let [xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
         cx (:cx props)
@@ -1227,7 +1176,7 @@ Ideas to keep in mind:
                       (update :cy + y))]
     [k new-props]))
 
-(defmethod translate-element :ellipse
+(defmethod translate :ellipse
   [[x y] [k props]]
   (let [xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
         cx (:cx props)
@@ -1241,7 +1190,7 @@ Ideas to keep in mind:
                       (update :cy + y))]
     [k new-props]))
 
-(defmethod translate-element :line
+(defmethod translate :line
   [[x y] [k props]]
   (let [new-props (-> props
                       (update :x1 + x)
@@ -1250,23 +1199,23 @@ Ideas to keep in mind:
                       (update :y2 + y))]
     [k new-props]))
 
-(defmethod translate-element :polygon
+(defmethod translate :polygon
   [[x y] [k props]]
   (let [pts (mapv utils/s->v (str/split (:points props) #" "))
         xpts (->> pts 
                   (map (partial utils/v+ [x y]))
                   (map utils/v->s))]
-    [k (assoc props :points (apply str (interpose " " xpts)))]))
+    [k (assoc props :points (str/join " " xpts))]))
 
-(defmethod translate-element :polyline
+(defmethod translate :polyline
   [[x y] [k props]]
   (let [pts (mapv utils/s->v (str/split (:points props) #" "))
         xpts (->> pts 
                   (map (partial utils/v+ [x y]))
                   (map utils/v->s))]
-    [k (assoc props :points (apply str (interpose " " xpts)))]))
+    [k (assoc props :points (str/join " " xpts))]))
 
-(defmethod translate-element :rect
+(defmethod translate :rect
   [[x y] [k props]]
   (let [[cx cy] (centroid [k props])
         xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
@@ -1279,7 +1228,7 @@ Ideas to keep in mind:
                       (update :y + y))]
     [k new-props]))
 
-(defmethod translate-element :image
+(defmethod translate :image
   [[x y] [k props]]
   (let [[cx cy] (centroid [k props])
         xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
@@ -1292,7 +1241,7 @@ Ideas to keep in mind:
                       (update :y + y))]
     [k new-props]))
 
-(defmethod translate-element :text
+(defmethod translate :text
   [[x y] [k props text]]
   (let [xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
         new-xf (-> xf
@@ -1368,7 +1317,7 @@ To do this, I have a second multimethod to handle different commands that can sh
   [a cmd]
   [a cmd])
 
-(defmethod translate-element :path
+(defmethod translate :path
   [[x y] [k props]]
   (let [cmds (path/path-string->commands (:d props))
         xcmds (map #(translate-path-command [x y] %) cmds)]
@@ -1378,41 +1327,13 @@ To do this, I have a second multimethod to handle different commands that can sh
 
 *** group-translate
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
-(declare translate)
-(defmethod translate-element :g
+#_(declare translate)
+(defmethod translate :g
   [[x y] [k props & content]]
   (->> content
        (map (partial translate [x y]))
        (filter (complement nil?))
        (into [k props])))
-
-#+END_SRC
-
-*** interface
-see if I can re-work the translate-element fn to eliminate the need for this interface. 
-
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
-(defn translate
-  "Translates the `elems` by `x` and `y` relative to the element(s)'s current position(s).
-
-  For example, a shape sitting at [10 10] being translated by [10 10] will be located at [20 20] after translation."
-  [[x y] & elems]
-  (let [elem (first elems)
-        elems (rest elems)]
-    (when elem
-      (cond
-        (and (specs/element? elem) (= 0 (count elems)))
-        (translate-element [x y] elem)
-        (and (specs/element? elem) (< 0 (count elems)))
-        (concat
-         [(translate-element [x y] elem)]
-         [(translate [x y] elems)])
-        :else
-        (recur [x y] (concat elem elems))))))
-
-(defn translate2
-  [[x y] & elems]
-  (map #(translate-element [x y] %) (first elems)))
 
 #+END_SRC
 
@@ -1431,19 +1352,25 @@ Consider refactor at some point.
         new-props (assoc props :transform (utils/xf-map->str new-xf))]
     (vec (filter (complement nil?) [k new-props (when content content)]))))
 
-(defmulti rotate-element
+(defmulti rotate
   (fn [_ element]
-    (first element)))
+    (if (keyword? (first element))
+      (first element)
+      :list)))
 
-(defmethod rotate-element :circle
+(defmethod rotate :list
+  [deg elems]
+  (map #(rotate deg %) elems))
+
+(defmethod rotate :circle
   [deg [k props]]
   (rotate-element-by-transform deg [k props]))
 
-(defmethod rotate-element :ellipse
+(defmethod rotate :ellipse
   [deg [k props]]
   (rotate-element-by-transform deg [k props]))
 
-(defmethod rotate-element :line
+(defmethod rotate :line
   [deg [k props]] 
   (let [pts [[(:x1 props) (:y1 props)] [(:x2 props) (:y2 props)]]
         [[x1 y1] [x2 y2]]  (->> pts
@@ -1453,7 +1380,7 @@ Consider refactor at some point.
         new-props (assoc props :x1 x1 :y1 y1 :x2 x2 :y2 y2)]
     [k new-props]))
 
-(defmethod rotate-element :polygon
+(defmethod rotate :polygon
   [deg [k props]]
   (let [ctr (centroid [k props])
         pts (mapv utils/s->v (str/split (:points props) #" "))
@@ -1462,10 +1389,10 @@ Consider refactor at some point.
                   (map #(rotate-pt deg %))
                   (map #(utils/v+ % ctr))
                   (map utils/v->s))
-        xprops (assoc props :points (apply str (interpose " " xpts)))]
+        xprops (assoc props :points (str/join " " xpts))]
     [k xprops]))
 
-(defmethod rotate-element :polyline
+(defmethod rotate :polyline
   [deg [k props]]
   (let [ctr (centroid [k props])
         pts (mapv utils/s->v (str/split (:points props) #" "))
@@ -1474,10 +1401,10 @@ Consider refactor at some point.
                   (map #(rotate-pt deg %))
                   (map #(utils/v+ % ctr))
                   (map utils/v->s))
-        xprops (assoc props :points (apply str (interpose " " xpts)))]
+        xprops (assoc props :points (str/join " " xpts))]
     [k xprops]))
 
-(defmethod rotate-element :rect
+(defmethod rotate :rect
   [deg [k props]]
   (let [[cx cy] (centroid [k props])
         xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
@@ -1488,7 +1415,7 @@ Consider refactor at some point.
         new-props (assoc props :transform (utils/xf-map->str new-xf))]
     [k new-props]))
 
-(defmethod rotate-element :image
+(defmethod rotate :image
   [deg [k props]]
   (let [[cx cy] (centroid [k props])
         xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
@@ -1499,7 +1426,7 @@ Consider refactor at some point.
         new-props (assoc props :transform (utils/xf-map->str new-xf))]
     [k new-props]))
 
-(defmethod rotate-element :text
+(defmethod rotate :text
   [deg [k props text]]
   (rotate-element-by-transform deg [k props text]))
 
@@ -1593,7 +1520,7 @@ To do this, I have a second multimethod to handle different commands that can sh
   [a cmd]
   [a cmd])
 
-(defmethod rotate-element :path
+(defmethod rotate :path
   [deg [k props]]
   (let [ctr (centroid [k props])
         cmds (path/path-string->commands (:d props))
@@ -1613,8 +1540,7 @@ So,
   - translate child to new center (rotate its orig midpoint about group midpoint to find new position)
 
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
-(declare rotate)
-(defmethod rotate-element :g
+(defmethod rotate :g
   [deg [k props & content]]
   (let [[gcx gcy] (centroid-of-pts (bounds (into [k props] content)))
         xfcontent (for [child content]
@@ -1628,34 +1554,8 @@ So,
                       (->> ch
                            (translate (utils/v* [-1 -1] ctr))
                            (rotate deg)
-                           (translate-element xfm))))]
+                           (translate xfm))))]
     (into [k props] (filter (complement nil?) xfcontent))))
-#+END_SRC
-
-*** interface
-I have to make sure rotate does not return elements with 'nil' content at the ends.
-
-
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
-(defn rotate
-  "Rotates the `elems` by `deg` around the centroid of the element(s).
-
-  Applied rotations are local."
-  [deg & elems]
-  (let [elem (first elems)
-        elems (rest elems)]
-    (when elem
-      (cond
-        (and (specs/element? elem) (= 0 (count elems)))
-        (rotate-element deg elem)
-        
-        (and (specs/element? elem) (< 0 (count elems)))
-        (concat
-         [(rotate-element deg elem)]
-         [(rotate deg elems)])
-        
-        :else
-        (recur deg (concat elem elems))))))
 
 #+END_SRC
 
@@ -1729,7 +1629,7 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
         xpts (->> pts
                   (map (partial scale-pt-from-center ctr [sx sy]))
                   (map utils/v->s))]
-    [k (assoc props :points (apply str (interpose " " xpts)))]))
+    [k (assoc props :points (str/join " " xpts))]))
 
 (defmethod scale-element :polyline
   [[sx sy] [k props]]
@@ -1738,7 +1638,7 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
         xpts (->> pts
                   (map (partial scale-pt-from-center ctr [sx sy]))
                   (map utils/v->s))]
-    [k (assoc props :points (apply str (interpose " " xpts)))]))
+    [k (assoc props :points (str/join " " xpts))]))
 
 (defmethod scale-element :rect
   [[sx sy] [k props]]
@@ -1847,48 +1747,11 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
         (recur [sx sy] (concat elem elems))))))
 
 #+END_SRC
-* sandbox
-This is a namespace idea for 'first time users' or people who just want to quickly try the library without requiring any other namespaces.
-
-This is just an idea for now. I am second-guessing the interning approach in svg-clj.main (largely due to cljs incompatibility).
-
-** ns
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/sandbox.clj
-(ns svg-clj.sandbox
-  (:require [clojure.string :as str]
-            [clojure.data.xml :as xml]
-            [svg-clj.utils :as utils]
-            [svg-clj.main :as svg]
-            [svg-clj.specs :as specs]
-            [svg-clj.transforms :as tf]
-            [svg-clj.path :as path]))
-
-;; thanks to help from walterl and seancorfield on Clojurians Slack
-(defn intern-with-meta
-  [q-sym]
-  (let [sym (symbol (name q-sym))]
-    (do (intern *ns* sym (resolve q-sym))
-        (alter-meta! (resolve sym) 
-                     #(merge % (meta (resolve q-sym)) 
-                             {:ns *ns*})))))
-
-(intern-with-meta 'transforms/centroid)
-(intern-with-meta 'transforms/bounds)
-(intern-with-meta 'transforms/translate)
-(intern-with-meta 'transforms/rotate)
-(intern-with-meta 'utils/rotate-pt)
-(intern-with-meta 'transforms/scale)
-(intern-with-meta 'path/path)
-(intern-with-meta 'path/merge-paths)
-(intern-with-meta 'path/polygon-path)
-
-#+END_SRC
-
 * main
 ** ns
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 (ns svg-clj.main
-  (:require [clojure.string :as st]
+  (:require [clojure.string :as str]
             #?(:clj [clojure.data.xml :as xml])
             [svg-clj.utils :as utils]
             [svg-clj.specs :as specs]))
@@ -1911,6 +1774,7 @@ Any elements that wrap content. Primary function is svg which is the ~container~
    (if sc
      [:g {:transform (str "scale(" sc ")")} content]
      content)])
+
 #+end_src
 
 ** shapes
@@ -1974,7 +1838,7 @@ Any elements that wrap content. Primary function is svg which is the ~container~
  #+begin_src clojure :tangle ./src/svg_clj/main.cljc
  (defn polygon
    [pts]
-   [:polygon {:points (apply str (interpose " " (map utils/v->s pts)))}])
+   [:polygon {:points (str/join " " (map utils/v->s pts))}])
  #+end_src
 
 **** spec
@@ -1985,11 +1849,12 @@ Any elements that wrap content. Primary function is svg which is the ~container~
  #+end_src
 
 *** polyline
- #+begin_src clojure :tangle ./src/svg_clj/main.cljc
- (defn polyline
-   [pts]
-   [:polyline {:points (apply str (interpose " " (map utils/v->s pts)))}])
- #+end_src
+#+begin_src clojure :tangle ./src/svg_clj/main.cljc
+(defn polyline
+  [pts]
+  [:polyline {:points (str/join " " (map utils/v->s pts))}])
+
+#+end_src
 
 **** spec
  #+begin_src clojure :tangle ./src/svg_clj/specs.cljc
@@ -2106,7 +1971,7 @@ Any elements that wrap content. Primary function is svg which is the ~container~
 #+END_SRC
 
 * tests
-Create more tests!!!
+Create more tests. Try to use a bit of TDD to help improve implementations, starting with better transform functions.
 
 ** test-ns
 #+BEGIN_SRC clojure :tangle ./test/svg_clj/main_test.cljc
@@ -2122,15 +1987,19 @@ Create more tests!!!
                                           style
                                           svg
                                           text]]
-            [svg-clj.transforms :as tf]
-            [svg-clj.path :as p]
+            [svg-clj.transforms :as tf :refer [translate
+                                               rotate
+                                               centroid
+                                               bounds
+                                               scale]]
+            [svg-clj.path :as p :refer [polygon-path]]
             [clojure.test :refer [deftest is]]
             [clojure.spec.alpha :as s]
             [clojure.spec.test.alpha :as stest]))
 
 #+END_SRC
 
-** tests
+** shapes
 #+begin_src clojure :tangle ./test/svg_clj/main_test.cljc
 ;; just starting with some basics. 
 ;; more complete tests coming soon
@@ -2175,7 +2044,10 @@ Create more tests!!!
                      {:href "https://www.fillmurray.com/g/200/300"
                       :x -100.0 :y -150.0 
                       :width 200 :height 300}])))
+#+end_src
 
+** translate
+#+begin_src clojure :tangle ./test/svg_clj/main_test.cljc
 (deftest basic-translate-test
   (is (= (->> test-circle (translate [10 10]))
          [:circle {:r 5 :cx 10 :cy 10 :transform "rotate(0 10 10)"}]))
@@ -2198,24 +2070,78 @@ Create more tests!!!
                   :width 200 :height 300
                   :transform "rotate(0 10.0 10.0)"}])))
 
+(deftest translate-group-test
+  (is (= (drop 2 (translate [5 10] test-g))
+         (map #(translate [5 10] %) (drop 2 test-g)))))
+
+(deftest translate-list-test
+  (let [a (repeat 10 (rect 10 20))]
+    (is (= (translate [5 10] a)
+           (map #(translate [5 10] %) a)))))
+#+end_src
+
+** rotate
+#+begin_src clojure :tangle ./test/svg_clj/main_test.cljc
+(deftest basic-rotate-test
+  (is (= (->> test-circle (rotate 45))
+         [:circle {:r 5 :cx 0 :cy 0 :transform "rotate(45 0 0)"}]))
+  (is (= (->> test-ellipse (rotate 45))
+         [:ellipse {:rx 5 :ry 10 :cx 0 :cy 0 :transform "rotate(45 0 0)"}]))
+  (is (= (->> test-line (rotate 90))
+         [:line {:x1 15.0 :y1 4.999999999999999 :x2 -5.0 :y2 15.0}]))
+  (is (= (->> test-path (rotate 90))
+         [:path {:d "M37.5 2.5 L17.5 12.5 L-12.5 42.5 L27.5 22.5 Z"
+                 :fill-rule "evenodd"}]))
+  (is (= (->> test-polygon (rotate 90))
+         [:polygon {:points "37.5,2.5 17.5,12.5 -12.5,42.5 27.5,22.5"}]))
+  (is (= (->> test-polyline (rotate 90))
+         [:polyline {:points "37.5,2.5 17.5,12.5 -12.5,42.5 27.5,22.5"}]))
+  (is (= (->> test-rect (rotate 45))
+         [:rect {:x -30.0 :y -15.0 :width 60 :height 30 :transform "rotate(45 0.0 0.0)"}]))
+  (is (= (->> test-image (rotate 45))
+         [:image {:href "https://www.fillmurray.com/g/200/300"
+                  :x -100.0 :y -150.0
+                  :width 200 :height 300
+                  :transform "rotate(45 0.0 0.0)"}])))
+
+(def rotated-test-g-data-structure
+  [:g
+   {}
+   [:circle {:cx 0.0 :cy 0.0 :r 5 :transform "rotate(90 0.0 0.0)"}]
+   [:ellipse {:cx 0.0 :cy 0.0 :rx 5 :ry 10 :transform "rotate(90 0.0 0.0)"}]
+   [:line {:x1 0.0 :y1 0.0 :x2 -20.0 :y2 10.000000000000002}]
+   [:path
+    {:d "M0.0 0.0 L-20.0 10.0 L-50.0 40.0 L-10.0 20.0 Z" :fill-rule "evenodd"}]
+   [:polygon {:points "0.0,0.0 -20.0,10.0 -50.0,40.0 -10.0,20.0"}]
+   [:polyline {:points "0.0,0.0 -20.0,10.0 -50.0,40.0 -10.0,20.0"}]
+   [:rect
+    {:width 60 :height 30 :x -30.0 :y -15.0 :transform "rotate(90 0.0 0.0)"}]
+   [:image
+    {:href "https://www.fillmurray.com/g/200/300"
+     :width 200
+     :height 300
+     :x -100.0
+     :y -150.0
+     :transform "rotate(90 0.0 0.0)"}]])
+
+
+(deftest rotate-group-test
+  (is (not= (drop 2 (rotate 45 test-g))
+            (map #(rotate 45 %) (drop 2 test-g))))
+  (is (= (rotate 90 test-g)
+         rotated-test-g-data-structure)))
+
+(deftest rotate-list-test
+  (let [a (repeat 10 (rect 10 20))]
+    (is (= (rotate 45 a)
+           (map #(rotate 45 %) a)))))
+
 #+end_src
 
 * watcher
 this can be run with clj -m svg-clj.watcher qblock.cljc in terminal.
 
-svg-clj.main/->edn <f>
-svg-clj.main/circle <f>
-svg-clj.main/ellipse <f>
-svg-clj.main/g <f>
-svg-clj.main/image <f>
-svg-clj.main/line <f>
-svg-clj.main/polygon <f>
-svg-clj.main/polyline <f>
-svg-clj.main/rect <f>
-svg-clj.main/style <f>
-svg-clj.main/svg <f> 	svg-clj.main/text <f>
-svg-clj.main/unwrap-elements <f>
-svg-clj.main/xml->hiccup <f>
+Build tests to make sure the design watcher works. It may be wise to build a nicer interface with clojure/tools.cli
 
 #+begin_src clojure :tangle ./src/svg_clj/watcher.clj
 (ns svg-clj.watcher
@@ -2365,8 +2291,8 @@ fn that appends to existing bezier
      (->> 
       (svg [200 200 1]
            (->> elem
-                (translate [100 100])
-                (rotate 90)
+                (translate [80 80])
+                (rotate 45)
                 (style {:fill "pink"
                         :stroke-width "2px"
                         :stroke "hotpink"})

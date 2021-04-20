@@ -31,7 +31,7 @@
 (defn v->s
   "Turns the vector `v` into a string formatted for use in SVG attributes."
   [v]
-  (apply str (interpose "," v)))
+  (str/join "," v))
 
 (defn s->v
   "Turns a string of comma or space separated numbers into a vector."
@@ -55,7 +55,7 @@
 
 (defn xf-map->str
   [m]
-  (apply str (interpose "\n" (map xf-kv->str m))))
+  (str/join "\n" (map xf-kv->str m)))
 
 (defn str->xf-map
   [s]

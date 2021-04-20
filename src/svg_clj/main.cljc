@@ -1,5 +1,5 @@
 (ns svg-clj.main
-  (:require [clojure.string :as st]
+  (:require [clojure.string :as str]
             #?(:clj [clojure.data.xml :as xml])
             [svg-clj.utils :as utils]
             [svg-clj.specs :as specs]))
@@ -30,11 +30,11 @@
 
 (defn polygon
   [pts]
-  [:polygon {:points (apply str (interpose " " (map utils/v->s pts)))}])
+  [:polygon {:points (str/join " " (map utils/v->s pts))}])
 
 (defn polyline
   [pts]
-  [:polyline {:points (apply str (interpose " " (map utils/v->s pts)))}])
+  [:polyline {:points (str/join " " (map utils/v->s pts))}])
 
 (defn rect
   [w h]
