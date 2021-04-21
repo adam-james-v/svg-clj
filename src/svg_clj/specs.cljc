@@ -42,10 +42,6 @@
          :props (s/keys :req-un [::d]) 
          :content (s/* ::svg-element)))
 
-#_(s/def ::groupable
-  (s/or :flat (s/every ::svg-element)
-        :nested (s/coll-of (s/every ::svg-element))))
-
 (defn pt2d? [a] (s/valid? ::pt2d a))
 (defn pts? [s] (s/valid? ::pts s))
 
@@ -99,11 +95,6 @@
                      :nil nil?))
 (s/def ::command-map
   (s/keys :req-un [::command ::coordsys ::input]))
-
-(defn any-vh?
-  [cmds]
-  {:pre [(s/valid? (s/coll-of ::command-map) cmds)]}
-  (not (empty? (filter #{:vline :hline} (map :command cmds)))))
 
 (s/def ::bounds
   (s/tuple ::pt2d ::pt2d ::pt2d ::pt2d))

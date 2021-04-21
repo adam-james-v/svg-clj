@@ -60,7 +60,12 @@
 (defn str->xf-map
   [s]
   (if-let [s s]
-    (into {} (map str->xf-kv (str/split-lines s)))
+    (into {} 
+          (->> s
+               (#(str/replace % #"\)" ")\n"))
+               str/split-lines
+               (map str/trim)
+               (map str->xf-kv)))
     {}))
 
 ;; geom

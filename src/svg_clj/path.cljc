@@ -1,8 +1,6 @@
 (ns svg-clj.path
   (:require [clojure.string :as str]
-            [clojure.spec.alpha :as s]
-            [svg-clj.utils :as utils]
-            [svg-clj.specs :as specs]))
+            [svg-clj.utils :as utils]))
 
 (defn path
   "Wraps a path string `d` in a hiccup-style data structure.
@@ -25,7 +23,6 @@
   Relative coordinate commands are lowercase.
   Absolute coordinate commands are uppercase."
   [cs]
-  {:pre [(s/valid? :svg-clj.specs/command-string cs)]}
   (let [csx (first (str/split cs #"[a-z]"))]
     (not (= cs csx))))
 
@@ -65,10 +62,14 @@
        (partition 2 1)
        (map merge-cursor)))
 
+(defn- any-vh?
+  [cmds]
+  (not (empty? (filter #{:vline :hline} (map :command cmds)))))
+
 (defn- convert-vh
   [[pcmd ccmd]]
-  (if (and (not (specs/any-vh? [pcmd])) ;;prev. cmd must NOT be VH
-           (specs/any-vh? [ccmd])) ;; curr. cmd must be VH
+  (if (and (not (any-vh? [pcmd])) ;;prev. cmd must NOT be VH
+           (any-vh? [ccmd])) ;; curr. cmd must be VH
     (let [[px py] (take-last 2 (:input pcmd))
           vh (:command ccmd)
           xinput (cond (= vh :hline) [(first (:input ccmd)) py]

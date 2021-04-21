@@ -1,7 +1,5 @@
 (ns svg-clj.transforms
    (:require [clojure.string :as str]
-             [clojure.spec.alpha :as s]
-             [svg-clj.specs :as specs]
              [svg-clj.utils :as utils :refer [move-pt
                                               rotate-pt
                                               rotate-pt-around-center]]
@@ -224,6 +222,10 @@
     ;; content is a single element OR a list of elements
     (pts->bounds (mapcat bounds-element elems))))
 
+(defn- get-props 
+  [props]
+  (merge {:rotate [0 0 0]} (utils/str->xf-map (get props :transform))))
+
 (defmulti translate
   (fn [_ element]
     (if (keyword? (first element))
@@ -236,7 +238,7 @@
 
 (defmethod translate :circle
   [[x y] [k props]]
-  (let [xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
+  (let [xf (get-props props)
         cx (:cx props)
         cy (:cy props)
         new-xf (-> xf
@@ -250,7 +252,7 @@
 
 (defmethod translate :ellipse
   [[x y] [k props]]
-  (let [xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
+  (let [xf (get-props props)
         cx (:cx props)
         cy (:cy props)
         new-xf (-> xf
@@ -290,7 +292,7 @@
 (defmethod translate :rect
   [[x y] [k props]]
   (let [[cx cy] (centroid [k props])
-        xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
+        xf (get-props props)
         new-xf (-> xf
                    (assoc-in [:rotate 1] (+ cx x))
                    (assoc-in [:rotate 2] (+ cy y)))
@@ -303,7 +305,7 @@
 (defmethod translate :image
   [[x y] [k props]]
   (let [[cx cy] (centroid [k props])
-        xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
+        xf (get-props props)
         new-xf (-> xf
                    (assoc-in [:rotate 1] (+ cx x))
                    (assoc-in [:rotate 2] (+ cy y)))
@@ -315,7 +317,7 @@
 
 (defmethod translate :text
   [[x y] [k props text]]
-  (let [xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
+  (let [xf (get-props props)
         new-xf (-> xf
                    (update-in [:rotate 1] + x)
                    (update-in [:rotate 2] + y))
@@ -397,7 +399,7 @@
 
 (defn rotate-element-by-transform
   [deg [k props content]]
-  (let [xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
+  (let [xf (get-props props)
         new-xf (-> xf
                    (update-in [:rotate 0] + deg))
         new-props (assoc props :transform (utils/xf-map->str new-xf))]
@@ -458,7 +460,7 @@
 (defmethod rotate :rect
   [deg [k props]]
   (let [[cx cy] (centroid [k props])
-        xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
+        xf (get-props props)
         new-xf (-> xf
                    (update-in [:rotate 0] + deg)
                    (assoc-in  [:rotate 1] cx)
@@ -469,7 +471,7 @@
 (defmethod rotate :image
   [deg [k props]]
   (let [[cx cy] (centroid [k props])
-        xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
+        xf (get-props props)
         new-xf (-> xf
                    (update-in [:rotate 0] + deg)
                    (assoc-in  [:rotate 1] cx)
@@ -587,7 +589,7 @@
                            (translate xfm))))]
     (into [k props] (filter (complement nil?) xfcontent))))
 
-(defn scale-element-by-transform
+(defn scale-by-transform
   [[sx sy] [k props & content]]
   (let [xf (utils/str->xf-map (:transform props))
         new-xf (-> xf
@@ -595,15 +597,21 @@
         new-props (assoc props :transform (utils/xf-map->str new-xf))]
     [k new-props] content))
 
-(defmulti scale-element 
+(defmulti scale
   (fn [_ element]
-    (first element)))
+    (if (keyword? (first element))
+      (first element)
+      :list)))
+
+(defmethod scale :list
+  [[sx sy] elems]
+  (map #(scale [sx sy] %) elems))
 
 ;; transforms are applied directly to the properties of shapes.
 ;; I have scale working the same way. One issue is that scaling a circle
 ;; turns it into an ellipse. This impl WILL change the shape to ellipse if non-uniform scaling is applied.
 
-(defmethod scale-element :circle
+(defmethod scale :circle
   [[sx sy] [k props]]
   (let [circle? (= sx sy)
         r (:r props)
@@ -616,7 +624,7 @@
         k (if circle? :circle :ellipse)]
     [k new-props]))
 
-(defmethod scale-element :ellipse
+(defmethod scale :ellipse
   [[sx sy] [k props]]
   (let [new-props (-> props
                       (update :rx #(* sx %))
@@ -628,7 +636,7 @@
 ;; scale all x y values by * [sx sy]
 ;; translate back to original bb-center
 
-(defmethod scale-element :line
+(defmethod scale :line
   [[sx sy] [k props]]
   (let [[cx cy] (centroid [k props])
         new-props (-> props
@@ -643,7 +651,7 @@
   [(+ (* (- x cx) sx) cx)
    (+ (* (- y cy) sy) cy)])
 
-(defmethod scale-element :polygon
+(defmethod scale :polygon
   [[sx sy] [k props]]
   (let [pts (mapv utils/s->v (str/split (:points props) #" "))
         ctr (centroid [k props])
@@ -652,7 +660,7 @@
                   (map utils/v->s))]
     [k (assoc props :points (str/join " " xpts))]))
 
-(defmethod scale-element :polyline
+(defmethod scale :polyline
   [[sx sy] [k props]]
   (let [pts (mapv utils/s->v (str/split (:points props) #" "))
         ctr (centroid [k props])
@@ -661,7 +669,7 @@
                   (map utils/v->s))]
     [k (assoc props :points (str/join " " xpts))]))
 
-(defmethod scale-element :rect
+(defmethod scale :rect
   [[sx sy] [k props]]
   (let [cx (+ (:x props) (/ (:width props) 2.0))
         cy (+ (:y props) (/ (:height props) 2.0))
@@ -674,7 +682,7 @@
                       (update :y #(+ (* (- % cy) sy) cy)))]
     [k new-props]))
 
-(defmethod scale-element :image
+(defmethod scale :image
   [[sx sy] [k props]]
   (let [cx (+ (:x props) (/ (:width props) 2.0))
         cy (+ (:y props) (/ (:height props) 2.0))
@@ -687,9 +695,9 @@
                       (update :y #(+ (* (- % cy) sy) cy)))]
     [k new-props]))
 
-(defmethod scale-element :text
+(defmethod scale :text
   [[sx sy] [k props text]]
-  (let [xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
+  (let [xf (get-props props)
         cx (get-in xf [:rotate 1])
         cy (get-in xf [:rotate 2])
         x (+ (* (- (:x props) cx) sx) cx)
@@ -704,7 +712,7 @@
                       (update-in [:style :font-size] #(* % sx)))]
     [k new-props text]))
 
-(defmethod scale-element :g
+(defmethod scale :g
   [[sx sy] [k props & content]]
   (let [xf (utils/str->xf-map (:transform props))
         new-xf (-> xf
@@ -731,30 +739,9 @@
                   (mapcat (partial scale-pt-from-center ctr [sx sy])))]
     (assoc m :input (vec xpts))))
 
-(defmethod scale-element :path
+(defmethod scale :path
   [[sx sy] [k props]]
   (let [ctr (centroid [k props])
         cmds (path/path-string->commands (:d props))
         xcmds (map #(scale-path-command ctr [sx sy] %) cmds)]
     [k (assoc props :d (path/cmds->path-string xcmds))]))
-
-(defn scale
-  "Scales the `elems` by `sc` about the centroid of the element(s).
-
-  NOTE: this function is still relatively untested and may not behave correctly with group elements."
-  [sc & elems]
-  (let [[sx sy] (if (coll? sc) sc [sc sc])
-        elem (first elems)
-        elems (rest elems)]
-    (when elem
-      (cond
-        (and (specs/element? elem) (= 0 (count elems)))
-        (scale-element [sx sy] elem)
-        
-        (and (specs/element? elem) (< 0 (count elems)))
-        (concat
-         [(scale-element [sx sy] elem)]
-         [(scale [sx sy] elems)])
-        
-        :else
-        (recur [sx sy] (concat elem elems))))))

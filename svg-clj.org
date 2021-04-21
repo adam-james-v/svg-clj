@@ -298,7 +298,12 @@ strictly speaking, translate and rotate are not operating on streams of data, bu
 (defn str->xf-map
   [s]
   (if-let [s s]
-    (into {} (map str->xf-kv (str/split-lines s)))
+    (into {} 
+          (->> s
+               (#(str/replace % #"\)" ")\n"))
+               str/split-lines
+               (map str/trim)
+               (map str->xf-kv)))
     {}))
 
 ;; geom
@@ -390,10 +395,6 @@ strictly speaking, translate and rotate are not operating on streams of data, bu
          :props (s/keys :req-un [::d]) 
          :content (s/* ::svg-element)))
 
-#_(s/def ::groupable
-  (s/or :flat (s/every ::svg-element)
-        :nested (s/coll-of (s/every ::svg-element))))
-
 (defn pt2d? [a] (s/valid? ::pt2d a))
 (defn pts? [s] (s/valid? ::pts s))
 
@@ -448,11 +449,6 @@ strictly speaking, translate and rotate are not operating on streams of data, bu
 (s/def ::command-map
   (s/keys :req-un [::command ::coordsys ::input]))
 
-(defn any-vh?
-  [cmds]
-  {:pre [(s/valid? (s/coll-of ::command-map) cmds)]}
-  (not (empty? (filter #{:vline :hline} (map :command cmds)))))
-
 (s/def ::bounds
   (s/tuple ::pt2d ::pt2d ::pt2d ::pt2d))
 #+end_src
@@ -475,9 +471,7 @@ The path element has a small DSL to create compound curves. This includes the fo
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/path.cljc
 (ns svg-clj.path
   (:require [clojure.string :as str]
-            [clojure.spec.alpha :as s]
-            [svg-clj.utils :as utils]
-            [svg-clj.specs :as specs]))
+            [svg-clj.utils :as utils]))
 
 #+END_SRC
 
@@ -524,7 +518,6 @@ I'm going to make a few functions to split paths into commands and put them in a
   Relative coordinate commands are lowercase.
   Absolute coordinate commands are uppercase."
   [cs]
-  {:pre [(s/valid? :svg-clj.specs/command-string cs)]}
   (let [csx (first (str/split cs #"[a-z]"))]
     (not (= cs csx))))
 
@@ -589,10 +582,14 @@ Repeat this process over the whole sequence.
 If the entire sequence has NO V or H, done.
 
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/path.cljc
+(defn- any-vh?
+  [cmds]
+  (not (empty? (filter #{:vline :hline} (map :command cmds)))))
+
 (defn- convert-vh
   [[pcmd ccmd]]
-  (if (and (not (specs/any-vh? [pcmd])) ;;prev. cmd must NOT be VH
-           (specs/any-vh? [ccmd])) ;; curr. cmd must be VH
+  (if (and (not (any-vh? [pcmd])) ;;prev. cmd must NOT be VH
+           (any-vh? [ccmd])) ;; curr. cmd must be VH
     (let [[px py] (take-last 2 (:input pcmd))
           vh (:command ccmd)
           xinput (cond (= vh :hline) [(first (:input ccmd)) py]
@@ -848,19 +845,17 @@ Transforms are translate, rotate, and scale. All transforms work well for most o
 
 This leads to challenges with groups. Groups must have their centroid calculated such that rotation and translation can correctly occur about the group's centroid. Internally, this means that the group's centroid is treated as the 'temporary global origin' and all objects are globally rotated about that temp. origin. This has the appearance of a group rotating locally, which is the intended outcome.
 
-
 So, I either should fix the interface fn or eliminate it entirely.
 
 ** ns
 #+begin_src clojure :tangle ./src/svg_clj/transforms.cljc
 (ns svg-clj.transforms
    (:require [clojure.string :as str]
-             [clojure.spec.alpha :as s]
-             [svg-clj.specs :as specs]
              [svg-clj.utils :as utils :refer [move-pt
                                               rotate-pt
                                               rotate-pt-around-center]]
              [svg-clj.path :as path]))
+
 #+end_src
 
 ** calcs
@@ -1152,6 +1147,10 @@ Ideas to keep in mind:
 ** translate
 *** translate-element
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
+(defn- get-props 
+  [props]
+  (merge {:rotate [0 0 0]} (utils/str->xf-map (get props :transform))))
+
 (defmulti translate
   (fn [_ element]
     (if (keyword? (first element))
@@ -1164,7 +1163,7 @@ Ideas to keep in mind:
 
 (defmethod translate :circle
   [[x y] [k props]]
-  (let [xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
+  (let [xf (get-props props)
         cx (:cx props)
         cy (:cy props)
         new-xf (-> xf
@@ -1178,7 +1177,7 @@ Ideas to keep in mind:
 
 (defmethod translate :ellipse
   [[x y] [k props]]
-  (let [xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
+  (let [xf (get-props props)
         cx (:cx props)
         cy (:cy props)
         new-xf (-> xf
@@ -1218,7 +1217,7 @@ Ideas to keep in mind:
 (defmethod translate :rect
   [[x y] [k props]]
   (let [[cx cy] (centroid [k props])
-        xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
+        xf (get-props props)
         new-xf (-> xf
                    (assoc-in [:rotate 1] (+ cx x))
                    (assoc-in [:rotate 2] (+ cy y)))
@@ -1231,7 +1230,7 @@ Ideas to keep in mind:
 (defmethod translate :image
   [[x y] [k props]]
   (let [[cx cy] (centroid [k props])
-        xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
+        xf (get-props props)
         new-xf (-> xf
                    (assoc-in [:rotate 1] (+ cx x))
                    (assoc-in [:rotate 2] (+ cy y)))
@@ -1243,7 +1242,7 @@ Ideas to keep in mind:
 
 (defmethod translate :text
   [[x y] [k props text]]
-  (let [xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
+  (let [xf (get-props props)
         new-xf (-> xf
                    (update-in [:rotate 1] + x)
                    (update-in [:rotate 2] + y))
@@ -1346,7 +1345,7 @@ Consider refactor at some point.
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
 (defn rotate-element-by-transform
   [deg [k props content]]
-  (let [xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
+  (let [xf (get-props props)
         new-xf (-> xf
                    (update-in [:rotate 0] + deg))
         new-props (assoc props :transform (utils/xf-map->str new-xf))]
@@ -1407,7 +1406,7 @@ Consider refactor at some point.
 (defmethod rotate :rect
   [deg [k props]]
   (let [[cx cy] (centroid [k props])
-        xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
+        xf (get-props props)
         new-xf (-> xf
                    (update-in [:rotate 0] + deg)
                    (assoc-in  [:rotate 1] cx)
@@ -1418,7 +1417,7 @@ Consider refactor at some point.
 (defmethod rotate :image
   [deg [k props]]
   (let [[cx cy] (centroid [k props])
-        xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
+        xf (get-props props)
         new-xf (-> xf
                    (update-in [:rotate 0] + deg)
                    (assoc-in  [:rotate 1] cx)
@@ -1564,9 +1563,9 @@ Scale implementation doesn't seem to work correctly in all cases. For example, s
 
 Scale should be 'baked into' all dimensions just like other transforms, where possible.
 
-*** scale-element
+*** scale
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
-(defn scale-element-by-transform
+(defn scale-by-transform
   [[sx sy] [k props & content]]
   (let [xf (utils/str->xf-map (:transform props))
         new-xf (-> xf
@@ -1574,15 +1573,21 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
         new-props (assoc props :transform (utils/xf-map->str new-xf))]
     [k new-props] content))
 
-(defmulti scale-element 
+(defmulti scale
   (fn [_ element]
-    (first element)))
+    (if (keyword? (first element))
+      (first element)
+      :list)))
+
+(defmethod scale :list
+  [[sx sy] elems]
+  (map #(scale [sx sy] %) elems))
 
 ;; transforms are applied directly to the properties of shapes.
 ;; I have scale working the same way. One issue is that scaling a circle
 ;; turns it into an ellipse. This impl WILL change the shape to ellipse if non-uniform scaling is applied.
 
-(defmethod scale-element :circle
+(defmethod scale :circle
   [[sx sy] [k props]]
   (let [circle? (= sx sy)
         r (:r props)
@@ -1595,7 +1600,7 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
         k (if circle? :circle :ellipse)]
     [k new-props]))
 
-(defmethod scale-element :ellipse
+(defmethod scale :ellipse
   [[sx sy] [k props]]
   (let [new-props (-> props
                       (update :rx #(* sx %))
@@ -1607,7 +1612,7 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
 ;; scale all x y values by * [sx sy]
 ;; translate back to original bb-center
 
-(defmethod scale-element :line
+(defmethod scale :line
   [[sx sy] [k props]]
   (let [[cx cy] (centroid [k props])
         new-props (-> props
@@ -1622,7 +1627,7 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
   [(+ (* (- x cx) sx) cx)
    (+ (* (- y cy) sy) cy)])
 
-(defmethod scale-element :polygon
+(defmethod scale :polygon
   [[sx sy] [k props]]
   (let [pts (mapv utils/s->v (str/split (:points props) #" "))
         ctr (centroid [k props])
@@ -1631,7 +1636,7 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
                   (map utils/v->s))]
     [k (assoc props :points (str/join " " xpts))]))
 
-(defmethod scale-element :polyline
+(defmethod scale :polyline
   [[sx sy] [k props]]
   (let [pts (mapv utils/s->v (str/split (:points props) #" "))
         ctr (centroid [k props])
@@ -1640,7 +1645,7 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
                   (map utils/v->s))]
     [k (assoc props :points (str/join " " xpts))]))
 
-(defmethod scale-element :rect
+(defmethod scale :rect
   [[sx sy] [k props]]
   (let [cx (+ (:x props) (/ (:width props) 2.0))
         cy (+ (:y props) (/ (:height props) 2.0))
@@ -1653,7 +1658,7 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
                       (update :y #(+ (* (- % cy) sy) cy)))]
     [k new-props]))
 
-(defmethod scale-element :image
+(defmethod scale :image
   [[sx sy] [k props]]
   (let [cx (+ (:x props) (/ (:width props) 2.0))
         cy (+ (:y props) (/ (:height props) 2.0))
@@ -1666,9 +1671,9 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
                       (update :y #(+ (* (- % cy) sy) cy)))]
     [k new-props]))
 
-(defmethod scale-element :text
+(defmethod scale :text
   [[sx sy] [k props text]]
-  (let [xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
+  (let [xf (get-props props)
         cx (get-in xf [:rotate 1])
         cy (get-in xf [:rotate 2])
         x (+ (* (- (:x props) cx) sx) cx)
@@ -1683,7 +1688,7 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
                       (update-in [:style :font-size] #(* % sx)))]
     [k new-props text]))
 
-(defmethod scale-element :g
+(defmethod scale :g
   [[sx sy] [k props & content]]
   (let [xf (utils/str->xf-map (:transform props))
         new-xf (-> xf
@@ -1693,7 +1698,7 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
 
 #+END_SRC
 
-*** scale-element-path
+*** scale-path
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
 (defmulti scale-path-command
   (fn [_ _ m]
@@ -1714,7 +1719,7 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
                   (mapcat (partial scale-pt-from-center ctr [sx sy])))]
     (assoc m :input (vec xpts))))
 
-(defmethod scale-element :path
+(defmethod scale :path
   [[sx sy] [k props]]
   (let [ctr (centroid [k props])
         cmds (path/path-string->commands (:d props))
@@ -1723,38 +1728,13 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
 
 #+END_SRC
 
-*** interface
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
-(defn scale
-  "Scales the `elems` by `sc` about the centroid of the element(s).
-
-  NOTE: this function is still relatively untested and may not behave correctly with group elements."
-  [sc & elems]
-  (let [[sx sy] (if (coll? sc) sc [sc sc])
-        elem (first elems)
-        elems (rest elems)]
-    (when elem
-      (cond
-        (and (specs/element? elem) (= 0 (count elems)))
-        (scale-element [sx sy] elem)
-        
-        (and (specs/element? elem) (< 0 (count elems)))
-        (concat
-         [(scale-element [sx sy] elem)]
-         [(scale [sx sy] elems)])
-        
-        :else
-        (recur [sx sy] (concat elem elems))))))
-
-#+END_SRC
 * main
 ** ns
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
 (ns svg-clj.main
   (:require [clojure.string :as str]
             #?(:clj [clojure.data.xml :as xml])
-            [svg-clj.utils :as utils]
-            [svg-clj.specs :as specs]))
+            [svg-clj.utils :as utils]))
 
 #+END_SRC
 
@@ -1931,7 +1911,7 @@ Any elements that wrap content. Primary function is svg which is the ~container~
  #+end_src
 
 ** svg-loader
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/main.cljc
+#+BEGIN_SRC clojure tangle ./src/svg_clj/main.cljc
 #?(:clj
    (defn xml->hiccup
      [xml]
@@ -1959,6 +1939,7 @@ Any elements that wrap content. Primary function is svg which is the ~container~
    (defn unwrap-elements
      [edn]
      (filter specs/element? edn)))
+
 #+END_SRC
 
 ** style
@@ -1993,9 +1974,7 @@ Create more tests. Try to use a bit of TDD to help improve implementations, star
                                                bounds
                                                scale]]
             [svg-clj.path :as p :refer [polygon-path]]
-            [clojure.test :refer [deftest is]]
-            [clojure.spec.alpha :as s]
-            [clojure.spec.test.alpha :as stest]))
+            [clojure.test :refer [deftest is]]))
 
 #+END_SRC
 
@@ -2003,7 +1982,6 @@ Create more tests. Try to use a bit of TDD to help improve implementations, star
 #+begin_src clojure :tangle ./test/svg_clj/main_test.cljc
 ;; just starting with some basics. 
 ;; more complete tests coming soon
-(stest/instrument)
 
 (def test-circle (circle 5))
 (def test-ellipse (ellipse 5 10))

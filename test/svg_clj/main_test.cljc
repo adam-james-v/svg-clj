@@ -16,13 +16,10 @@
                                                bounds
                                                scale]]
             [svg-clj.path :as p :refer [polygon-path]]
-            [clojure.test :refer [deftest is]]
-            [clojure.spec.alpha :as s]
-            [clojure.spec.test.alpha :as stest]))
+            [clojure.test :refer [deftest is]]))
 
 ;; just starting with some basics. 
 ;; more complete tests coming soon
-(stest/instrument)
 
 (def test-circle (circle 5))
 (def test-ellipse (ellipse 5 10))

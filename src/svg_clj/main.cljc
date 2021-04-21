@@ -1,8 +1,7 @@
 (ns svg-clj.main
   (:require [clojure.string :as str]
             #?(:clj [clojure.data.xml :as xml])
-            [svg-clj.utils :as utils]
-            [svg-clj.specs :as specs]))
+            [svg-clj.utils :as utils]))
 
 (defn svg
    "This fn wraps `content` in an SVG container element.
@@ -56,34 +55,6 @@
 (defn text
   [text]
   [:text {:x 0 :y 0} text])
-
-#?(:clj
-   (defn xml->hiccup
-     [xml]
-     (if-let [t (:tag xml)]
-       (let [elem [t]
-             elem (if-let [attrs (:attrs xml)]
-                    (conj elem attrs)
-                    elem)]
-         (into elem (map xml->hiccup (:content xml))))
-       xml)))
-
-#?(:clj
-   (defn ->edn
-     [str]
-     (->> (xml/parse-str str 
-                         :skip-whitespace true
-                         :namespace-aware false)
-          xml->hiccup
-          #_(tree-seq vector? rest)
-          #_(filter vector?)
-          #_(filter #(= :svg (first %)))
-          #_first)))
-
-#?(:clj
-   (defn unwrap-elements
-     [edn]
-     (filter specs/element? edn)))
 
 (defn style
   [style [k props & content]]
