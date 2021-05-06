@@ -10,7 +10,7 @@ This is currently a work in progress. Until a stable release is provided, this l
 
 These circles are produced by the following code:
 
-```
+```clojure
 (ns example
   (:require [svg-clj.main :as svg]
             [svg-clj.transforms :refer [rotate-pt]]
@@ -28,7 +28,7 @@ These circles are produced by the following code:
              (svg/style 
                {:stroke (str "rgba(163,190,140," (/ (inc a) 10.0) ")")
                 :stroke-width "2px"
-                    :fill "none"}))))
+                :fill "none"}))))
     (svg/translate [100 100]))))
 
 ;; use hiccup or your favourite hiccup compiler.
