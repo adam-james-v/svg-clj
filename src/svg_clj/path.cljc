@@ -223,7 +223,7 @@
   [a ctr deg]
   (let [r (utils/distance a ctr)
         angle 0
-        b (utils/rotate-pt-around-center deg ctr a)
+        b (utils/rotate-pt-around-center a deg ctr)
         laf (if (<= deg 180) 0 1)]
      (build-arc r r angle laf 1 a b)))
 

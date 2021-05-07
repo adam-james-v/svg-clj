@@ -76,23 +76,19 @@
         v2 (reduce + (v* v v))]
     (Math/sqrt v2)))
 
-(defn move-pt
-  [mv pt]
-  (v+ pt mv))
-
 (defn rotate-pt
-  [deg [x y]]
+  [[x y] deg]
   (let [c (Math/cos (to-rad deg))
         s (Math/sin (to-rad deg))]
     [(- (* x c) (* y s))
      (+ (* x s) (* y c))]))
 
 (defn rotate-pt-around-center
-  [deg center pt]
-  (->> pt
-       (move-pt (map - center))
-       (rotate-pt deg)
-       (move-pt center)))
+  [pt deg center]
+  (-> pt
+      (v+ (map - center))
+      (rotate-pt deg)
+      (v+ center)))
 
 (defn dot*
   "calculates the dot product of two vectors"

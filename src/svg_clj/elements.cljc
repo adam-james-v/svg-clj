@@ -1,19 +1,20 @@
-(ns svg-clj.main
+(ns svg-clj.elements
   (:require [clojure.string :as str]
             #?(:clj [clojure.data.xml :as xml])
             [svg-clj.utils :as utils]))
 
 (defn svg
-   "This fn wraps `content` in an SVG container element.
+   "The svg fn wraps `content` in an SVG container element.
    The SVG container is parameterized by width `w`, height `h`, and scale `sc`."
-  [[w h sc] & content]
-  [:svg {:width  w
-         :height h
+  ([content w h]
+   [:svg {:width  w
+          :height h
           :viewBox (str "0 0 " w " " h)
-         :xmlns "http://www.w3.org/2000/svg"}
-   (if sc
-     [:g {:transform (str "scale(" sc ")")} content]
-     content)])
+          :xmlns "http://www.w3.org/2000/svg"}
+    content])
+
+  ([content w h sc]
+   (svg w h [:g {:transform (str "scale(" sc ")")} content])))
 
 (defn circle
   [r]
@@ -55,7 +56,3 @@
 (defn text
   [text]
   [:text {:x 0 :y 0} text])
-
-(defn style
-  [style [k props & content]]
-  (into [k (merge props style)] content))

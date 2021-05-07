@@ -99,6 +99,42 @@
 (s/def ::bounds
   (s/tuple ::pt2d ::pt2d ::pt2d ::pt2d))
 
+(s/fdef circle
+  :args (s/cat :r number?)
+  :ret ::svg-element)
+
+(s/fdef ellipse
+  :args (s/cat :rx number? :ry number?)
+  :ret ::svg-element)
+
+(s/fdef line
+  :args (s/cat :a ::pt2d :b ::pt2d)
+  :ret ::svg-element)
+
+(s/fdef polygon
+  :args (s/cat :pts ::pts)
+  :ret ::svg-element)
+
+(s/fdef polyline
+  :args (s/cat :pts ::pts)
+  :ret ::svg-element)
+
+(s/fdef rect
+  :args (s/cat :w number? :h number?)
+  :ret ::svg-element)
+
+(s/fdef image
+  :args (s/cat :url string? :w number? :h number?)
+  :ret ::svg-element)
+
+#_(s/fdef g
+  :args ::groupable
+  :ret ::svg-element)
+
+(s/fdef text
+  :args (s/cat :text string?)
+  :ret ::svg-element)
+
 (s/fdef path
   :args (s/cat :d ::path-string)
   :ret ::path-element)
@@ -139,39 +175,3 @@
 (s/fdef bounds
   :args (s/cat :elems (s/coll-of ::svg-element))
   :ret ::bounds)
-
-(s/fdef circle
-  :args (s/cat :r number?)
-  :ret ::svg-element)
-
-(s/fdef ellipse
-  :args (s/cat :rx number? :ry number?)
-  :ret ::svg-element)
-
-(s/fdef line
-  :args (s/cat :a ::pt2d :b ::pt2d)
-  :ret ::svg-element)
-
-(s/fdef polygon
-  :args (s/cat :pts ::pts)
-  :ret ::svg-element)
-
-(s/fdef polyline
-  :args (s/cat :pts ::pts)
-  :ret ::svg-element)
-
-(s/fdef rect
-  :args (s/cat :w number? :h number?)
-  :ret ::svg-element)
-
-(s/fdef image
-  :args (s/cat :url string? :w number? :h number?)
-  :ret ::svg-element)
-
-#_(s/fdef g
-  :args ::groupable
-  :ret ::svg-element)
-
-(s/fdef text
-  :args (s/cat :text string?)
-  :ret ::svg-element)
