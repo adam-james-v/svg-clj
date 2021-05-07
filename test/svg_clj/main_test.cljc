@@ -1,22 +1,27 @@
 (ns svg-clj.main-test
-  (:require [svg-clj.main :as svg :refer [circle
-                                          ellipse
-                                          g
-                                          image
-                                          line
-                                          polygon
-                                          polyline
-                                          rect
-                                          style
-                                          svg
-                                          text]]
-            [svg-clj.transforms :as tf :refer [translate
-                                               rotate
-                                               centroid
-                                               bounds
-                                               scale]]
-            [svg-clj.path :as p :refer [polygon-path]]
-            [clojure.test :refer [deftest is]]))
+  (:require 
+   [svg-clj.elements :as svg
+    :refer [circle
+            ellipse
+            g
+            image
+            line
+            polygon
+            polyline
+            rect
+            svg
+            text]]
+   [svg-clj.transforms :as tf
+    :refer [translate
+            rotate
+            centroid
+            bounds
+            scale
+            style]]
+   [svg-clj.path :as p
+    :refer [polygon-path]]
+   [clojure.test
+    :refer [deftest is]]))
 
 ;; just starting with some basics. 
 ;; more complete tests coming soon
@@ -62,53 +67,53 @@
                       :width 200 :height 300}])))
 
 (deftest basic-translate-test
-  (is (= (->> test-circle (translate [10 10]))
+  (is (= (-> test-circle (translate [10 10]))
          [:circle {:r 5 :cx 10 :cy 10 :transform "rotate(0 10 10)"}]))
-  (is (= (->> test-ellipse (translate [10 10]))
+  (is (= (-> test-ellipse (translate [10 10]))
          [:ellipse {:rx 5 :ry 10 :cx 10 :cy 10 :transform "rotate(0 10 10)"}]))
-  (is (= (->> test-line (translate [10 10]))
+  (is (= (-> test-line (translate [10 10]))
          [:line {:x1 10 :y1 10 :x2 20 :y2 30}]))
-  (is (= (->> test-path (translate [10 10]))
+  (is (= (-> test-path (translate [10 10]))
          [:path {:d "M10 10 L20 30 L50 60 L30 20 Z"
                  :fill-rule "evenodd"}]))
-  (is (= (->> test-polygon (translate [10 10]))
+  (is (= (-> test-polygon (translate [10 10]))
          [:polygon {:points "10,10 20,30 50,60 30,20"}]))
-  (is (= (->> test-polyline (translate [10 10]))
+  (is (= (-> test-polyline (translate [10 10]))
          [:polyline {:points "10,10 20,30 50,60 30,20"}]))
-  (is (= (->> test-rect (translate [10 10]))
+  (is (= (-> test-rect (translate [10 10]))
          [:rect {:x -20.0 :y -5.0 :width 60 :height 30 :transform "rotate(0 10.0 10.0)"}]))
-  (is (= (->> test-image (translate [10 10]))
+  (is (= (-> test-image (translate [10 10]))
          [:image {:href "https://www.fillmurray.com/g/200/300"
                   :x -90.0 :y -140.0
                   :width 200 :height 300
                   :transform "rotate(0 10.0 10.0)"}])))
 
 (deftest translate-group-test
-  (is (= (drop 2 (translate [5 10] test-g))
-         (map #(translate [5 10] %) (drop 2 test-g)))))
+  (is (= (drop 2 (translate test-g [5 10]))
+         (map #(translate % [5 10]) (drop 2 test-g)))))
 
 (deftest translate-list-test
   (let [a (repeat 10 (rect 10 20))]
-    (is (= (translate [5 10] a)
-           (map #(translate [5 10] %) a)))))
+    (is (= (translate a [5 10])
+           (map #(translate % [5 10]) a)))))
 
 (deftest basic-rotate-test
-  (is (= (->> test-circle (rotate 45))
+  (is (= (-> test-circle (rotate 45))
          [:circle {:r 5 :cx 0 :cy 0 :transform "rotate(45 0 0)"}]))
-  (is (= (->> test-ellipse (rotate 45))
+  (is (= (-> test-ellipse (rotate 45))
          [:ellipse {:rx 5 :ry 10 :cx 0 :cy 0 :transform "rotate(45 0 0)"}]))
-  (is (= (->> test-line (rotate 90))
+  (is (= (-> test-line (rotate 90))
          [:line {:x1 15.0 :y1 4.999999999999999 :x2 -5.0 :y2 15.0}]))
-  (is (= (->> test-path (rotate 90))
+  (is (= (-> test-path (rotate 90))
          [:path {:d "M37.5 2.5 L17.5 12.5 L-12.5 42.5 L27.5 22.5 Z"
                  :fill-rule "evenodd"}]))
-  (is (= (->> test-polygon (rotate 90))
+  (is (= (-> test-polygon (rotate 90))
          [:polygon {:points "37.5,2.5 17.5,12.5 -12.5,42.5 27.5,22.5"}]))
-  (is (= (->> test-polyline (rotate 90))
+  (is (= (-> test-polyline (rotate 90))
          [:polyline {:points "37.5,2.5 17.5,12.5 -12.5,42.5 27.5,22.5"}]))
-  (is (= (->> test-rect (rotate 45))
+  (is (= (-> test-rect (rotate 45))
          [:rect {:x -30.0 :y -15.0 :width 60 :height 30 :transform "rotate(45 0.0 0.0)"}]))
-  (is (= (->> test-image (rotate 45))
+  (is (= (-> test-image (rotate 45))
          [:image {:href "https://www.fillmurray.com/g/200/300"
                   :x -100.0 :y -150.0
                   :width 200 :height 300
@@ -136,12 +141,12 @@
 
 
 (deftest rotate-group-test
-  (is (not= (drop 2 (rotate 45 test-g))
-            (map #(rotate 45 %) (drop 2 test-g))))
-  (is (= (rotate 90 test-g)
+  (is (not= (drop 2 (rotate test-g 45))
+            (map #(rotate % 45) (drop 2 test-g))))
+  (is (= (rotate test-g 90)
          rotated-test-g-data-structure)))
 
 (deftest rotate-list-test
   (let [a (repeat 10 (rect 10 20))]
-    (is (= (rotate 45 a)
-           (map #(rotate 45 %) a)))))
+    (is (= (rotate a 45)
+           (map #(rotate % 45) a)))))

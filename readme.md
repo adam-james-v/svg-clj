@@ -12,27 +12,26 @@ These circles are produced by the following code:
 
 ```clojure
 (ns example
-  (:require [svg-clj.main :as svg]
-            [svg-clj.transforms :refer [rotate-pt]]
+  (:require [svg-clj.elements :as svg]
+            [svg-clj.transforms :as tf]
+            [svg-clj.utils :as utils]
             [hiccup.core :refer [html]]))
 
 (def circles
-  (svg/svg
-   [200 200 1]
-   (->>
-    (svg/g 
-      (for [a (range 0 12)]
-        (->> (svg/circle (+ 5 (* a 4)))
-             (svg/translate [(/ (+ 5 (* a 4)) 2) 0])
-             (svg/translate (rotate-pt (* a -40) [20 0]))
-             (svg/style 
-               {:stroke (str "rgba(163,190,140," (/ (inc a) 10.0) ")")
-                :stroke-width "2px"
-                :fill "none"}))))
-    (svg/translate [100 100]))))
+  (-> (svg/g 
+       (for [a (range 0 12)]
+         (-> (svg/circle (+ 5 (* a 4)))
+             (tf/translate [(/ (+ 5 (* a 4)) 2) 0])
+             (tf/translate (utils/rotate-pt [20 0] (* a -40)))
+             (tf/style 
+              {:stroke (str "rgba(163,190,140," (/ (inc a) 10.0) ")")
+               :stroke-width "2px"
+               :fill "none"}))))
+      (tf/translate [100 100])
+      (svg/svg 200 200)))
 
 ;; use hiccup or your favourite hiccup compiler.
-;; the SVG library works in reagent as well.
+;; the SVG library works with Reagent as well.
 (html circles)
 ```
 

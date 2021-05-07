@@ -3,78 +3,78 @@
             [clojure.java.shell :refer [sh]]
             [hiccup.core :refer [html]]
             [svg-clj.utils :as utils]
-            [svg-clj.path :refer [path
-                                  merge-paths
-                                  circle-path
-                                  line-path
-                                  rect-path
-                                  polyline-path
-                                  polygon-path
-                                  bezier
-                                  arc]]
-            [svg-clj.transforms :refer [centroid
-                                        bounds
-                                        translate
-                                        rotate
-                                        scale]]
-            [svg-clj.main :refer [->edn
-                                  svg
-                                  circle
-                                  ellipse
-                                  rect
-                                  line
-                                  polygon
-                                  polyline
-                                  text
-                                  g
-                                  image
-                                  style]]))
+            [svg-clj.path 
+             :refer [path
+                     merge-paths
+                     circle-path
+                     line-path
+                     rect-path
+                     polyline-path
+                     polygon-path
+                     bezier
+                     arc]]
+            [svg-clj.transforms
+             :refer [centroid
+                     bounds
+                     translate
+                     rotate
+                     scale
+                     style]]
+            [svg-clj.elements
+             :refer [svg
+                     circle
+                     ellipse
+                     rect
+                     line
+                     polygon
+                     polyline
+                     text
+                     g
+                     image]]))
 
 (defn show-debug-geom
   [elem]
   (let [ctr (centroid elem)
         bds (bounds elem)]
     (g elem
-       (g (->> (polygon bds)
+       (g (-> (polygon bds)
                (style {:fill "none"
                        :stroke "red"
                        :stroke-width "3px"}))
-          (->> (circle 2)
+          (-> (circle 2)
                (translate ctr)
                (style {:fill "red"}))))))
 
-(def a (g (->> (circle 50)
-               (translate [100 100])
-               (style {:fill "pink"
-                       :stroke-width "5px"
-                       :stroke "hotpink"}))
-          (->> (circle 10)
-               (translate [15 15])
-               (style {:fill "pink"
-                       :stroke-width "5px"
-                       :stroke "hotpink"}))))
+(def a (g (-> (circle 50)
+              (translate [100 100])
+              (style {:fill "pink"
+                      :stroke-width "5px"
+                      :stroke "hotpink"}))
+          (-> (circle 10)
+              (translate [15 15])
+              (style {:fill "pink"
+                      :stroke-width "5px"
+                      :stroke "hotpink"}))))
 
 (def basic-group
   (g
    (rect 20 20)
-   (->> (rect 20 20) (translate [20 0]))
-   (->> (rect 20 20) (translate [0 20]))
-   (->> (rect 20 20) (translate [20 20]))))
+   (-> (rect 20 20) (translate [20 0]))
+   (-> (rect 20 20) (translate [0 20]))
+   (-> (rect 20 20) (translate [20 20]))))
 
 (def circles
-  (svg 
-   [200 200 1]
-   (->>
-    (apply g (for [a (range 0 12)]
-         (->> (circle (+ 5 (* a 4)))
-              (translate [(/ (+ 5 (* a 4)) 2) 0])
-              (translate (utils/rotate-pt (* a -40) [20 0]))
-              (style {:stroke 
-                      (str "rgba(163,190,140," 
-                           (/ (inc a) 10.0) ")")
-                      :stroke-width "2px"
-                      :fill "none"}))))
-    (translate [100 100]))))
+  (-> (g (for [a (range 0 12)]
+           (-> (circle (+ 5 (* a 4)))
+               (translate [(/ (+ 5 (* a 4)) 2) 0])
+               (translate (utils/rotate-pt [20 0] (* a -40)))
+               (style {:stroke 
+                       (str "rgba(163,190,140," 
+                            (/ (inc a) 10.0) ")")
+                       :stroke-width "2px"
+                       :fill "none"}))))
+      (translate [100 100])
+      (svg 200 200)))
 
 (def basics [(arc [0 0] [50 0] 90)
              (circle-path 40)
@@ -95,17 +95,16 @@
 (def doc
   (->>
    (for [elem basics]
-     (->> 
-      (svg [200 200 1]
-           (->> elem
-                (translate [80 80])
-                (rotate 45)
-                (style {:fill "pink"
-                        :stroke-width "2px"
-                        :stroke "hotpink"})
-                show-debug-geom))
-      (style {:style {:outline "1px solid blue"
-                      :margin "10px"}})))
+     (-> elem
+         (translate [80 80])
+         (rotate 20)
+         (style {:fill "pink"
+                 :stroke-width "2px"
+                 :stroke "hotpink"})
+         show-debug-geom
+         (svg 200 200)
+         (style {:style {:outline "1px solid blue"
+                         :margin "10px"}})))
    (partition-all 3)
    (interpose [:br])))
 
