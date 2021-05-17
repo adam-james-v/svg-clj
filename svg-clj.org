@@ -3,7 +3,7 @@
 #+AUTHOR: adam-james
 #+STARTUP: overview
 #+EXCLUDE_TAGS: excl
-#+PROPERTY: header-args :cache yes :noweb yes :results none :mkdirp yes :padline yes :async
+#+PROPERTY: header-args :cache yes :noweb yes :results value :mkdirp yes :padline yes :async
 #+HTML_DOCTYPE: html5
 #+OPTIONS: toc:2 num:nil html-style:nil html-postamble:nil html-preamble:nil html5-fancy:t
 
@@ -402,26 +402,12 @@ A shape is a hiccup data structure that represents one of the valild SVG element
   [:circle {:cx 0 :cy 0 :r r}])
 #+end_src
 
-**** spec
- #+begin_src clojure :tangle ./src/svg_clj/specs.cljc
- (s/fdef circle
-   :args (s/cat :r number?)
-   :ret ::svg-element)
- #+end_src
-
 *** ellipse
 #+begin_src clojure :tangle ./src/svg_clj/elements.cljc
 (defn ellipse
   [rx ry]
   [:ellipse {:cx 0 :cy 0 :rx rx :ry ry}])
 #+end_src
-
-**** spec
- #+begin_src clojure :tangle ./src/svg_clj/specs.cljc
- (s/fdef ellipse
-   :args (s/cat :rx number? :ry number?)
-   :ret ::svg-element)
- #+end_src
 
 *** line
 #+begin_src clojure :tangle ./src/svg_clj/elements.cljc
@@ -430,26 +416,12 @@ A shape is a hiccup data structure that represents one of the valild SVG element
   [:line {:x1 ax :y1 ay :x2 bx :y2 by}])
 #+end_src
 
-**** spec
- #+begin_src clojure :tangle ./src/svg_clj/specs.cljc
- (s/fdef line
-   :args (s/cat :a ::pt2d :b ::pt2d)
-   :ret ::svg-element)
- #+end_src
-
 *** polygon
 #+begin_src clojure :tangle ./src/svg_clj/elements.cljc
 (defn polygon
   [pts]
   [:polygon {:points (str/join " " (map utils/v->s pts))}])
 #+end_src
-
-**** spec
- #+begin_src clojure :tangle ./src/svg_clj/specs.cljc
- (s/fdef polygon
-   :args (s/cat :pts ::pts)
-   :ret ::svg-element)
- #+end_src
 
 *** polyline
 #+begin_src clojure :tangle ./src/svg_clj/elements.cljc
@@ -459,26 +431,12 @@ A shape is a hiccup data structure that represents one of the valild SVG element
 
 #+end_src
 
-**** spec
- #+begin_src clojure :tangle ./src/svg_clj/specs.cljc
- (s/fdef polyline
-   :args (s/cat :pts ::pts)
-   :ret ::svg-element)
- #+end_src
-
 *** rect
 #+begin_src clojure :tangle ./src/svg_clj/elements.cljc
 (defn rect
   [w h]
   [:rect {:width w :height h :x (/ w -2.0) :y (/ h -2.0)}])
 #+end_src
-
-**** spec
- #+begin_src clojure :tangle ./src/svg_clj/specs.cljc
- (s/fdef rect
-   :args (s/cat :w number? :h number?)
-   :ret ::svg-element)
- #+end_src
 
 ** other
 *** image
@@ -487,13 +445,6 @@ A shape is a hiccup data structure that represents one of the valild SVG element
   [url w h]
   [:image {:href url :width w :height h :x (/ w -2.0) :y (/ h -2.0)}])
 #+end_src
-
-**** spec
- #+begin_src clojure :tangle ./src/svg_clj/specs.cljc
- (s/fdef image
-   :args (s/cat :url string? :w number? :h number?)
-   :ret ::svg-element)
- #+end_src
 
 *** g
 #+begin_src clojure :tangle ./src/svg_clj/elements.cljc
@@ -506,13 +457,6 @@ A shape is a hiccup data structure that represents one of the valild SVG element
     ;; content is a single element OR a list of elements
     (into [:g {}] (filter (complement nil?) content))))
 #+end_src
-
-**** spec
- #+begin_src clojure :tangle ./src/svg_clj/specs.cljc
- #_(s/fdef g
-   :args ::groupable
-   :ret ::svg-element)
- #+end_src
 
 *** text
 Text is a bit different. It is much more complicated to know text's centroid and thus local rotation/translation methods for all other shapes don't easily apply. 
@@ -527,12 +471,13 @@ In particular, you cannot know the exact width and height of a text element with
   [:text {:x 0 :y 0} text])
 #+end_src
 
-**** spec
- #+begin_src clojure :tangle ./src/svg_clj/specs.cljc
- (s/fdef text
-   :args (s/cat :text string?)
-   :ret ::svg-element)
- #+end_src
+** composites
+Composites are drawing elements that are not represented in the base SVG elements. For example, arrows are combinations of a polygon and line shape. These kinds of composite shapes should work as if they were base elements. This means that all transform functions must work normally on them. This shouldn't be too difficult, as composites are mostly going to be grouped up elements anyway.\
+
+#+begin_src clojure :tangle ./src/svg_clj/elements.cljc
+
+
+#+end_src
 
 * path-dsl
 The path element has a small DSL to create compound curves. This includes the following (taken from [[https://www.w3schools.com/graphics/svg_path.asp]]):
@@ -569,13 +514,6 @@ This path function is usable by the user but provides no path generation assista
           :fill-rule "evenodd"}])
 
 #+end_src
-
-**** spec
- #+begin_src clojure :tangle ./src/svg_clj/specs.cljc
- (s/fdef path
-   :args (s/cat :d ::path-string)
-   :ret ::path-element)
- #+end_src
 
 ** commands
 Path strings are a sequence of commands. These commands can be thought of as moving a pen along the canvas to draw shapes/lines according to the command's inputs.
@@ -639,21 +577,6 @@ I'm going to make a few functions to split paths into commands and put them in a
        (map merge-cursor)))
 #+END_SRC
 
-*** spec
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/specs.cljc
-(s/fdef path-command-strings
-  :args (s/cat :path-string ::path-string)
-  :ret (s/coll-of ::command-string))
-
-(s/fdef command
-  :args (s/cat :command-string ::command-string)
-  :ret ::command-map)
-
-(s/fdef path-string->commands
-  :args (s/cat :path-string ::path-string)
-  :ret (s/coll-of ::command-map))
-#+END_SRC
-
 ** converting-vh
 Given a list of commands, go until you find a V or H with a NON V NON H command preceding it.
 Use the previous command to get the missing X or Y value
@@ -700,13 +623,6 @@ If the entire sequence has NO V or H, done.
          last)))
 #+END_SRC
 
-*** spec
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/specs.cljc
-(s/fdef vh->l
-  :argrs (s/cat :commands (s/coll-of ::command-map))
-  :ret (complement any-vh?))
-#+END_SRC
-
 ** build-path-strings
 Given a sequence of command maps, produce a path string.
 
@@ -737,13 +653,6 @@ The requirement is that if a user puts a path string into the system but does no
   (let [props (second (last paths))
         d (str/join " " (map #(get-in % [1 :d]) paths))]
     [:path (assoc props :d d)]))
-#+END_SRC
-
-*** spec
-#+begin_src clojure :tangle ./src/svg_clj/specs.cljc
-(s/fdef merge-paths
-  :args (s/cat :paths (s/coll-of ::path-element))
-  :ret ::path-element)
 #+END_SRC
 
 ** partial-commands
@@ -913,12 +822,6 @@ Convert list of pts into list of commands.
 
 #+END_SRC
 
-*** spec
-#+begin_src clojure :tangle ./src/svg_clj/specs.cljc
-(s/fdef polygon-path
-  :args (s/cat :pts ::pts)
-  :ret ::path-element)
-#+END_SRC
 * transforms
 Computations refer to calculatable properties of svg elements. They are bounds and centroid.
 
@@ -1034,13 +937,6 @@ Style transforms allow the user to change any attributes of svg elements that af
   [(:x props) (:y props)])
 #+END_SRC
 
-**** spec
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/specs.cljc
-(s/fdef centroid-of-pts
-  :args (s/cat :pts ::pts)
-  :ret ::pt2d)
-#+END_SRC
-
 *** centroid-path
 The first idea for calculating path centroid is to get all point data from every command, mapcat them together, and just run centroid-of-pts on that list of points.
 
@@ -1067,13 +963,6 @@ Ideas to keep in mind:
 
 #+END_SRC
 
-**** spec
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/specs.cljc
-(s/fdef centroid
-  :args (s/or :one (s/coll-of ::svg-element)
-              :many (s/coll-of (s/+ ::svg-element)))
-  :ret ::pt2d)
-#+END_SRC
 ** bounds
 *** bounds-elements
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
@@ -1206,12 +1095,6 @@ Ideas to keep in mind:
 
 #+END_SRC
 
-**** spec
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/specs.cljc
-(s/fdef bounds
-  :args (s/cat :elems (s/coll-of ::svg-element))
-  :ret ::bounds)
-#+END_SRC
 ** translate
 *** translate-elements
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
@@ -1906,6 +1789,24 @@ The xml parse/transform technique comes from:
 
 * tests
 Create more tests. Try to use a bit of TDD to help improve implementations, starting with better transform functions.
+
+Run tests with the following.
+You can C-c-c on the block in Emacs/org-mode to see the results printed into the document directly. You can also just run the command using the terminal. Run it from the project's root directory.
+
+#+begin_src shell :results drawer
+clj -M:test
+#+end_src
+
+#+RESULTS[aebe95acd0b3337a649b68c0cc712a595323ee73]:
+:results:
+
+Running tests in #{"test"}
+
+Testing svg-clj.main-test
+
+Ran 7 tests containing 29 assertions.
+0 failures, 0 errors.
+:end:
 
 ** test-ns
 #+BEGIN_SRC clojure :tangle ./test/svg_clj/main_test.cljc
