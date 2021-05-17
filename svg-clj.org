@@ -97,16 +97,10 @@ Stay tuned for updates!
 ** todo
 Some tasks that need to be done on this project.
 *** TODO Add rounding to reduce file sizes from points having too many decimal places
-*** DONE remove forge dependency
-*** TODO fix svg fn to properly handle incorrect args eg. missing [w h sc]
 *** TODO build a mechanism for changing rotate behavior from local to global -> probably use *dynamic-var* 
 *** TODO build a mechanism for changing transform 'baking' behavior
-*** TODO make centroid only work on sets of pts of same dimension
-*** TODO make centroid more readable. Maybe juxt?s
-*** TODO fix in utils -- str->xf-map, and related fns.
-*** TODO re-implement scale transform. incomplete as is.
 *** TODO for circle and ellipse, try to remove the transform rotate(0 x y) idea. Seems confusing and unnecessary anyway.
-*** TODO org-mode auto-comlpete in code blocks... look up 'indiret buffer'
+
 ** roadmap
 Some features that are planned for implementation.
 
@@ -163,7 +157,7 @@ The library uses hiccup syntax to represent the SVG diagrams being created. The 
 
 Since the library functions emit hiccup data structures, the user can extend and manipulate their data using other clojure libraries or their own approaches. 
 
-The library has two 'groups' of functions:
+The library has two main categories of functions:
 
 - elements
   - container elements (svg, figure...)
@@ -343,110 +337,6 @@ strictly speaking, translate and rotate are not operating on streams of data, bu
         d (Math/abs (* l1 l2))]
     (when (not (= 0.0 (float d)))
       (to-deg (Math/acos (/ n d))))))
-#+end_src
-
-* specs-preds
-#+begin_src clojure :tangle ./src/svg_clj/specs.cljc
-(ns svg-clj.specs
-  (:require [clojure.string :as str]
-            [clojure.spec.alpha :as s]))
-            
-(s/def ::pt2d (s/tuple number? number?))
-(s/def ::pts (s/coll-of ::pt2d))
-
-(def svg-element-keys
-  "SVG elements provided by the library."
-  #{:circle
-    :ellipse
-    :line
-    :path
-    :polygon
-    :polyline
-    :rect
-    :text
-    :image
-    :g})
-
-(s/def ::basic-element
-  (s/cat :tag svg-element-keys
-         :props map?))
-
-(s/def ::text-element
-  (s/cat :tag #{:text}
-         :props map?
-         :content string?))
-
-(s/def ::g-element
-  (s/cat :tag #{:g}
-         :props map?
-         :content (s/* ::svg-element)))
-
-(s/def ::svg-element
-  (s/or :basic (s/spec ::basic-element)
-        :text (s/spec ::text-element)
-        :group (s/spec ::g-element)))
-
-(s/def ::path-element
-  (s/cat :tag #{:path}
-         :props (s/keys :req-un [::d]) 
-         :content (s/* ::svg-element)))
-
-(defn pt2d? [a] (s/valid? ::pt2d a))
-(defn pts? [s] (s/valid? ::pts s))
-
-(defn element?
-  "Checks if `elem` is an SVG element."
-  [elem]
-  (s/valid? ::svg-element elem))
-
-(defn path-string-allowed? 
-  [string] 
-  (empty? (str/replace string #"[MmZzLlHhVvCcSsQqTtAaeE0-9-,.\s]" "")))
-
-(defn path-string-valid-syntax?
-  [string]
-  (nil? (re-find #"[a-zA-Z][a-zA-Z]" string)))
-
-(defn path-string-valid-start?
-  [string]
-  (nil? (re-find #"^[0-9-,.]" string)))
-
-(defn path-string-valid-end?
-  [string]
-  (nil? (re-find #".*[-,.]$" string)))
-
-(defn path-string-single-command?
-  [string]
-  (= 1 (count (re-seq #"[A-DF-Za-df-z]" string))))
-
-(s/def ::path-string
-  (s/and string?
-         (complement empty?)
-         path-string-allowed?
-         path-string-valid-syntax?
-         path-string-valid-start?
-         path-string-valid-end?
-         (complement path-string-single-command?)))
-
-(s/def ::command-string
-  (s/and string?
-         (complement empty?)
-         path-string-allowed?
-         path-string-valid-syntax?
-         path-string-valid-start?
-         path-string-valid-end?
-         path-string-single-command?))
-
-(def commands #{"M" "L" "H" "V" "C" "S" "Q" "T" "A" "Z"})
-(s/def ::command commands)
-(s/def ::coordsys #{:rel :abs})
-(s/def ::input (s/or :data (s/+ number?)
-                     :nil nil?))
-(s/def ::command-map
-  (s/keys :req-un [::command ::coordsys ::input]))
-
-(s/def ::bounds
-  (s/tuple ::pt2d ::pt2d ::pt2d ::pt2d))
 #+end_src
 
 * elements
@@ -644,37 +534,6 @@ In particular, you cannot know the exact width and height of a text element with
    :ret ::svg-element)
  #+end_src
 
-** svg-loader
-#+BEGIN_SRC clojure
-#?(:clj
-   (defn xml->hiccup
-     [xml]
-     (if-let [t (:tag xml)]
-       (let [elem [t]
-             elem (if-let [attrs (:attrs xml)]
-                    (conj elem attrs)
-                    elem)]
-         (into elem (map xml->hiccup (:content xml))))
-       xml)))
-
-#?(:clj
-   (defn ->edn
-     [str]
-     (->> (xml/parse-str str 
-                         :skip-whitespace true
-                         :namespace-aware false)
-          xml->hiccup
-          #_(tree-seq vector? rest)
-          #_(filter vector?)
-          #_(filter #(= :svg (first %)))
-          #_first)))
-
-#?(:clj
-   (defn unwrap-elements
-     [edn]
-     (filter specs/element? edn)))
-
-#+END_SRC
 * path-dsl
 The path element has a small DSL to create compound curves. This includes the following (taken from [[https://www.w3schools.com/graphics/svg_path.asp]]):
 
@@ -1939,6 +1798,7 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
 (ns svg-clj.tools
   (:require [clojure.string :as str]
             [clojure.java.shell :refer [sh]]
+            [clojure.data.xml :as xml]
             [hiccup.core :refer [html]]
             [hawk.core :as hawk]
             [svg-clj.elements :as svg]
@@ -2007,6 +1867,42 @@ Build tests to make sure the design watcher works. It may be wise to build a nic
          ctx)}])))
 
 #+end_src
+
+** loader
+The xml parse/transform technique comes from:
+
+[[https://github.com/babashka/babashka/blob/master/examples/portal.clj]]
+
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/tools.clj
+(defn xml->hiccup [xml]
+  (if-let [t (:tag xml)]
+    (let [elt [t]
+          elt (if-let [attrs (:attrs xml)]
+                (conj elt attrs)
+                elt)]
+      (into elt (map xml->hiccup (:content xml))))
+    xml))
+
+(defn svg-str->elements
+  [svg-str]
+  (-> svg-str
+      (xml/parse-str :namespace-aware false)
+      xml->hiccup))
+
+(defn save-svg
+  [svg-data fname]
+  (let [data (if (= (first svg-data) :svg)
+               svg-data
+               (svg/svg svg-data))]
+    (spit fname (html data))))
+
+(defn load-svg
+  [fname]
+  (-> fname
+      slurp
+      svg-str->elements))
+
+#+END_SRC
 
 * tests
 Create more tests. Try to use a bit of TDD to help improve implementations, starting with better transform functions.
