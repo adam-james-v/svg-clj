@@ -17,6 +17,7 @@
   org.clojure/test.check    {:mvn/version "1.1.0"}
   org.clojure/data.xml      {:mvn/version "0.0.8"}
   hawk/hawk                 {:mvn/version "0.2.11"}
+  batik-rasterize/batik-rasterize {:mvn/version "0.1.2"}
   hiccup/hiccup             {:mvn/version "2.0.0-alpha2"}}
  :aliases {:test {:extra-paths ["test"]
                  :extra-deps {com.cognitect/test-runner {:git/url "https://github.com/cognitect-labs/test-runner.git"
@@ -449,18 +450,13 @@ strictly speaking, translate and rotate are not operating on streams of data, bu
 #+end_src
 
 * elements
-This ns should be renamed I think. Probably more descriptive to name it either:
-
-- svg-clj.shapes OR
-- svg-clj.primitives OR
-- svg-clj.elements
-
 ** ns
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/elements.cljc
 (ns svg-clj.elements
   (:require [clojure.string :as str]
             #?(:clj [clojure.data.xml :as xml])
-            [svg-clj.utils :as utils]))
+            [svg-clj.utils :as utils]
+            [svg-clj.transforms :as tf]))
 
 #+END_SRC
 
@@ -472,6 +468,16 @@ Any elements that wrap content. Primary function is svg which is the ~container~
 (defn svg
    "The svg fn wraps `content` in an SVG container element.
    The SVG container is parameterized by width `w`, height `h`, and scale `sc`."
+  ([content]
+   (let [[[xmin ymin] _ [xmax ymax] _] (tf/bounds content)
+         w (- xmax xmin)
+         h (- ymax ymin)]
+     [:svg {:width  w
+            :height h
+            :viewBox (str/join " " [(/ w -2.0) (/ h -2.0) w h])
+            :xmlns "http://www.w3.org/2000/svg"}
+      content]))
+
   ([content w h]
    [:svg {:width  w
           :height h
@@ -480,7 +486,7 @@ Any elements that wrap content. Primary function is svg which is the ~container~
     content])
 
   ([content w h sc]
-   (svg w h [:g {:transform (str "scale(" sc ")")} content])))
+   (svg [:g {:transform (str "scale(" sc ")")} content] w h)))
 
 #+end_src
 
@@ -1927,6 +1933,81 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
 
 #+END_SRC
 
+* tools
+** ns
+#+begin_src clojure :tangle ./src/svg_clj/tools.clj
+(ns svg-clj.tools
+  (:require [clojure.string :as str]
+            [clojure.java.shell :refer [sh]]
+            [hiccup.core :refer [html]]
+            [hawk.core :as hawk]
+            [svg-clj.elements :as svg]
+            [svg-clj.path :as path]
+            [svg-clj.transforms :as tf]
+            [batik.rasterize :as b]
+            [svg-clj.utils :as utils]))
+
+#+end_src
+
+** png!
+#+begin_src clojure :tangle ./src/svg_clj/tools.clj
+(defn sh-png! [svg-data fname]
+  (sh "convert" "-background" "none" "/dev/stdin" fname
+      :in (html svg-data)))
+
+(defn png! [svg-data fname]
+  (b/render-svg-string (html svg-data) fname))
+
+#+end_src
+
+** show
+The cider-show fn works with Batik. It lets you quickly view SVG elements in a CIDER REPL.
+
+To get similar results from a clojurescript context, it might be possible to use a serialize->rasterize approach as shown here:
+
+[[https://observablehq.com/@mbostock/saving-svg]]
+
+To get it working in CIDER, you have to enable content types.
+
+~M-x cider-repl-toggle-content-types~
+
+#+begin_src clojure :tangle ./src/svg_clj/tools.clj
+(defn cider-show
+  [svg-data]
+  (let [fname "_imgtmp.png"
+        data (if (= (first svg-data) :svg)
+               svg-data
+               (svg/svg svg-data))]
+    (do (png! data fname)
+        (clojure.java.io/file fname))))
+
+#+end_src
+
+** watcher
+Build tests to make sure the design watcher works. It may be wise to build a nicer interface with clojure/tools.cli
+
+#+begin_src clojure :tangle ./src/svg_clj/tools.clj
+(defn watch!
+  [fname]
+  (let [ [name ext] (str/split fname #"\.")]
+    (hawk/watch!
+     [{:paths [fname]
+       :handler
+       (fn [ctx e]
+         (require '[svg-clj.elements :refer :all]
+                  '[svg-clj.transforms :refer :all]
+                  '[svg-clj.path :refer :all]
+                  '[hiccup.core :refer [html]])
+         (->> (slurp fname)
+              (format "[%s]")
+              load-string
+              (filter (complement var?))
+              html
+              (spit (str name ".html")))
+         ctx)}])))
+
+#+end_src
+
 * tests
 Create more tests. Try to use a bit of TDD to help improve implementations, starting with better transform functions.
 
@@ -2096,57 +2177,16 @@ Create more tests. Try to use a bit of TDD to help improve implementations, star
            (map #(rotate % 45) a)))))
 
 #+end_src
-
-* watcher
-this can be run with clj -m svg-clj.watcher design.cljc in terminal.
-
-Build tests to make sure the design watcher works. It may be wise to build a nicer interface with clojure/tools.cli
-
-#+begin_src clojure :tangle ./src/svg_clj/watcher.clj
-(ns svg-clj.watcher
-  (:require [clojure.string :as st]
-            [hiccup2.core :refer [html]]
-            [hawk.core :as hawk]
-            [svg-clj.main :refer [circle
-                                  ellipse
-                                  g
-                                  image
-                                  line
-                                  polygon
-                                  polyline
-                                  rect
-                                  style
-                                  svg
-                                  text]]))
-
-(defn design-watch
-  [f]
-  (hawk/watch!
-   [{:paths [f]
-     :handler
-     (fn [ctx e]
-       (require '[svg-clj.main :refer :all]
-                '[hiccup.core :refer [html]])
-       (->> (slurp f)
-            (format "[%s]")
-            load-string
-            (filter (complement var?))
-            html
-            (spit "test.html"))
-       ctx)}]))
-
-(defn -main [& args] (design-watch (first args)))
-#+end_src
 * examples
 This is a WIP file for a more complex drawing to be used in tests. This will use all transforms, all shapes, etc.
 
 #+begin_src clojure :tangle ./examples/basics.cljc
 (ns examples.basics
-  (:require [clojure.string :as st]
+  (:require [clojure.string :as str]
             [clojure.java.shell :refer [sh]]
             [hiccup.core :refer [html]]
             [svg-clj.utils :as utils]
-            [svg-clj.path 
+            [svg-clj.path :as path
              :refer [path
                      merge-paths
                      circle-path

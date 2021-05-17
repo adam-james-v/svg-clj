@@ -1,11 +1,22 @@
 (ns svg-clj.elements
   (:require [clojure.string :as str]
             #?(:clj [clojure.data.xml :as xml])
-            [svg-clj.utils :as utils]))
+            [svg-clj.utils :as utils]
+            [svg-clj.transforms :as tf]))
 
 (defn svg
    "The svg fn wraps `content` in an SVG container element.
    The SVG container is parameterized by width `w`, height `h`, and scale `sc`."
+  ([content]
+   (let [[[xmin ymin] _ [xmax ymax] _] (tf/bounds content)
+         w (- xmax xmin)
+         h (- ymax ymin)]
+     [:svg {:width  w
+            :height h
+            :viewBox (str/join " " [(/ w -2.0) (/ h -2.0) w h])
+            :xmlns "http://www.w3.org/2000/svg"}
+      content]))
+
   ([content w h]
    [:svg {:width  w
           :height h
@@ -14,7 +25,7 @@
     content])
 
   ([content w h sc]
-   (svg w h [:g {:transform (str "scale(" sc ")")} content])))
+   (svg [:g {:transform (str "scale(" sc ")")} content] w h)))
 
 (defn circle
   [r]

@@ -1,9 +1,9 @@
 (ns examples.basics
-  (:require [clojure.string :as st]
+  (:require [clojure.string :as str]
             [clojure.java.shell :refer [sh]]
             [hiccup.core :refer [html]]
             [svg-clj.utils :as utils]
-            [svg-clj.path 
+            [svg-clj.path :as path
              :refer [path
                      merge-paths
                      circle-path
