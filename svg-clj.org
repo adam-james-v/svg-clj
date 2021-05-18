@@ -344,7 +344,6 @@ strictly speaking, translate and rotate are not operating on streams of data, bu
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/elements.cljc
 (ns svg-clj.elements
   (:require [clojure.string :as str]
-            #?(:clj [clojure.data.xml :as xml])
             [svg-clj.utils :as utils]
             [svg-clj.transforms :as tf]))
 
@@ -468,14 +467,60 @@ In particular, you cannot know the exact width and height of a text element with
 #+begin_src clojure :tangle ./src/svg_clj/elements.cljc
 (defn text
   [text]
-  [:text {:x 0 :y 0} text])
+  [:text {:x 0
+          :y 0
+          :font-size 12
+          :text-anchor "middle"
+          :dominant-baseline "middle"} text])
+
 #+end_src
 
 ** composites
-Composites are drawing elements that are not represented in the base SVG elements. For example, arrows are combinations of a polygon and line shape. These kinds of composite shapes should work as if they were base elements. This means that all transform functions must work normally on them. This shouldn't be too difficult, as composites are mostly going to be grouped up elements anyway.\
+Composites are drawing elements that are not represented in the base SVG elements. For example, arrows are combinations of a polygon and line shape. These kinds of composite shapes should work as if they were base elements. This means that all transform functions must work normally on them. This shouldn't be too difficult, as composites are mostly going to be grouped up elements anyway.
+
+** arrow
+To be added later:
+
+A 'arrow builder' function that lets you give a curve, a start-shape, and end-shape and it builds the appropriate group. This could be a basis for a bunch of utility arrows. Curves could be line, polyline, beziers, and arcs. 
 
 #+begin_src clojure :tangle ./src/svg_clj/elements.cljc
+(defn arrow
+  ([a b]
+   (let [tip-pts [ [0 0] [5 0] [5 5] ]
+         tip-shape (polygon tip-pts)]
+     (arrow a b tip-shape)))
 
+  ([a b tip-shape]
+   (let [[mx my] (tf/centroid tip-shape)
+         r (utils/to-deg (apply #(Math/atan2 %1 %2) (utils/v- b a)))]
+     (->
+      (g
+       (line a b)
+       (-> tip-shape
+           (tf/translate [(- mx) (- my)])
+           (tf/rotate (- 315 r))
+           (tf/translate a)
+           (tf/style {})
+           (tf/style {:fill "none"
+                      :stroke "none"}))
+       (-> tip-shape
+           (tf/translate [(- mx) (- my)])
+           (tf/rotate (- 135 r))
+           (tf/translate b)))))))
+#+end_src
+
+** label
+This is a helpful default for text elements. It expects a font size arg. This could be reworked in the future.
+
+#+begin_src clojure :tangle ./src/svg_clj/elements.cljc
+(defn label
+  [font-size text]
+  [:text 
+   {:x 0 :y 0 
+    :style {:font-family "Verdana"
+            :text-anchor "middle"
+            :dominant-baseline "middle"
+            :font-size font-size}} text])
 
 #+end_src
 
@@ -836,7 +881,9 @@ So, I either should fix the interface fn or eliminate it entirely.
 (ns svg-clj.transforms
    (:require [clojure.string :as str]
              [svg-clj.utils :as utils]
-             [svg-clj.path :as path]))
+             [svg-clj.path :as path]
+            #?(:cljs
+               [cljs.reader :refer [read-string]])))
 
 #+end_src
 
@@ -1068,11 +1115,29 @@ Ideas to keep in mind:
              [x (+ y h)]]
         xpts (mapv #(utils/rotate-pt-around-center % deg [mx my]) pts)]
     (bounds-of-pts xpts)))
+#+END_SRC
 
+
+NOTE: Look into Austin for a headless browser. Could use this to get access to .getBBox()
+
+This is a suggestion from maacl72
+
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
 ;; this is not done yet. Text in general needs a redo.
 (defmethod bounds :text
-  [[_ props text]]
-  [[(:x props) (:y props)]])
+  [[_ {:keys [x y font-size ] :as props} text]]
+  (let [xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
+        deg (get-in xf [:rotate 0])
+        ar 0.6
+        h (read-string (str font-size))
+        hh (/ h 2.0)
+        hw (/ (* ar h (count text)) 2.0)
+        pts [ [(- x hw) (- y hh)]
+             [(+ x hw) (- y hh)]
+             [(+ x hw) (+ y hh)]
+             [(- x hw) (+ y hh)] ]
+        xpts (mapv #(utils/rotate-pt-around-center % deg [x y]) pts)]
+    (bounds-of-pts xpts)))
 
 #+END_SRC
 
@@ -1724,6 +1789,16 @@ To get it working in CIDER, you have to enable content types.
     (do (png! data fname)
         (clojure.java.io/file fname))))
 
+(defn show
+  [svg-data]
+  (let [fname "_tmp.html"
+        data (if (= (first svg-data) :svg)
+               svg-data
+               (svg/svg svg-data))]
+    (do (spit fname (html data))
+        (clojure.java.browse/browse-url fname)
+        (sh "rm" fname))))
+
 #+end_src
 
 ** watcher
@@ -1983,89 +2058,54 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
             [clojure.java.shell :refer [sh]]
             [hiccup.core :refer [html]]
             [svg-clj.utils :as utils]
-            [svg-clj.path :as path
-             :refer [path
-                     merge-paths
-                     circle-path
-                     line-path
-                     rect-path
-                     polyline-path
-                     polygon-path
-                     bezier
-                     arc]]
-            [svg-clj.transforms
-             :refer [centroid
-                     bounds
-                     translate
-                     rotate
-                     scale
-                     style]]
-            [svg-clj.elements
-             :refer [svg
-                     circle
-                     ellipse
-                     rect
-                     line
-                     polygon
-                     polyline
-                     text
-                     g
-                     image]]))
+            [svg-clj.path :as path]
+            [svg-clj.transforms :as tf]
+            [svg-clj.elements :as svg]))
 
 (defn show-debug-geom
   [elem]
-  (let [ctr (centroid elem)
-        bds (bounds elem)]
-    (g elem
-       (g (-> (polygon bds)
-               (style {:fill "none"
+  (let [ctr (tf/centroid elem)
+        bds (tf/bounds elem)]
+    (svg/g elem
+       (svg/g (-> (svg/polygon bds)
+               (tf/style {:fill "none"
                        :stroke "red"
                        :stroke-width "3px"}))
-          (-> (circle 2)
-               (translate ctr)
-               (style {:fill "red"}))))))
+          (-> (svg/circle 2)
+               (tf/translate ctr)
+               (tf/style {:fill "red"}))))))
 
-(def a (g (-> (circle 50)
-              (translate [100 100])
-              (style {:fill "pink"
+(def a (svg/g (-> (svg/circle 50)
+              (tf/translate [100 100])
+              (tf/style {:fill "pink"
                       :stroke-width "5px"
                       :stroke "hotpink"}))
-          (-> (circle 10)
-              (translate [15 15])
-              (style {:fill "pink"
+          (-> (svg/circle 10)
+              (tf/translate [15 15])
+              (tf/style {:fill "pink"
                       :stroke-width "5px"
                       :stroke "hotpink"}))))
 
 (def basic-group
-  (g
-   (rect 20 20)
-   (-> (rect 20 20) (translate [20 0]))
-   (-> (rect 20 20) (translate [0 20]))
-   (-> (rect 20 20) (translate [20 20]))))
+  (svg/g
+   (svg/rect 20 20)
+   (-> (svg/rect 20 20) (tf/translate [20 0]))
+   (-> (svg/rect 20 20) (tf/translate [0 20]))
+   (-> (svg/rect 20 20) (tf/translate [20 20]))))
 
 (def circles
-  (-> (g (for [a (range 0 12)]
-           (-> (circle (+ 5 (* a 4)))
-               (translate [(/ (+ 5 (* a 4)) 2) 0])
-               (translate (utils/rotate-pt [20 0] (* a -40)))
-               (style {:stroke 
+  (-> (svg/g (for [a (range 0 12)]
+           (-> (svg/circle (+ 5 (* a 4)))
+               (tf/translate [(/ (+ 5 (* a 4)) 2) 0])
+               (tf/translate (utils/rotate-pt [20 0] (* a -40)))
+               (tf/style {:stroke 
                        (str "rgba(163,190,140," 
                             (/ (inc a) 10.0) ")")
                        :stroke-width "2px"
                        :fill "none"}))))
-      (translate [100 100])
-      (svg 200 200)))
+      (tf/translate [100 100])
+      (svg/svg 200 200)))
 
-#+end_src
-
-
-NOTE: suggestion from GreenCoder regarding bezier
-
-fn that appends to existing bezier
-
-(bezier-append pt)
-
-#+begin_src clojure :tangle ./examples/basics.cljc
 (def basics [(arc [0 0] [50 0] 90)
              (circle-path 40)
              (bezier [0 0] [30 20] [80 40] [120 180])
@@ -2108,3 +2148,4 @@ fn that appends to existing bezier
     #_circles]]))
 
 #+end_src
+

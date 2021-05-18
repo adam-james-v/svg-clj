@@ -26,6 +26,16 @@
     (do (png! data fname)
         (clojure.java.io/file fname))))
 
+(defn show
+  [svg-data]
+  (let [fname "_tmp.html"
+        data (if (= (first svg-data) :svg)
+               svg-data
+               (svg/svg svg-data))]
+    (do (spit fname (html data))
+        (clojure.java.browse/browse-url fname)
+        (sh "rm" fname))))
+
 (defn watch!
   [fname]
   (let [ [name ext] (str/split fname #"\.")]

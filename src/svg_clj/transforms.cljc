@@ -1,7 +1,9 @@
 (ns svg-clj.transforms
    (:require [clojure.string :as str]
              [svg-clj.utils :as utils]
-             [svg-clj.path :as path]))
+             [svg-clj.path :as path]
+            #?(:cljs
+               [cljs.reader :refer [read-string]])))
 
 (defmulti command->pts :command)
 
@@ -200,8 +202,19 @@
 
 ;; this is not done yet. Text in general needs a redo.
 (defmethod bounds :text
-  [[_ props text]]
-  [[(:x props) (:y props)]])
+  [[_ {:keys [x y font-size ] :as props} text]]
+  (let [xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
+        deg (get-in xf [:rotate 0])
+        ar 0.6
+        h (read-string (str font-size))
+        hh (/ h 2.0)
+        hw (/ (* ar h (count text)) 2.0)
+        pts [ [(- x hw) (- y hh)]
+             [(+ x hw) (- y hh)]
+             [(+ x hw) (+ y hh)]
+             [(- x hw) (+ y hh)] ]
+        xpts (mapv #(utils/rotate-pt-around-center % deg [x y]) pts)]
+    (bounds-of-pts xpts)))
 
 (defmethod bounds :path
   [[_ props]]
