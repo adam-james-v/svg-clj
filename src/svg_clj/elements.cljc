@@ -7,9 +7,7 @@
    "The svg fn wraps `content` in an SVG container element.
    The SVG container is parameterized by width `w`, height `h`, and scale `sc`."
   ([content]
-   (let [[[xmin ymin] _ [xmax ymax] _] (tf/bounds content)
-         w (- xmax xmin)
-         h (- ymax ymin)]
+   (let [[w h] (tf/bb-dims content)]
      [:svg {:width  w
             :height h
             :viewBox (str/join " " [(/ w -2.0) (/ h -2.0) w h])

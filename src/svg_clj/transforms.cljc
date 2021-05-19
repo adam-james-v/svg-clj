@@ -227,6 +227,13 @@
   [[_ props & content]]
   (bounds-of-pts (mapcat bounds content)))
 
+(defn bb-dims
+   "The svg fn wraps `content` in an SVG container element.
+   The SVG container is parameterized by width `w`, height `h`, and scale `sc`."
+  [element]
+  (let [[[xmin ymin] _ [xmax ymax] _] (bounds element)]
+    [(- xmax xmin) (- ymax ymin)]))
+
 (defn- get-props
   [props]
   (merge {:rotate [0 0 0]} (utils/str->xf-map (get props :transform))))

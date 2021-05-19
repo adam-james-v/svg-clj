@@ -34,7 +34,7 @@
                (svg/svg svg-data))]
     (do (spit fname (html data))
         (clojure.java.browse/browse-url fname)
-        (sh "rm" fname))))
+        #_(sh "rm" fname))))
 
 (defn watch!
   [fname]
