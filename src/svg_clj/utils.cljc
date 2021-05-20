@@ -94,6 +94,37 @@
   "calculates the dot product of two vectors"
   [a b]
   (reduce + (map * a b)))
+
+(defn cross*
+  "calculates cross product of two 3d-vectors"
+  [a b]
+  (let [[a1 a2 a3] a
+        [b1 b2 b3] b
+        i (- (* a2 b3) (* a3 b2))
+        j (- (* a3 b1) (* a1 b3))
+        k (- (* a1 b2) (* a2 b1))]
+    [i j k]))
+
+(defn normalize
+  "find the unit vector of a given vector"
+  [v]
+  (let [m (Math/sqrt (reduce + (v* v v)))]
+    (mapv / v (repeat m))))
+
+#_(defn normal
+  "find normal vector of plane given 3 points"
+  [a b c]
+  (let [ab (mapv - a b)
+        ac (mapv - a c)]
+    (if (on-line? c [a b]) nil (cross* ab ac))))
+
+(defn normal
+  "find normal vector of plane given 3 points"
+  [a b c]
+  (let [ab (mapv - a b)
+        ac (mapv - a c)]
+    (cross* ab ac)))
+
 ;; https://math.stackexchange.com/questions/361412/finding-the-angle-between-three-points
 (defn angle-from-pts
   [p1 p2 p3]
