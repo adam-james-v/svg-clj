@@ -53,6 +53,14 @@
   [url w h]
   [:image {:href url :width w :height h :x (/ w -2.0) :y (/ h -2.0)}])
 
+(defn text
+  [text]
+  [:text {:x 0
+          :y 0
+          :font-size 12
+          :text-anchor "middle"
+          :dominant-baseline "middle"} text])
+
 (defn g
   [& content]
   (if (and (= 1 (count content))
@@ -61,14 +69,6 @@
     (into [:g {}] (first content))
     ;; content is a single element OR a list of elements
     (into [:g {}] (filter (complement nil?) content))))
-
-(defn text
-  [text]
-  [:text {:x 0
-          :y 0
-          :font-size 12
-          :text-anchor "middle"
-          :dominant-baseline "middle"} text])
 
 (defn arrow
   ([a b]

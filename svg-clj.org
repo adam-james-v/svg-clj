@@ -475,18 +475,6 @@ A shape is a hiccup data structure that represents one of the valild SVG element
   [:image {:href url :width w :height h :x (/ w -2.0) :y (/ h -2.0)}])
 #+end_src
 
-*** g
-#+begin_src clojure :tangle ./src/svg_clj/elements.cljc
-(defn g
-  [& content]
-  (if (and (= 1 (count content))
-           (not (keyword? (first (first content)))))
-    ;; content is a list of a list of elements
-    (into [:g {}] (first content))
-    ;; content is a single element OR a list of elements
-    (into [:g {}] (filter (complement nil?) content))))
-#+end_src
-
 *** text
 Text is a bit different. It is much more complicated to know text's centroid and thus local rotation/translation methods for all other shapes don't easily apply. 
 
@@ -503,6 +491,18 @@ In particular, you cannot know the exact width and height of a text element with
           :text-anchor "middle"
           :dominant-baseline "middle"} text])
 
+#+end_src
+
+*** g
+#+begin_src clojure :tangle ./src/svg_clj/elements.cljc
+(defn g
+  [& content]
+  (if (and (= 1 (count content))
+           (not (keyword? (first (first content)))))
+    ;; content is a list of a list of elements
+    (into [:g {}] (first content))
+    ;; content is a single element OR a list of elements
+    (into [:g {}] (filter (complement nil?) content))))
 #+end_src
 
 ** composites
@@ -571,6 +571,7 @@ The path element has a small DSL to create compound curves. This includes the fo
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/path.cljc
 (ns svg-clj.path
   (:require [clojure.string :as str]
+            [svg-clj.elements :as svg]
             [svg-clj.utils :as utils]))
 
 #+END_SRC
@@ -690,11 +691,14 @@ If the entire sequence has NO V or H, done.
 (defn- vh->l
   [cmds]
   (let [iters (iterate convert-first-vh-cmd cmds)]
-    (->> iters
-         (partition 2 1)
-         (take-while (fn [[a b]] (not= a b)))
-         last
-         last)))
+    (if (any-vh? cmds)
+      (->> iters
+           (partition 2 1)
+           (take-while (fn [[a b]] (not= a b)))
+           last
+           last)
+      cmds)))
+
 #+END_SRC
 
 ** build-path-strings
@@ -716,17 +720,49 @@ The requirement is that if a user puts a path string into the system but does no
 
 (defn cmds->path-string
   [cmds]
-  (str/join " " (map cmd->path-string cmds)))
-#+END_SRC
+  (let [start (first cmds)
+        cmds (if (= "M" (:command start))
+               cmds
+               (let [new-start {:command "M"
+                                :coordsys :abs
+                                :input (:cursor start)
+                                :cursor [0 0]}]
+                 (concat [new-start] cmds)))]
+    (when (> (count cmds) 1)
+      (str/join " " (map cmd->path-string cmds)))))
 
-** merge-paths
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/path.cljc
-(defn merge-paths
-  "Merges a list of path elements together, keeping props from last path in the list."
-  [& paths]
-  (let [props (second (last paths))
-        d (str/join " " (map #(get-in % [1 :d]) paths))]
-    [:path (assoc props :d d)]))
+(defn cmds->elements
+  [cmds]
+  (let [start (first cmds)
+        cmds (if (= "M" (:command start))
+               cmds
+               (let [new-start {:command "M"
+                                :coordsys :abs
+                                :input (:cursor start)
+                                :cursor [0 0]}]
+                 (concat [new-start] cmds)))]
+    (when (> (count cmds) 1)
+      (let [cs (map :command (rest cmds))]
+        (cond
+          ;; line
+          (and (= (count cmds) 2)
+               (empty? (filter (complement #{"L"}) cs)))
+          (apply svg/line (map :input cmds))
+
+          ;; polyline
+          (and (> (count cmds) 2)
+               (empty? (filter (complement #{"L"}) cs)))
+          (svg/polyline (map :input cmds))
+
+          ;; polygon
+          (and (> (count cmds) 2)
+               (empty? (filter (complement #{"L" "Z"}) cs)))
+          (svg/polygon (map :input cmds))
+          
+          :else
+          (path (str/join " " (map cmd->path-string cmds))))))))
+
+#+END_SRC
 #+END_SRC
 
 ** partial-commands
@@ -751,44 +787,7 @@ Convert list of pts into list of commands.
   {:command "M"
    :coordsys :abs
    :input (vec pt)})
-#+END_SRC
 
-** polygons-polylines
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/path.cljc
-(defn line-path
-  [a b]
-  (-> [(pt->m a) (pt->l b)]
-      cmds->path-string
-      path))
-
-(defn polygon-path
-  [pts]
-  (let [open (pt->m (first pts))
-        close {:command "Z"
-               :coordsys :abs
-               :input nil}]
-    (-> (map pt->l (rest pts))
-        (conj open)
-        vec
-        (conj close)
-        cmds->path-string
-        path)))
-
-(defn polyline-path
-  [pts]
-  (let [open (pt->m (first pts))]
-    (-> (map pt->l (rest pts))
-        (conj open)
-        vec
-        cmds->path-string
-        path)))
-
-(defn rect-path
-  [w h]
-  (let [w2 (/ w 2.0)
-        h2 (/ h 2.0)]
-    (polygon-path [ [(- w2) (- h2)] [w2 (- h2)] 
-                    [w2 h2]         [(- w2) h2] ])))
 #+END_SRC
 
 ** bezier
@@ -828,6 +827,7 @@ Convert list of pts into list of commands.
          vec
          cmds->path-string
          path))))
+
 #+END_SRC
 
 ** arc
@@ -860,7 +860,7 @@ Convert list of pts into list of commands.
         laf (if (<= deg 180) 0 1)]
      (build-arc r r angle laf 1 a b)))
 
-(defn circle-path
+(defn circle
   [r]
   (let [open (pt->m [r 0])
         close {:command "Z"
@@ -877,7 +877,7 @@ Convert list of pts into list of commands.
         cmds->path-string
         path)))
 
-(defn ellipse-path
+(defn ellipse
   [rx ry]
   (let [open (pt->m [rx 0])
         close {:command "Z"
@@ -893,6 +893,88 @@ Convert list of pts into list of commands.
          close]
         cmds->path-string
         path)))
+
+#+END_SRC
+
+** polygons-polylines
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/path.cljc
+(defn line
+  [a b]
+  (-> [(pt->m a) (pt->l b)]
+      cmds->path-string
+      path))
+
+(defn polygon
+  [pts]
+  (let [open (pt->m (first pts))
+        close {:command "Z"
+               :coordsys :abs
+               :input nil}]
+    (-> (map pt->l (rest pts))
+        (conj open)
+        vec
+        (conj close)
+        cmds->path-string
+        path)))
+
+(defn polyline
+  [pts]
+  (let [open (pt->m (first pts))]
+    (-> (map pt->l (rest pts))
+        (conj open)
+        vec
+        cmds->path-string
+        path)))
+
+(defn rect
+  [w h]
+  (let [w2 (/ w 2.0)
+        h2 (/ h 2.0)]
+    (polygon [ [(- w2) (- h2)] [w2 (- h2)] 
+               [w2 h2]          [(- w2) h2] ])))
+
+#+END_SRC
+
+** merge-split
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/path.cljc
+(defn merge-paths
+  "Merges a list of path elements together, keeping props from last path in the list."
+  [& paths]
+  (let [props (second (last paths))
+        d (str/join " " (map #(get-in % [1 :d]) paths))]
+    [:path (assoc props :d d)]))
+
+(defn split-path
+  [[k props]]
+  (let [ps (-> (:d props)
+               (str/split #"(?=M)")
+               (->> (map str/trim)))]
+    (map #(assoc-in [k props] [1 :d] %) ps)))
+
+(defn explode-path
+  [[k {:keys [d]}] & {:keys [break-polys?]}]
+  (let [break-fn (if break-polys?
+                   (partial partition 1)
+                   (partial partition-by :command))]
+    (->> d
+         path-string->commands
+         vh->l
+         break-fn
+         (map cmds->path-string)
+         (filter some?)
+         (map path))))
+
+(defn path->elements
+  [[k {:keys [d]}] & {:keys [break-polys?]}]
+  (let [break-fn (if break-polys?
+                   (partial partition 1)
+                   (partial partition-by :command))]
+    (->> d
+         path-string->commands
+         vh->l
+         break-fn
+         (map cmds->elements)
+         (filter some?))))
 
 #+END_SRC
 
@@ -2405,6 +2487,92 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
                             (rand-int 255) ","
                             (rand-int 255) ")")})))
 
-(tools/cider-show (lo/distribute-linear :x 0 (repeatedly 7 rand-rect)))
+(tools/cider-show (map show-debug-geom (drop 2 (lo/distribute-linear :x 10 (repeatedly 7 rand-rect)))))
+
+(tools/cider-show (map show-debug-geom (drop 2 (lo/distribute-linear :y 10 (repeatedly 7 rand-rect)))))
+#+end_src
+
+
+
+
+
+
+
+
+
+
+Distribute a list of elements onto a list of points.
+Works like map, so whichever runs out first (elements or points) is the limiter.
+
+#+begin_src clojure :tangle ./examples/layout.cljc
+
+(tools/cider-show 
+ (lo/distribute-on-pts 
+  (repeatedly rand-rect)
+  (lo/rect-grid 10 10 30 30)))  
+
+#+end_src
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Distribute a list of elements onto a parametric curve.
+
+#+begin_src clojure :tangle ./examples/layout.cljc
+(tools/cider-show 
+ (lo/distribute-on-curve
+  (repeatedly 40 rand-rect)
+  (lo/p-circle 150)))
+
+
+#+end_src
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Distribute a list of elements along X/Y axis, keeping a constant gap between the boundaries of each element.
+
+#+begin_src clojure :tangle ./examples/layout.cljc
+
+(tools/cider-show 
+ (lo/distribute-linear
+  :x
+  20
+  (repeatedly 10 rand-rect)))
+
 
 #+end_src

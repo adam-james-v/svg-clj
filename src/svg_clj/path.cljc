@@ -1,5 +1,6 @@
 (ns svg-clj.path
   (:require [clojure.string :as str]
+            [svg-clj.elements :as svg]
             [svg-clj.utils :as utils]))
 
 (defn path
@@ -92,11 +93,13 @@
 (defn- vh->l
   [cmds]
   (let [iters (iterate convert-first-vh-cmd cmds)]
-    (->> iters
-         (partition 2 1)
-         (take-while (fn [[a b]] (not= a b)))
-         last
-         last)))
+    (if (any-vh? cmds)
+      (->> iters
+           (partition 2 1)
+           (take-while (fn [[a b]] (not= a b)))
+           last
+           last)
+      cmds)))
 
 (defn- cmd->path-string
   [{:keys [:command :coordsys :input] :as cmd}]
@@ -107,14 +110,47 @@
 
 (defn cmds->path-string
   [cmds]
-  (str/join " " (map cmd->path-string cmds)))
+  (let [start (first cmds)
+        cmds (if (= "M" (:command start))
+               cmds
+               (let [new-start {:command "M"
+                                :coordsys :abs
+                                :input (:cursor start)
+                                :cursor [0 0]}]
+                 (concat [new-start] cmds)))]
+    (when (> (count cmds) 1)
+      (str/join " " (map cmd->path-string cmds)))))
 
-(defn merge-paths
-  "Merges a list of path elements together, keeping props from last path in the list."
-  [& paths]
-  (let [props (second (last paths))
-        d (str/join " " (map #(get-in % [1 :d]) paths))]
-    [:path (assoc props :d d)]))
+(defn cmds->elements
+  [cmds]
+  (let [start (first cmds)
+        cmds (if (= "M" (:command start))
+               cmds
+               (let [new-start {:command "M"
+                                :coordsys :abs
+                                :input (:cursor start)
+                                :cursor [0 0]}]
+                 (concat [new-start] cmds)))]
+    (when (> (count cmds) 1)
+      (let [cs (map :command (rest cmds))]
+        (cond
+          ;; line
+          (and (= (count cmds) 2)
+               (empty? (filter (complement #{"L"}) cs)))
+          (apply svg/line (map :input cmds))
+
+          ;; polyline
+          (and (> (count cmds) 2)
+               (empty? (filter (complement #{"L"}) cs)))
+          (svg/polyline (map :input cmds))
+
+          ;; polygon
+          (and (> (count cmds) 2)
+               (empty? (filter (complement #{"L" "Z"}) cs)))
+          (svg/polygon (map :input cmds))
+          
+          :else
+          (path (str/join " " (map cmd->path-string cmds))))))))
 
 (defn- pt->l
   [pt]
@@ -127,41 +163,6 @@
   {:command "M"
    :coordsys :abs
    :input (vec pt)})
-
-(defn line-path
-  [a b]
-  (-> [(pt->m a) (pt->l b)]
-      cmds->path-string
-      path))
-
-(defn polygon-path
-  [pts]
-  (let [open (pt->m (first pts))
-        close {:command "Z"
-               :coordsys :abs
-               :input nil}]
-    (-> (map pt->l (rest pts))
-        (conj open)
-        vec
-        (conj close)
-        cmds->path-string
-        path)))
-
-(defn polyline-path
-  [pts]
-  (let [open (pt->m (first pts))]
-    (-> (map pt->l (rest pts))
-        (conj open)
-        vec
-        cmds->path-string
-        path)))
-
-(defn rect-path
-  [w h]
-  (let [w2 (/ w 2.0)
-        h2 (/ h 2.0)]
-    (polygon-path [ [(- w2) (- h2)] [w2 (- h2)] 
-                    [w2 h2]         [(- w2) h2] ])))
 
 (defn- partial-bezier
   ([a]
@@ -227,7 +228,7 @@
         laf (if (<= deg 180) 0 1)]
      (build-arc r r angle laf 1 a b)))
 
-(defn circle-path
+(defn circle
   [r]
   (let [open (pt->m [r 0])
         close {:command "Z"
@@ -244,7 +245,7 @@
         cmds->path-string
         path)))
 
-(defn ellipse-path
+(defn ellipse
   [rx ry]
   (let [open (pt->m [rx 0])
         close {:command "Z"
@@ -260,3 +261,77 @@
          close]
         cmds->path-string
         path)))
+
+(defn line
+  [a b]
+  (-> [(pt->m a) (pt->l b)]
+      cmds->path-string
+      path))
+
+(defn polygon
+  [pts]
+  (let [open (pt->m (first pts))
+        close {:command "Z"
+               :coordsys :abs
+               :input nil}]
+    (-> (map pt->l (rest pts))
+        (conj open)
+        vec
+        (conj close)
+        cmds->path-string
+        path)))
+
+(defn polyline
+  [pts]
+  (let [open (pt->m (first pts))]
+    (-> (map pt->l (rest pts))
+        (conj open)
+        vec
+        cmds->path-string
+        path)))
+
+(defn rect
+  [w h]
+  (let [w2 (/ w 2.0)
+        h2 (/ h 2.0)]
+    (polygon [ [(- w2) (- h2)] [w2 (- h2)] 
+               [w2 h2]          [(- w2) h2] ])))
+
+(defn merge-paths
+  "Merges a list of path elements together, keeping props from last path in the list."
+  [& paths]
+  (let [props (second (last paths))
+        d (str/join " " (map #(get-in % [1 :d]) paths))]
+    [:path (assoc props :d d)]))
+
+(defn split-path
+  [[k props]]
+  (let [ps (-> (:d props)
+               (str/split #"(?=M)")
+               (->> (map str/trim)))]
+    (map #(assoc-in [k props] [1 :d] %) ps)))
+
+(defn explode-path
+  [[k {:keys [d]}] & {:keys [break-polys?]}]
+  (let [break-fn (if break-polys?
+                   (partial partition 1)
+                   (partial partition-by :command))]
+    (->> d
+         path-string->commands
+         vh->l
+         break-fn
+         (map cmds->path-string)
+         (filter some?)
+         (map path))))
+
+(defn path->elements
+  [[k {:keys [d]}] & {:keys [break-polys?]}]
+  (let [break-fn (if break-polys?
+                   (partial partition 1)
+                   (partial partition-by :command))]
+    (->> d
+         path-string->commands
+         vh->l
+         break-fn
+         (map cmds->elements)
+         (filter some?))))

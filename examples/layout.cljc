@@ -30,4 +30,22 @@
                             (rand-int 255) ","
                             (rand-int 255) ")")})))
 
-(tools/cider-show (lo/distribute-linear :x 0 (repeatedly 7 rand-rect)))
+(tools/cider-show (map show-debug-geom (drop 2 (lo/distribute-linear :x 10 (repeatedly 7 rand-rect)))))
+
+(tools/cider-show (map show-debug-geom (drop 2 (lo/distribute-linear :y 10 (repeatedly 7 rand-rect)))))
+
+(tools/cider-show 
+ (lo/distribute-on-pts 
+  (repeatedly rand-rect)
+  (lo/rect-grid 10 10 30 30)))
+
+(tools/cider-show 
+ (lo/distribute-on-curve
+  (repeatedly 40 rand-rect)
+  (lo/p-circle 150)))
+
+(tools/cider-show 
+ (lo/distribute-linear
+  :x
+  20
+  (repeatedly 10 rand-rect)))
