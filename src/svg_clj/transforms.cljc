@@ -1,6 +1,7 @@
 (ns svg-clj.transforms
    (:require [clojure.string :as str]
              [svg-clj.utils :as utils]
+             [svg-clj.elements :as svg]
              [svg-clj.path :as path]
             #?(:cljs
                [cljs.reader :refer [read-string]])))
@@ -753,3 +754,132 @@
         cmds (path/path-string->commands (:d props))
         xcmds (map #(scale-path-command ctr % [sx sy]) cmds)]
     [k (assoc props :d (path/cmds->path-string xcmds))]))
+
+(defn- cmds->elements
+  [cmds]
+  (let [start (first cmds)
+        cmds (if (= "M" (:command start))
+               cmds
+               (let [new-start {:command "M"
+                                :coordsys :abs
+                                :input (:cursor start)
+                                :cursor [0 0]}]
+                 (concat [new-start] cmds)))]
+    (when (> (count cmds) 1)
+      (let [cs (map :command (rest cmds))]
+        (cond
+          ;; line
+          (and (= (count cmds) 2)
+               (empty? (filter (complement #{"L"}) cs)))
+          (apply svg/line (map :input cmds))
+
+          ;; polyline
+          (and (> (count cmds) 2)
+               (empty? (filter (complement #{"L"}) cs)))
+          (svg/polyline (map :input cmds))
+
+          ;; polygon
+          (and (> (count cmds) 2)
+               (empty? (filter (complement #{"L" "Z"}) cs)))
+          (svg/polygon (map :input cmds))
+          
+          :else
+          (path/path (path/cmds->path-string)))))))
+
+(defn merge-paths
+  "Merges a list of path elements together, keeping props from last path in the list."
+  [& paths]
+  (let [props (second (last paths))
+        d (str/join " " (map #(get-in % [1 :d]) paths))]
+    [:path (assoc props :d d)]))
+
+(defn split-path
+  [[k props]]
+  (let [ps (-> (:d props)
+               (str/split #"(?=M)")
+               (->> (map str/trim)))]
+    (map #(assoc-in [k props] [1 :d] %) ps)))
+
+(defn explode-path
+  [[k {:keys [d]}] & {:keys [break-polys?]}]
+  (let [break-fn (if break-polys?
+                   (partial partition 1)
+                   (partial partition-by :command))]
+    (->> d
+         path/path-string->commands
+         path/vh->l
+         break-fn
+         (map path/cmds->path-string)
+         (filter some?)
+         (map path/path))))
+
+(defn path->elements
+  [[k {:keys [d]}] & {:keys [break-polys?]}]
+  (let [break-fn (if break-polys?
+                   (partial partition 1)
+                   (partial partition-by :command))]
+    (->> d
+         path/path-string->commands
+         path/vh->l
+         break-fn
+         (map cmds->elements)
+         (filter some?))))
+
+(defmulti element->path
+  (fn [element]
+    (if (keyword? (first element))
+      (first element)
+      :list)))
+
+(defmethod element->path :list
+  [elems]
+  (map element->path elems))
+
+(defmethod element->path :circle
+  [[k {:keys [cx cy r] :as props}]]
+  (-> (path/circle r)
+      (translate [cx cy])
+      (style (dissoc props :cx :cy :r))))
+
+(defmethod element->path :ellipse
+  [[k {:keys [cx cy rx ry] :as props}]]
+  (-> (path/ellipse rx ry)
+      (translate [cx cy])
+      (style (dissoc props :cx :cy :rx :ry))))
+
+(defmethod element->path :rect
+  [[k {:keys [width height x y] :as props}]]
+  (let [ctr (utils/v+ [x y] [(/ width 2.0) (/ height 2.0)])]
+    (-> (path/rect width height)
+        (translate ctr)
+        (style (dissoc props :width :height :x :y)))))
+
+(defmethod element->path :line
+  [[k {:keys [x1 y1 x2 y2] :as props}]]
+  (-> (path/line [x1 y1] [x2 y2])
+      (style (dissoc props :x1 :y1 :x2 :y2))))
+
+(defmethod element->path :polyline
+  [[k {:keys [points] :as props}]]
+  (let [pts (partition 2 (utils/s->v points))]
+  (-> (path/polyline pts)
+      (style (dissoc props :points)))))
+
+(defmethod element->path :polygon
+  [[k {:keys [points] :as props}]]
+  (let [pts (partition 2 (utils/s->v points))]
+  (-> (path/polygon pts)
+      (style (dissoc props :points)))))
+
+(defmethod element->path :path
+  [elem]
+  elem) 
+
+(defmethod element->path :g
+  [[k props & elems]]
+  (-> (svg/g (map element->path elems))
+      (style props)))
+
+(defn elements->path
+  [elems]
+  (apply merge-paths (map element->path elems)))

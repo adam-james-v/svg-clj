@@ -1,5 +1,6 @@
 (ns svg-clj.utils
   (:require [clojure.string :as str]
+            [clojure.data.xml :as xml]
             #?(:cljs
                [cljs.reader :refer [read-string]])))
 
@@ -136,3 +137,18 @@
         d (Math/abs (* l1 l2))]
     (when (not (= 0.0 (float d)))
       (to-deg (Math/acos (/ n d))))))
+
+(defn xml->hiccup [xml]
+  (if-let [t (:tag xml)]
+    (let [elt [t]
+          elt (if-let [attrs (:attrs xml)]
+                (conj elt attrs)
+                elt)]
+      (into elt (map xml->hiccup (:content xml))))
+    xml))
+
+(defn svg-str->elements
+  [svg-str]
+  (-> svg-str
+      (xml/parse-str :namespace-aware false)
+      xml->hiccup))

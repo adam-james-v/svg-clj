@@ -13,6 +13,7 @@ These circles are produced by the following code:
 ```clojure
 (ns example
   (:require [svg-clj.elements :as svg]
+            [svg-clj.composites :refer [svg]]
             [svg-clj.transforms :as tf]
             [svg-clj.utils :as utils]
             [hiccup.core :refer [html]]))
@@ -28,7 +29,7 @@ These circles are produced by the following code:
                :stroke-width "2px"
                :fill "none"}))))
       (tf/translate [100 100])
-      (svg/svg 200 200)))
+      (svg 200 200)))
 
 ;; use hiccup or your favourite hiccup compiler.
 ;; the SVG library works with Reagent as well.

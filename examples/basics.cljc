@@ -5,7 +5,8 @@
             [svg-clj.utils :as utils]
             [svg-clj.path :as path]
             [svg-clj.transforms :as tf]
-            [svg-clj.elements :as svg]))
+            [svg-clj.elements :as svg]
+            [svg-clj.composites :refer [svg]]))
 
 (defn show-debug-geom
   [elem]
@@ -49,7 +50,7 @@
                        :stroke-width "2px"
                        :fill "none"}))))
       (tf/translate [100 100])
-      (svg/svg 200 200)))
+      (svg 200 200)))
 
 (def basics [(arc [0 0] [50 0] 90)
              (circle-path 40)
@@ -90,4 +91,4 @@
    [:body
     [:h1 "Basic Geometry Examples"]
     doc
-    #_circles]]))
+    circles]]))

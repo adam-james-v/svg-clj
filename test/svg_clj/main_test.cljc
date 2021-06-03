@@ -9,8 +9,9 @@
             polygon
             polyline
             rect
-            svg
             text]]
+   [svg-clj.composites :as cp
+    :refer [svg]]
    [svg-clj.transforms :as tf
     :refer [translate
             rotate
@@ -18,8 +19,7 @@
             bounds
             scale
             style]]
-   [svg-clj.path :as p
-    :refer [polygon-path]]
+   [svg-clj.path :as path]
    [clojure.test
     :refer [deftest is]]))
 
@@ -29,7 +29,7 @@
 (def test-circle (circle 5))
 (def test-ellipse (ellipse 5 10))
 (def test-line (line [0 0] [10 20]))
-(def test-path (polygon-path [ [0 0] [10 20] [40 50] [20 10] ]))
+(def test-path (path/polygon [ [0 0] [10 20] [40 50] [20 10] ]))
 (def test-polygon (polygon [ [0 0] [10 20] [40 50] [20 10] ]))
 (def test-polyline (polyline [ [0 0] [10 20] [40 50] [20 10] ]))
 (def test-rect (rect 60 30))

@@ -43,6 +43,7 @@ These circles are produced by the following code:
 ```clojure
 (ns example
   (:require [svg-clj.elements :as svg]
+            [svg-clj.composites :refer [svg]]
             [svg-clj.transforms :as tf]
             [svg-clj.utils :as utils]
             [hiccup.core :refer [html]]))
@@ -58,7 +59,7 @@ These circles are produced by the following code:
                :stroke-width "2px"
                :fill "none"}))))
       (tf/translate [100 100])
-      (svg/svg 200 200)))
+      (svg 200 200)))
 
 ;; use hiccup or your favourite hiccup compiler.
 ;; the SVG library works with Reagent as well.
@@ -232,6 +233,7 @@ strictly speaking, translate and rotate are not operating on streams of data, bu
 #+begin_src clojure :tangle ./src/svg_clj/utils.cljc
 (ns svg-clj.utils
   (:require [clojure.string :as str]
+            [clojure.data.xml :as xml]
             #?(:cljs
                [cljs.reader :refer [read-string]])))
 
@@ -368,6 +370,26 @@ strictly speaking, translate and rotate are not operating on streams of data, bu
         d (Math/abs (* l1 l2))]
     (when (not (= 0.0 (float d)))
       (to-deg (Math/acos (/ n d))))))
+
+#+end_src
+
+** xml->hiccup
+#+begin_src clojure :tangle ./src/svg_clj/utils.cljc
+(defn xml->hiccup [xml]
+  (if-let [t (:tag xml)]
+    (let [elt [t]
+          elt (if-let [attrs (:attrs xml)]
+                (conj elt attrs)
+                elt)]
+      (into elt (map xml->hiccup (:content xml))))
+    xml))
+
+(defn svg-str->elements
+  [svg-str]
+  (-> svg-str
+      (xml/parse-str :namespace-aware false)
+      xml->hiccup))
+
 #+end_src
 
 * elements
@@ -375,39 +397,9 @@ strictly speaking, translate and rotate are not operating on streams of data, bu
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/elements.cljc
 (ns svg-clj.elements
   (:require [clojure.string :as str]
-            [svg-clj.utils :as utils]
-            [svg-clj.transforms :as tf]))
+            [svg-clj.utils :as utils]))
 
 #+END_SRC
-
-** containers
-Any elements that wrap content. Primary function is svg which is the ~container~ element for all other SVG elements.
-
-*** svg
-#+begin_src clojure :tangle ./src/svg_clj/elements.cljc
-(defn svg
-   "The svg fn wraps `content` in an SVG container element.
-   The SVG container is parameterized by width `w`, height `h`, and scale `sc`."
-  ([content]
-   (let [[w h] (tf/bb-dims content)
-         [[x y] _ _ _] (tf/bounds content)]
-     [:svg {:width  w
-            :height h
-            :viewBox (str/join " " [x y w h])
-            :xmlns "http://www.w3.org/2000/svg"}
-      content]))
-
-  ([content w h]
-   [:svg {:width  w
-          :height h
-          :viewBox (str "0 0 " w " " h)
-          :xmlns "http://www.w3.org/2000/svg"}
-    content])
-
-  ([content w h sc]
-   (svg [:g {:transform (str "scale(" sc ")")} content] w h)))
-
-#+end_src
 
 ** shapes
 A shape is a hiccup data structure that represents one of the valild SVG elements.
@@ -505,54 +497,6 @@ In particular, you cannot know the exact width and height of a text element with
     (into [:g {}] (filter (complement nil?) content))))
 #+end_src
 
-** composites
-Composites are drawing elements that are not represented in the base SVG elements. For example, arrows are combinations of a polygon and line shape. These kinds of composite shapes should work as if they were base elements. This means that all transform functions must work normally on them. This shouldn't be too difficult, as composites are mostly going to be grouped up elements anyway.
-
-** arrow
-To be added later:
-
-A 'arrow builder' function that lets you give a curve, a start-shape, and end-shape and it builds the appropriate group. This could be a basis for a bunch of utility arrows. Curves could be line, polyline, beziers, and arcs. 
-
-#+begin_src clojure :tangle ./src/svg_clj/elements.cljc
-(defn arrow
-  ([a b]
-   (let [tip-pts [ [0 0] [5 0] [5 5] ]
-         tip-shape (polygon tip-pts)]
-     (arrow a b tip-shape)))
-
-  ([a b tip-shape]
-   (let [[mx my] (tf/centroid tip-shape)
-         r (utils/to-deg (apply #(Math/atan2 %1 %2) (utils/v- b a)))]
-     (->
-      (g
-       (line a b)
-       (-> tip-shape
-           (tf/translate [(- mx) (- my)])
-           (tf/rotate (- 315 r))
-           (tf/translate a)
-           (tf/style {})
-           (tf/style {:fill "none"
-                      :stroke "none"}))
-       (-> tip-shape
-           (tf/translate [(- mx) (- my)])
-           (tf/rotate (- 135 r))
-           (tf/translate b)))))))
-#+end_src
-
-** label
-This is a helpful default for text elements. It expects a font size arg. This could be reworked in the future.
-
-#+begin_src clojure :tangle ./src/svg_clj/elements.cljc
-(defn label
-  [font-size text]
-  [:text 
-   {:x 0 :y 0 
-    :style {:font-family "Verdana"
-            :text-anchor "middle"
-            :dominant-baseline "middle"
-            :font-size font-size}} text])
-#+end_src
-
 * path-dsl
 The path element has a small DSL to create compound curves. This includes the following (taken from [[https://www.w3schools.com/graphics/svg_path.asp]]):
 
@@ -571,13 +515,11 @@ The path element has a small DSL to create compound curves. This includes the fo
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/path.cljc
 (ns svg-clj.path
   (:require [clojure.string :as str]
-            [svg-clj.elements :as svg]
             [svg-clj.utils :as utils]))
 
 #+END_SRC
 
 ** path
-*** path
 This path function is usable by the user but provides no path generation assistance. There are several functions defined later that handle path generation.
 
 #+begin_src clojure :tangle ./src/svg_clj/path.cljc
@@ -650,6 +592,7 @@ I'm going to make a few functions to split paths into commands and put them in a
                  :input [0 0]}])
        (partition 2 1)
        (map merge-cursor)))
+
 #+END_SRC
 
 ** converting-vh
@@ -688,7 +631,7 @@ If the entire sequence has NO V or H, done.
                (map convert-vh)
                (map second)))))
 
-(defn- vh->l
+(defn vh->l
   [cmds]
   (let [iters (iterate convert-first-vh-cmd cmds)]
     (if (any-vh? cmds)
@@ -731,38 +674,6 @@ The requirement is that if a user puts a path string into the system but does no
     (when (> (count cmds) 1)
       (str/join " " (map cmd->path-string cmds)))))
 
-(defn cmds->elements
-  [cmds]
-  (let [start (first cmds)
-        cmds (if (= "M" (:command start))
-               cmds
-               (let [new-start {:command "M"
-                                :coordsys :abs
-                                :input (:cursor start)
-                                :cursor [0 0]}]
-                 (concat [new-start] cmds)))]
-    (when (> (count cmds) 1)
-      (let [cs (map :command (rest cmds))]
-        (cond
-          ;; line
-          (and (= (count cmds) 2)
-               (empty? (filter (complement #{"L"}) cs)))
-          (apply svg/line (map :input cmds))
-
-          ;; polyline
-          (and (> (count cmds) 2)
-               (empty? (filter (complement #{"L"}) cs)))
-          (svg/polyline (map :input cmds))
-
-          ;; polygon
-          (and (> (count cmds) 2)
-               (empty? (filter (complement #{"L" "Z"}) cs)))
-          (svg/polygon (map :input cmds))
-          
-          :else
-          (path (str/join " " (map cmd->path-string cmds))))))))
-
-#+END_SRC
 #+END_SRC
 
 ** partial-commands
@@ -934,50 +845,6 @@ Convert list of pts into list of commands.
                [w2 h2]          [(- w2) h2] ])))
 
 #+END_SRC
-
-** merge-split
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/path.cljc
-(defn merge-paths
-  "Merges a list of path elements together, keeping props from last path in the list."
-  [& paths]
-  (let [props (second (last paths))
-        d (str/join " " (map #(get-in % [1 :d]) paths))]
-    [:path (assoc props :d d)]))
-
-(defn split-path
-  [[k props]]
-  (let [ps (-> (:d props)
-               (str/split #"(?=M)")
-               (->> (map str/trim)))]
-    (map #(assoc-in [k props] [1 :d] %) ps)))
-
-(defn explode-path
-  [[k {:keys [d]}] & {:keys [break-polys?]}]
-  (let [break-fn (if break-polys?
-                   (partial partition 1)
-                   (partial partition-by :command))]
-    (->> d
-         path-string->commands
-         vh->l
-         break-fn
-         (map cmds->path-string)
-         (filter some?)
-         (map path))))
-
-(defn path->elements
-  [[k {:keys [d]}] & {:keys [break-polys?]}]
-  (let [break-fn (if break-polys?
-                   (partial partition 1)
-                   (partial partition-by :command))]
-    (->> d
-         path-string->commands
-         vh->l
-         break-fn
-         (map cmds->elements)
-         (filter some?))))
-
-#+END_SRC
-
 * transforms
 Computations refer to calculatable properties of svg elements. They are bounds and centroid.
 
@@ -992,6 +859,7 @@ So, I either should fix the interface fn or eliminate it entirely.
 (ns svg-clj.transforms
    (:require [clojure.string :as str]
              [svg-clj.utils :as utils]
+             [svg-clj.elements :as svg]
              [svg-clj.path :as path]
             #?(:cljs
                [cljs.reader :refer [read-string]])))
@@ -1226,6 +1094,7 @@ Ideas to keep in mind:
              [x (+ y h)]]
         xpts (mapv #(utils/rotate-pt-around-center % deg [mx my]) pts)]
     (bounds-of-pts xpts)))
+
 #+END_SRC
 
 
@@ -1858,6 +1727,222 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
 
 #+END_SRC
 
+** path-manipulations
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
+(defn- cmds->elements
+  [cmds]
+  (let [start (first cmds)
+        cmds (if (= "M" (:command start))
+               cmds
+               (let [new-start {:command "M"
+                                :coordsys :abs
+                                :input (:cursor start)
+                                :cursor [0 0]}]
+                 (concat [new-start] cmds)))]
+    (when (> (count cmds) 1)
+      (let [cs (map :command (rest cmds))]
+        (cond
+          ;; line
+          (and (= (count cmds) 2)
+               (empty? (filter (complement #{"L"}) cs)))
+          (apply svg/line (map :input cmds))
+
+          ;; polyline
+          (and (> (count cmds) 2)
+               (empty? (filter (complement #{"L"}) cs)))
+          (svg/polyline (map :input cmds))
+
+          ;; polygon
+          (and (> (count cmds) 2)
+               (empty? (filter (complement #{"L" "Z"}) cs)))
+          (svg/polygon (map :input cmds))
+          
+          :else
+          (path/path (path/cmds->path-string)))))))
+
+(defn merge-paths
+  "Merges a list of path elements together, keeping props from last path in the list."
+  [& paths]
+  (let [props (second (last paths))
+        d (str/join " " (map #(get-in % [1 :d]) paths))]
+    [:path (assoc props :d d)]))
+
+(defn split-path
+  [[k props]]
+  (let [ps (-> (:d props)
+               (str/split #"(?=M)")
+               (->> (map str/trim)))]
+    (map #(assoc-in [k props] [1 :d] %) ps)))
+
+(defn explode-path
+  [[k {:keys [d]}] & {:keys [break-polys?]}]
+  (let [break-fn (if break-polys?
+                   (partial partition 1)
+                   (partial partition-by :command))]
+    (->> d
+         path/path-string->commands
+         path/vh->l
+         break-fn
+         (map path/cmds->path-string)
+         (filter some?)
+         (map path/path))))
+
+(defn path->elements
+  [[k {:keys [d]}] & {:keys [break-polys?]}]
+  (let [break-fn (if break-polys?
+                   (partial partition 1)
+                   (partial partition-by :command))]
+    (->> d
+         path/path-string->commands
+         path/vh->l
+         break-fn
+         (map cmds->elements)
+         (filter some?))))
+
+(defmulti element->path
+  (fn [element]
+    (if (keyword? (first element))
+      (first element)
+      :list)))
+
+(defmethod element->path :list
+  [elems]
+  (map element->path elems))
+
+(defmethod element->path :circle
+  [[k {:keys [cx cy r] :as props}]]
+  (-> (path/circle r)
+      (translate [cx cy])
+      (style (dissoc props :cx :cy :r))))
+
+(defmethod element->path :ellipse
+  [[k {:keys [cx cy rx ry] :as props}]]
+  (-> (path/ellipse rx ry)
+      (translate [cx cy])
+      (style (dissoc props :cx :cy :rx :ry))))
+
+(defmethod element->path :rect
+  [[k {:keys [width height x y] :as props}]]
+  (let [ctr (utils/v+ [x y] [(/ width 2.0) (/ height 2.0)])]
+    (-> (path/rect width height)
+        (translate ctr)
+        (style (dissoc props :width :height :x :y)))))
+
+(defmethod element->path :line
+  [[k {:keys [x1 y1 x2 y2] :as props}]]
+  (-> (path/line [x1 y1] [x2 y2])
+      (style (dissoc props :x1 :y1 :x2 :y2))))
+
+(defmethod element->path :polyline
+  [[k {:keys [points] :as props}]]
+  (let [pts (partition 2 (utils/s->v points))]
+  (-> (path/polyline pts)
+      (style (dissoc props :points)))))
+
+(defmethod element->path :polygon
+  [[k {:keys [points] :as props}]]
+  (let [pts (partition 2 (utils/s->v points))]
+  (-> (path/polygon pts)
+      (style (dissoc props :points)))))
+
+(defmethod element->path :path
+  [elem]
+  elem) 
+
+(defmethod element->path :g
+  [[k props & elems]]
+  (-> (svg/g (map element->path elems))
+      (style props)))
+
+(defn elements->path
+  [elems]
+  (apply merge-paths (map element->path elems)))
+
+#+END_SRC
+* composites
+Composites are drawing elements that are not represented in the base SVG elements. For example, arrows are combinations of a polygon and line shape. These kinds of composite shapes should work as if they were base elements. This means that all transform functions must work normally on them. This shouldn't be too difficult, as composites are mostly going to be grouped up elements anyway.
+** ns
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/composites.cljc
+(ns svg-clj.composites
+  (:require [clojure.string :as str]
+            [svg-clj.utils :as utils]
+            [svg-clj.elements :as svg]
+            [svg-clj.path :as path]
+            [svg-clj.transforms :as tf]))
+
+#+END_SRC
+
+** svg
+#+begin_src clojure :tangle ./src/svg_clj/composites.cljc
+(defn svg
+   "The svg fn wraps `content` in an SVG container element.
+   The SVG container is parameterized by width `w`, height `h`, and scale `sc`."
+  ([content]
+   (let [[w h] (tf/bb-dims content)
+         [[x y] _ _ _] (tf/bounds content)]
+     [:svg {:width  w
+            :height h
+            :viewBox (str/join " " [x y w h])
+            :xmlns "http://www.w3.org/2000/svg"}
+      content]))
+
+  ([content w h]
+   [:svg {:width  w
+          :height h
+          :viewBox (str "0 0 " w " " h)
+          :xmlns "http://www.w3.org/2000/svg"}
+    content])
+
+  ([content w h sc]
+   (svg [:g {:transform (str "scale(" sc ")")} content] w h)))
+
+#+end_src
+
+** arrow
+To be added later:
+
+A 'arrow builder' function that lets you give a curve, a start-shape, and end-shape and it builds the appropriate group. This could be a basis for a bunch of utility arrows. Curves could be line, polyline, beziers, and arcs. 
+
+#+begin_src clojure :tangle ./src/svg_clj/composites.cljc
+(defn arrow
+  ([a b]
+   (let [tip-pts [ [0 0] [5 0] [5 5] ]
+         tip-shape (svg/polygon tip-pts)]
+     (arrow a b tip-shape)))
+
+  ([a b tip-shape]
+   (let [[mx my] (tf/centroid tip-shape)
+         r (utils/to-deg (apply #(Math/atan2 %1 %2) (utils/v- b a)))]
+     (->
+      (svg/g
+       (svg/line a b)
+       (-> tip-shape
+           (tf/translate [(- mx) (- my)])
+           (tf/rotate (- 315 r))
+           (tf/translate a)
+           (tf/style {})
+           (tf/style {:fill "none"
+                      :stroke "none"}))
+       (-> tip-shape
+           (tf/translate [(- mx) (- my)])
+           (tf/rotate (- 135 r))
+           (tf/translate b)))))))
+#+end_src
+
+** label
+This is a helpful default for text elements. It expects a font size arg. This could be reworked in the future.
+
+#+begin_src clojure :tangle ./src/svg_clj/composites.cljc
+(defn label
+  [font-size text]
+  [:text 
+   {:x 0 :y 0 
+    :style {:font-family "Verdana"
+            :text-anchor "middle"
+            :dominant-baseline "middle"
+            :font-size font-size}} text])
+#+end_src
+
 * layout
 ** ns
 #+begin_src clojure :tangle ./src/svg_clj/layout.cljc
@@ -2050,15 +2135,15 @@ THis is not code, it's jsut text. Ideally for humans to read.
 (ns svg-clj.tools
   (:require [clojure.string :as str]
             [clojure.java.shell :refer [sh]]
-            [clojure.data.xml :as xml]
             [hiccup.core :refer [html]]
             [hawk.core :as hawk]
             [svg-clj.elements :as svg]
+            [svg-clj.composites :refer [svg]]
             [svg-clj.path :as path]
             [svg-clj.transforms :as tf]
             [batik.rasterize :as b]
             [svg-clj.utils :as utils]))
- 
+
 #+end_src
 
 ** png!
@@ -2089,7 +2174,7 @@ To get it working in CIDER, you have to enable content types.
   (let [fname "_imgtmp.png"
         data (if (= (first svg-data) :svg)
                svg-data
-               (svg/svg svg-data))]
+               (svg svg-data))]
     (do (png! data fname)
         (clojure.java.io/file fname))))
 
@@ -2098,7 +2183,7 @@ To get it working in CIDER, you have to enable content types.
   (let [fname "_tmp.html"
         data (if (= (first svg-data) :svg)
                svg-data
-               (svg/svg svg-data))]
+               (svg svg-data))]
     (do (spit fname (html data))
         (clojure.java.browse/browse-url fname)
         #_(sh "rm" fname))))
@@ -2136,33 +2221,18 @@ The xml parse/transform technique comes from:
 [[https://github.com/babashka/babashka/blob/master/examples/portal.clj]]
 
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/tools.clj
-(defn xml->hiccup [xml]
-  (if-let [t (:tag xml)]
-    (let [elt [t]
-          elt (if-let [attrs (:attrs xml)]
-                (conj elt attrs)
-                elt)]
-      (into elt (map xml->hiccup (:content xml))))
-    xml))
-
-(defn svg-str->elements
-  [svg-str]
-  (-> svg-str
-      (xml/parse-str :namespace-aware false)
-      xml->hiccup))
-
 (defn save-svg
   [svg-data fname]
   (let [data (if (= (first svg-data) :svg)
                svg-data
-               (svg/svg svg-data))]
+               (svg svg-data))]
     (spit fname (html data))))
 
 (defn load-svg
   [fname]
   (-> fname
       slurp
-      svg-str->elements))
+      utils/svg-str->elements))
 
 #+END_SRC
 
@@ -2175,17 +2245,6 @@ You can C-c-c on the block in Emacs/org-mode to see the results printed into the
 #+begin_src shell :results drawer
 clj -M:test
 #+end_src
-
-#+RESULTS[aebe95acd0b3337a649b68c0cc712a595323ee73]:
-:results:
-
-Running tests in #{"test"}
-
-Testing svg-clj.main-test
-
-Ran 7 tests containing 29 assertions.
-0 failures, 0 errors.
-:end:
 
 ** test-ns
 #+BEGIN_SRC clojure :tangle ./test/svg_clj/main_test.cljc
@@ -2200,8 +2259,9 @@ Ran 7 tests containing 29 assertions.
             polygon
             polyline
             rect
-            svg
             text]]
+   [svg-clj.composites :as cp
+    :refer [svg]]
    [svg-clj.transforms :as tf
     :refer [translate
             rotate
@@ -2209,8 +2269,7 @@ Ran 7 tests containing 29 assertions.
             bounds
             scale
             style]]
-   [svg-clj.path :as p
-    :refer [polygon-path]]
+   [svg-clj.path :as path]
    [clojure.test
     :refer [deftest is]]))
 
@@ -2224,7 +2283,7 @@ Ran 7 tests containing 29 assertions.
 (def test-circle (circle 5))
 (def test-ellipse (ellipse 5 10))
 (def test-line (line [0 0] [10 20]))
-(def test-path (polygon-path [ [0 0] [10 20] [40 50] [20 10] ]))
+(def test-path (path/polygon [ [0 0] [10 20] [40 50] [20 10] ]))
 (def test-polygon (polygon [ [0 0] [10 20] [40 50] [20 10] ]))
 (def test-polyline (polyline [ [0 0] [10 20] [40 50] [20 10] ]))
 (def test-rect (rect 60 30))
@@ -2365,7 +2424,8 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
             [svg-clj.utils :as utils]
             [svg-clj.path :as path]
             [svg-clj.transforms :as tf]
-            [svg-clj.elements :as svg]))
+            [svg-clj.elements :as svg]
+            [svg-clj.composites :refer [svg]]))
 
 (defn show-debug-geom
   [elem]
@@ -2409,7 +2469,7 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
                        :stroke-width "2px"
                        :fill "none"}))))
       (tf/translate [100 100])
-      (svg/svg 200 200)))
+      (svg 200 200)))
 
 (def basics [(arc [0 0] [50 0] 90)
              (circle-path 40)
@@ -2450,7 +2510,8 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
    [:body
     [:h1 "Basic Geometry Examples"]
     doc
-    #_circles]]))
+    circles]]))
+
 #+end_src
 
 ** layout
@@ -2490,6 +2551,7 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
 (tools/cider-show (map show-debug-geom (drop 2 (lo/distribute-linear :x 10 (repeatedly 7 rand-rect)))))
 
 (tools/cider-show (map show-debug-geom (drop 2 (lo/distribute-linear :y 10 (repeatedly 7 rand-rect)))))
+
 #+end_src
 
 

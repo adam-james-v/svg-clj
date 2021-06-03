@@ -1,10 +1,10 @@
 (ns svg-clj.tools
   (:require [clojure.string :as str]
             [clojure.java.shell :refer [sh]]
-            [clojure.data.xml :as xml]
             [hiccup.core :refer [html]]
             [hawk.core :as hawk]
             [svg-clj.elements :as svg]
+            [svg-clj.composites :refer [svg]]
             [svg-clj.path :as path]
             [svg-clj.transforms :as tf]
             [batik.rasterize :as b]
@@ -22,7 +22,7 @@
   (let [fname "_imgtmp.png"
         data (if (= (first svg-data) :svg)
                svg-data
-               (svg/svg svg-data))]
+               (svg svg-data))]
     (do (png! data fname)
         (clojure.java.io/file fname))))
 
@@ -31,7 +31,7 @@
   (let [fname "_tmp.html"
         data (if (= (first svg-data) :svg)
                svg-data
-               (svg/svg svg-data))]
+               (svg svg-data))]
     (do (spit fname (html data))
         (clojure.java.browse/browse-url fname)
         #_(sh "rm" fname))))
@@ -55,30 +55,15 @@
               (spit (str name ".html")))
          ctx)}])))
 
-(defn xml->hiccup [xml]
-  (if-let [t (:tag xml)]
-    (let [elt [t]
-          elt (if-let [attrs (:attrs xml)]
-                (conj elt attrs)
-                elt)]
-      (into elt (map xml->hiccup (:content xml))))
-    xml))
-
-(defn svg-str->elements
-  [svg-str]
-  (-> svg-str
-      (xml/parse-str :namespace-aware false)
-      xml->hiccup))
-
 (defn save-svg
   [svg-data fname]
   (let [data (if (= (first svg-data) :svg)
                svg-data
-               (svg/svg svg-data))]
+               (svg svg-data))]
     (spit fname (html data))))
 
 (defn load-svg
   [fname]
   (-> fname
       slurp
-      svg-str->elements))
+      utils/svg-str->elements))

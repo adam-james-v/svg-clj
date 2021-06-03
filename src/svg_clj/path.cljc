@@ -1,6 +1,5 @@
 (ns svg-clj.path
   (:require [clojure.string :as str]
-            [svg-clj.elements :as svg]
             [svg-clj.utils :as utils]))
 
 (defn path
@@ -90,7 +89,7 @@
                (map convert-vh)
                (map second)))))
 
-(defn- vh->l
+(defn vh->l
   [cmds]
   (let [iters (iterate convert-first-vh-cmd cmds)]
     (if (any-vh? cmds)
@@ -120,37 +119,6 @@
                  (concat [new-start] cmds)))]
     (when (> (count cmds) 1)
       (str/join " " (map cmd->path-string cmds)))))
-
-(defn cmds->elements
-  [cmds]
-  (let [start (first cmds)
-        cmds (if (= "M" (:command start))
-               cmds
-               (let [new-start {:command "M"
-                                :coordsys :abs
-                                :input (:cursor start)
-                                :cursor [0 0]}]
-                 (concat [new-start] cmds)))]
-    (when (> (count cmds) 1)
-      (let [cs (map :command (rest cmds))]
-        (cond
-          ;; line
-          (and (= (count cmds) 2)
-               (empty? (filter (complement #{"L"}) cs)))
-          (apply svg/line (map :input cmds))
-
-          ;; polyline
-          (and (> (count cmds) 2)
-               (empty? (filter (complement #{"L"}) cs)))
-          (svg/polyline (map :input cmds))
-
-          ;; polygon
-          (and (> (count cmds) 2)
-               (empty? (filter (complement #{"L" "Z"}) cs)))
-          (svg/polygon (map :input cmds))
-          
-          :else
-          (path (str/join " " (map cmd->path-string cmds))))))))
 
 (defn- pt->l
   [pt]
@@ -296,42 +264,3 @@
         h2 (/ h 2.0)]
     (polygon [ [(- w2) (- h2)] [w2 (- h2)] 
                [w2 h2]          [(- w2) h2] ])))
-
-(defn merge-paths
-  "Merges a list of path elements together, keeping props from last path in the list."
-  [& paths]
-  (let [props (second (last paths))
-        d (str/join " " (map #(get-in % [1 :d]) paths))]
-    [:path (assoc props :d d)]))
-
-(defn split-path
-  [[k props]]
-  (let [ps (-> (:d props)
-               (str/split #"(?=M)")
-               (->> (map str/trim)))]
-    (map #(assoc-in [k props] [1 :d] %) ps)))
-
-(defn explode-path
-  [[k {:keys [d]}] & {:keys [break-polys?]}]
-  (let [break-fn (if break-polys?
-                   (partial partition 1)
-                   (partial partition-by :command))]
-    (->> d
-         path-string->commands
-         vh->l
-         break-fn
-         (map cmds->path-string)
-         (filter some?)
-         (map path))))
-
-(defn path->elements
-  [[k {:keys [d]}] & {:keys [break-polys?]}]
-  (let [break-fn (if break-polys?
-                   (partial partition 1)
-                   (partial partition-by :command))]
-    (->> d
-         path-string->commands
-         vh->l
-         break-fn
-         (map cmds->elements)
-         (filter some?))))
