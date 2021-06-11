@@ -1,6 +1,8 @@
 (ns svg-clj.tools
   (:require [clojure.string :as str]
             [clojure.java.shell :refer [sh]]
+            [clojure.java.browse]
+            [clojure.java.io]
             [hiccup.core :refer [html]]
             [hawk.core :as hawk]
             [svg-clj.elements :as svg]

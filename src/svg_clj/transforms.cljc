@@ -115,6 +115,10 @@
       (first element)
       :list)))
 
+(defmethod bounds :default
+  [_]
+  [[-1 -1] [1 -1] [1 1] [-1 1]])
+
 (defmethod bounds :list
   [elems]
   (bounds-of-pts (mapcat bounds elems)))
