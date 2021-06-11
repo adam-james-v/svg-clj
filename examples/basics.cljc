@@ -6,7 +6,8 @@
             [svg-clj.path :as path]
             [svg-clj.transforms :as tf]
             [svg-clj.elements :as svg]
-            [svg-clj.composites :refer [svg]]))
+            [svg-clj.composites :refer [svg]]
+            [svg-clj.tools :refer [cider-show]]))
 
 (defn show-debug-geom
   [elem]

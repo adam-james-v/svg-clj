@@ -11,18 +11,96 @@
 #+NAME: deps.edn
 #+begin_src clojure :tangle ./deps.edn
 {:deps 
- {org.clojure/clojure       {:mvn/version "1.10.1"}
-  org.clojure/clojurescript {:mvn/version "1.10.597"}
-  org.clojure/spec.alpha    {:mvn/version "0.2.187"}
-  org.clojure/test.check    {:mvn/version "1.1.0"}
-  org.clojure/data.xml      {:mvn/version "0.0.8"}
-  hawk/hawk                 {:mvn/version "0.2.11"}
+ {org.clojure/clojure    {:mvn/version "1.10.3"}
+  org.clojure/tools.cli  {:mvn/version "1.0.206"}
+  org.clojure/test.check {:mvn/version "1.1.0"}
+  org.clojure/data.xml   {:mvn/version "0.0.8"}
+  hawk/hawk              {:mvn/version "0.2.11"}
+  hiccup/hiccup          {:mvn/version "2.0.0-alpha2"}
   batik-rasterize/batik-rasterize {:mvn/version "0.1.2"}
-  hiccup/hiccup             {:mvn/version "2.0.0-alpha2"}}
- :aliases {:test {:extra-paths ["test"]
+  borkdude/sci           {:mvn/version "0.2.5"}}
+ 
+:aliases {:test {:extra-paths ["test"]
                  :extra-deps {com.cognitect/test-runner {:git/url "https://github.com/cognitect-labs/test-runner.git"
                                                          :sha "209b64504cb3bd3b99ecfec7937b358a879f55c1"}}
-                 :main-opts ["-m" "cognitect.test-runner"]}}}
+                 :main-opts ["-m" "cognitect.test-runner"]}
+          :uberjar
+          {:replace-deps
+           {com.github.seancorfield/depstar {:mvn/version "2.0.216"}}
+           :exec-fn hf.depstar/uberjar
+           :exec-args {:jar svg_clj.jar
+                       :main-class svg-clj.main
+                       :aot true}}}}
+
+#+end_src
+
+** bb.edn
+
+always need GRAALVM_HOME set
+might need to set JAVA executable to GRAAL version as well
+
+export GRAALVM_HOME=/Users/adam/Downloads/graalvm-ce-java11-21.1.0/Contents/Home
+export JAVA_HOME=$GRAALVM_HOME 
+
+binary file reduction:
+
+'upx'
+
+#+begin_src clojure :tangle ./bb.edn
+{:tasks
+ {:requires ([babashka.fs :as fs]
+             [clojure.string :as str])
+  :init (def windows? (str/starts-with? (System/getProperty "os.name")
+                                        "Windows"))
+  run-main
+  {:doc "Run main"
+   :task (apply clojure "-M -m svg-clj.main" *command-line-args*)}
+  
+  uberjar
+  {:doc "Builds uberjar"
+   :task (when (seq (fs/modified-since "svg_clj.jar" "src"))
+           (clojure "-X:uberjar"))}
+  
+  run-uber-with-agent
+  {:doc "Run uberjar with an agent to generate reflect-config.json."
+   :depends [uberjar]
+   :task (apply shell "java -agentlib:native-image-agent=config-output-dir=. -jar svg_clj.jar" 
+                ,*command-line-args*)}
+
+  run-uber
+  {:doc "Run uberjar"
+   :depends [uberjar]
+   :task (apply shell "java -jar svg_clj.jar" 
+                ,*command-line-args*)}
+  
+  graalvm
+  {:doc "Checks GRAALVM_HOME env var"
+   :task
+   (let [env (System/getenv "GRAALVM_HOME")]
+     (assert "Set GRAALVM_HOME")
+     env)}
+  
+  native-image
+  {:doc "Builds native image"
+   :depends [graalvm uberjar]
+   :task (do
+           (shell (str (fs/file graalvm
+                                "bin"
+                                (if windows?
+                                  "gu.cmd"
+                                  "gu")))
+                  "install" "native-image")
+           (shell (str (fs/file graalvm
+                                "bin"
+                                (if windows?
+                                  "native-image.cmd"
+                                  "native-image")))
+                  "-H:Name=svg-clj"
+                  "-H:ReflectionConfigurationFiles=reflect-config.json"
+                  "-jar" "svg_clj.jar"
+                  "--initialize-at-build-time"
+                  "--no-fallback"
+                  "--no-server"))}}}
 
 #+end_src
 
@@ -1008,6 +1086,10 @@ Ideas to keep in mind:
     (if (keyword? (first element))
       (first element)
       :list)))
+
+(defmethod bounds :default
+  [_]
+  [[-1 -1] [1 -1] [1 1] [-1 1]])
 
 (defmethod bounds :list
   [elems]
@@ -2135,6 +2217,8 @@ THis is not code, it's jsut text. Ideally for humans to read.
 (ns svg-clj.tools
   (:require [clojure.string :as str]
             [clojure.java.shell :refer [sh]]
+            [clojure.java.browse]
+            [clojure.java.io]
             [hiccup.core :refer [html]]
             [hawk.core :as hawk]
             [svg-clj.elements :as svg]
@@ -2425,7 +2509,8 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
             [svg-clj.path :as path]
             [svg-clj.transforms :as tf]
             [svg-clj.elements :as svg]
-            [svg-clj.composites :refer [svg]]))
+            [svg-clj.composites :refer [svg]]
+            [svg-clj.tools :refer [cider-show]]))
 
 (defn show-debug-geom
   [elem]
@@ -2520,6 +2605,7 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
   (:require [clojure.string :as str]
             [clojure.java.shell :refer [sh]]
             [hiccup.core :refer [html]]
+            [svg-clj.composites :as cp :refer [svg]]
             [svg-clj.utils :as utils]
             [svg-clj.elements :as svg]
             [svg-clj.path :as path]
@@ -2554,51 +2640,165 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
 
 #+end_src
 
-
-
-
-
-
-
-
-
-
 Distribute a list of elements onto a list of points.
 Works like map, so whichever runs out first (elements or points) is the limiter.
 
 #+begin_src clojure :tangle ./examples/layout.cljc
 
-(tools/cider-show 
+#_(tools/cider-show 
  (lo/distribute-on-pts 
   (repeatedly rand-rect)
-  (lo/rect-grid 10 10 30 30)))  
+  (lo/rect-grid 10 10 30 30)))
+
+
+(def txt "(defn cider-show
+  [svg-data]
+  (let [fname \"_imgtmp.png\"
+        data (if (= (first svg-data) :svg)
+               svg-data
+               (svg svg-data))]
+    (do (png! data fname)
+        (clojure.java.io/file fname))))")
+
+(def theme
+  { 0 "#2e3440" ;; main bg col
+    1 "#3b4252"
+    2 "#434c5e"
+    3 "#4c566a"
+    4 "#d8dee9"  ;; main col for text
+    5 "#e5e9f0"
+    6 "#eceff4"
+    7 "#8fbcbb"
+    8 "#88c0d0"
+    9 "#81a1c1"
+   10 "#5e81ac"
+   11 "#bf616a"
+   12 "#d08770"
+   13 "#ebcb8b"
+   14 "#a3be8c"
+   15 "#b48ead"})
+
+(def symbol-map
+  {"(" (get theme 3)
+   ")" (get theme 3)
+   "def" (get theme 9)
+   "n" (get theme 9)  ;; cheat for def/defn matching
+   "let" (get theme 9)
+   "if" (get theme 9)
+   "do" (get theme 9)})
+
+(defn colorize
+  [txt symbol-map theme-map]
+  (let [f (fn [txt]
+            (let [col (get symbol-map txt)]
+              (if col
+                [:tspan {:fill col} txt]
+                txt)))
+        ts (-> txt
+               (str/replace #"\(" ";(;")
+               (str/replace #"\)" ";);")
+               (str/replace #"defn" ";defn;")
+               (str/replace #"def" ";def;")
+               (str/replace #"let" ";let;")
+               (str/replace #"if" ";if;")
+               #_(str/replace #"do" ";do;")
+               (str/split #";"))]
+    (map f ts)))
 
 #+end_src
 
 
+#+begin_src clojure :tangle ./examples/layout.cljc
+(defn codeblock-dims
+  [txt font-size]
+  (let [lines (str/split txt #"\n")
+        nlines (count lines)
+        ncols (apply max (map count lines))]
+    [(* (dec ncols) (int (* font-size 2/3)))
+     (int (* nlines (+ font-size 3.25)))]))
+
+(defn codeblock
+  [txt font-size symbol-map theme-map]
+  (let [[w h] (codeblock-dims txt 16)
+        ts (-> txt
+               (str/split #"\n")
+               (->> (map #(colorize % symbol-map theme-map))))
+        f (fn [txt]
+            (-> (svg/text txt)
+                (tf/style {:xml:space "preserve"
+                           :font-family "Menlo"
+                           :text-anchor "start"
+                           :fill (get theme-map 6)
+                           :font-size font-size})))
+        elems (mapv f ts)]
+    (-> (for [i (range (count ts))]
+          (-> (get elems i)
+              (tf/translate [0 (* i (+ font-size 3))])))
+        (tf/translate [0 font-size]))))
+
+(defn code-window
+  [txt font-size symbol-map theme-map]
+  (let [pad 20
+        [w h] (utils/v+ (repeat 2 (* 2 pad)) (codeblock-dims txt font-size))]
+  (svg/g
+   ;; bg
+   (-> (svg/rect (+ w 100) (+ h 100))
+       (tf/style {:fill (get theme-map 14)}))
+   ;; window 'shadow'
+   (-> (svg/rect w h)
+       (tf/translate [4 4])
+       (tf/style {:rx 9
+                  :opacity 0.2
+                  :fill "black"}))
+   (-> (svg/rect w h)
+       (tf/translate [2 2])
+       (tf/style {:rx 9
+                  :opacity 0.2
+                  :fill "black"}))
+   ;; window bg
+   (-> (svg/rect w h)
+       (tf/style {:rx 9
+                  :fill (get theme-map 0)}))
+   (-> (codeblock txt font-size symbol-map theme-map)
+       (tf/translate [(+ pad (/ w -2.0)) (+ (* 0.80 pad) (/ h -2.0))])))))
+
+(defn- anim-frames! [f name framerate dur]
+  (let [mkdir (sh "mkdir" "-pv" name)
+        frames (int (* framerate dur))
+        framefn (fn [fr] (tools/png!
+                          (f (/ fr frames))
+                          (format (str name "/%03d.png") fr)))]
+    (when (= 0 (:exit mkdir))
+      (into [] (map framefn (range 1 (inc frames)))))))
+
+(defn- anim-video! [name framerate]
+  (let [ffmpeg 
+        (sh "ffmpeg" "-f" "image2" "-r" (str framerate)
+            "-i" (str name "/%03d.png")
+            "-c:v" "libvpx-vp9" "-vf" "format=rgba"
+            "-pix_fmt" "yuva420p" "-b:v" "800k"
+            "-y" (str name ".webm"))]
+    (when (= 0 (:exit ffmpeg))
+      (sh "rm" "-rf" name))))
+
+(defn animate! [{:keys [graphics-fn name framerate duration]}]
+  (do (anim-frames! graphics-fn name framerate duration)
+      (anim-video! name framerate)))
 
 
+(def anim
+  {:name "type"
+   :framerate 30
+   :duration 7
+   :graphics-fn
+   (fn [t]
+     (let [txt (clojure.repl/source-fn 'lo/distribute-linear)
+           i (int (* t (count txt)))
+           blank (str/replace txt #"[^\n]" " ")
+           ntxt (concat (take i txt) (drop i blank))]
+       (svg (code-window (apply str ntxt) 16 symbol-map theme))))})
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+#+end_src
 
 Distribute a list of elements onto a parametric curve.
 
@@ -2613,19 +2813,6 @@ Distribute a list of elements onto a parametric curve.
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 Distribute a list of elements along X/Y axis, keeping a constant gap between the boundaries of each element.
 
 #+begin_src clojure :tangle ./examples/layout.cljc
@@ -2636,5 +2823,88 @@ Distribute a list of elements along X/Y axis, keeping a constant gap between the
   20
   (repeatedly 10 rand-rect)))
 
+
+#+end_src
+* main
+Use this ns for CLI tools.
+
+This is a WIP. 
+
+GraalVM native image:
+
+bb native-image
+
+The resulting executable will be svg_clj and works for exporting .svg files, but fails with .png due to reflection issues with the Batik library.
+
+Fixing this is possible with alteration to reflect-config.json and/or adding type hints (via a Github pull request perhaps?) to the batik library.
+
+#+begin_src clojure :tangle ./src/svg_clj/main.clj
+(ns svg-clj.main
+  (:require [clojure.string :as str]
+            [clojure.tools.cli :as cli]
+            [hiccup.core :refer [html]]
+            [svg-clj.composites :as cp :refer [svg]]
+            [svg-clj.utils :as utils]
+            [svg-clj.elements :as el]
+            [svg-clj.path :as path]
+            [svg-clj.transforms :as tf]
+            [svg-clj.layout :as lo]
+            [svg-clj.tools :as tools]
+            [sci.core :as sci])
+  (:gen-class))
+
+(def cli-options
+  [["-i" "--infile FNAME" "The file to be compiled."
+    :default nil]
+   ["-o" "--outfile FNAME" "The output filename. Valid Extensions: svg, png"
+    :default nil]
+   ["-h" "--help"]])
+
+#_(def my-ns-map
+  {'svg-clj.composites {'svg svg}
+   'svg-clj.elements {'circle el/circle}})
+
+(def my-ns-map
+  (into {} 
+        (map #(vector % (ns-publics %))
+             ['svg-clj.composites
+              'svg-clj.utils
+              'svg-clj.elements
+              'svg-clj.path
+              'svg-clj.transforms
+              'svg-clj.layout
+              'svg-clj.tools])))
+
+(defn sci-load-file
+  [fname]
+  (-> (slurp fname)
+      (sci/eval-string {:namespaces my-ns-map})))
+
+(defn -main [& args]
+  (let [parsed (cli/parse-opts args cli-options)
+        {:keys [:infile :outfile :help]} (:options parsed)
+        [in _] (when infile (str/split infile #"\."))
+        outfile (if outfile outfile (str in ".svg"))
+        [out ext] (str/split outfile #"\.")]
+    (cond 
+      help
+      (do (println "Usage:")
+          (println (:summary parsed)))
+          
+      (nil? infile)
+      (println "Please specify an input file")
+
+      (not (contains? #{"svg" "png"} ext))
+      (println "Please specify a valid output format. Valid formats: svg, png.")
+
+      :else
+      (do 
+        (let [result (deref (sci-load-file infile))
+              data (if (= :svg (first result)) result (svg result))]
+          (do (println (str "Compiling " infile " into " outfile "."))
+              (if (= "svg" ext)
+                (spit outfile (html data))
+                (tools/png! data outfile))
+              (println "Success! Have a nice day :)")))))))
 
 #+end_src

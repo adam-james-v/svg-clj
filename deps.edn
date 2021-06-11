@@ -1,13 +1,21 @@
 {:deps 
- {org.clojure/clojure       {:mvn/version "1.10.1"}
-  org.clojure/clojurescript {:mvn/version "1.10.597"}
-  org.clojure/spec.alpha    {:mvn/version "0.2.187"}
-  org.clojure/test.check    {:mvn/version "1.1.0"}
-  org.clojure/data.xml      {:mvn/version "0.0.8"}
-  hawk/hawk                 {:mvn/version "0.2.11"}
+ {org.clojure/clojure    {:mvn/version "1.10.3"}
+  org.clojure/tools.cli  {:mvn/version "1.0.206"}
+  org.clojure/test.check {:mvn/version "1.1.0"}
+  org.clojure/data.xml   {:mvn/version "0.0.8"}
+  hawk/hawk              {:mvn/version "0.2.11"}
+  hiccup/hiccup          {:mvn/version "2.0.0-alpha2"}
   batik-rasterize/batik-rasterize {:mvn/version "0.1.2"}
-  hiccup/hiccup             {:mvn/version "2.0.0-alpha2"}}
- :aliases {:test {:extra-paths ["test"]
+  borkdude/sci           {:mvn/version "0.2.5"}}
+ 
+:aliases {:test {:extra-paths ["test"]
                  :extra-deps {com.cognitect/test-runner {:git/url "https://github.com/cognitect-labs/test-runner.git"
                                                          :sha "209b64504cb3bd3b99ecfec7937b358a879f55c1"}}
-                 :main-opts ["-m" "cognitect.test-runner"]}}}
+                 :main-opts ["-m" "cognitect.test-runner"]}
+          :uberjar
+          {:replace-deps
+           {com.github.seancorfield/depstar {:mvn/version "2.0.216"}}
+           :exec-fn hf.depstar/uberjar
+           :exec-args {:jar svg_clj.jar
+                       :main-class svg-clj.main
+                       :aot true}}}}
