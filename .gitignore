@@ -14,5 +14,4 @@ pom.xml.asc
 .cpcache/
 *.png
 *.svg
-*.json
 *.txt
