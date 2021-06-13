@@ -32,7 +32,7 @@
   
   native-image
   {:doc "Builds native image"
-   :depends [graalvm gen-reflect]
+   :depends [graalvm]
    :task (do
            (shell (str (fs/file graalvm
                                 "bin"

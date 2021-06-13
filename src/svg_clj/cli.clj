@@ -71,7 +71,8 @@
       (println "Please specify a valid output format. Valid formats: svg.")
 
       watch
-      (watch! infile outfile)
+      (do (println (str "Waiting for changes to " infile "."))
+          (watch! infile outfile))
       
       :else
       (let [result (deref (sci-load-file infile))
