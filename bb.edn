@@ -9,13 +9,13 @@
   
   uberjar
   {:doc "Builds uberjar"
-   :task (when (seq (fs/modified-since "svg_clj.jar" "src"))
+   :task (when true #_(seq (fs/modified-since "svg_clj.jar" "src"))
            (clojure "-X:uberjar"))}
   
   run-uber-with-agent
   {:doc "Run uberjar with an agent to generate reflect-config.json."
    :depends [uberjar]
-   :task (apply shell "java -agentlib:native-image-agent=config-output-dir=. -jar svg_clj.jar" 
+   :task (apply shell "java -agentlib:native-image-agent=caller-filter-file=filter.json,config-output-dir=. -jar svg_clj.jar" 
                 *command-line-args*)}
 
   run-uber
@@ -35,6 +35,30 @@
   {:doc "Builds native image"
    :depends [graalvm uberjar]
    :task (do
+           (shell (str (fs/file graalvm
+                                "bin"
+                                (if windows?
+                                  "gu.cmd"
+                                  "gu")))
+                  "install" "native-image")
+           (shell (str (fs/file graalvm
+                                "bin"
+                                (if windows?
+                                  "native-image.cmd"
+                                  "native-image")))
+                  "-H:Name=svg-clj"
+                  "-jar" "svg_clj.jar"
+                  "--initialize-at-build-time"
+                  "--initialize-at-run-time=org.apache.batik.bridge.RhinoInterpreter"
+                  "--allow-incomplete-classpath"
+                  "--no-fallback"
+                  "--no-server"))}
+  
+  native-image-with-reflect-config
+  {:doc "Builds native image"
+   :depends [graalvm #_uberjar]
+   :task (do
+           #_(shell "java -agentlib:native-image-agent=caller-filter-file=filter.json,config-output-dir=. -jar svg_clj.jar -i drawing.clj -o out.png")
            (shell (str (fs/file graalvm
                                 "bin"
                                 (if windows?

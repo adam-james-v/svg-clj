@@ -5,7 +5,7 @@
   org.clojure/data.xml   {:mvn/version "0.0.8"}
   hawk/hawk              {:mvn/version "0.2.11"}
   hiccup/hiccup          {:mvn/version "2.0.0-alpha2"}
-  batik-rasterize/batik-rasterize {:mvn/version "0.1.2"}
+  batik-rasterize/batik-rasterize {:local/root "/Users/adam/dev/batik-rasterize"} #_{:mvn/version "0.1.2"}
   borkdude/sci           {:mvn/version "0.2.5"}}
  
 :aliases {:test {:extra-paths ["test"]

@@ -19,10 +19,6 @@
     :default nil]
    ["-h" "--help"]])
 
-#_(def my-ns-map
-  {'svg-clj.composites {'svg svg}
-   'svg-clj.elements {'circle el/circle}})
-
 (def my-ns-map
   (into {} 
         (map #(vector % (ns-publics %))

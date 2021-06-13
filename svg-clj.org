@@ -17,7 +17,7 @@
   org.clojure/data.xml   {:mvn/version "0.0.8"}
   hawk/hawk              {:mvn/version "0.2.11"}
   hiccup/hiccup          {:mvn/version "2.0.0-alpha2"}
-  batik-rasterize/batik-rasterize {:mvn/version "0.1.2"}
+  batik-rasterize/batik-rasterize {:local/root "/Users/adam/dev/batik-rasterize"} #_{:mvn/version "0.1.2"}
   borkdude/sci           {:mvn/version "0.2.5"}}
  
 :aliases {:test {:extra-paths ["test"]
@@ -46,6 +46,15 @@ binary file reduction:
 
 'upx'
 
+
+
+{
+  "name":"java.lang.reflect.AccessibleObject",
+  "methods":[{"name":"canAccess"}]
+},
+
+
+
 #+begin_src clojure :tangle ./bb.edn
 {:tasks
  {:requires ([babashka.fs :as fs]
@@ -58,13 +67,13 @@ binary file reduction:
   
   uberjar
   {:doc "Builds uberjar"
-   :task (when (seq (fs/modified-since "svg_clj.jar" "src"))
+   :task (when true #_(seq (fs/modified-since "svg_clj.jar" "src"))
            (clojure "-X:uberjar"))}
   
   run-uber-with-agent
   {:doc "Run uberjar with an agent to generate reflect-config.json."
    :depends [uberjar]
-   :task (apply shell "java -agentlib:native-image-agent=config-output-dir=. -jar svg_clj.jar" 
+   :task (apply shell "java -agentlib:native-image-agent=caller-filter-file=filter.json,config-output-dir=. -jar svg_clj.jar" 
                 ,*command-line-args*)}
 
   run-uber
@@ -84,6 +93,30 @@ binary file reduction:
   {:doc "Builds native image"
    :depends [graalvm uberjar]
    :task (do
+           (shell (str (fs/file graalvm
+                                "bin"
+                                (if windows?
+                                  "gu.cmd"
+                                  "gu")))
+                  "install" "native-image")
+           (shell (str (fs/file graalvm
+                                "bin"
+                                (if windows?
+                                  "native-image.cmd"
+                                  "native-image")))
+                  "-H:Name=svg-clj"
+                  "-jar" "svg_clj.jar"
+                  "--initialize-at-build-time"
+                  "--initialize-at-run-time=org.apache.batik.bridge.RhinoInterpreter"
+                  "--allow-incomplete-classpath"
+                  "--no-fallback"
+                  "--no-server"))}
+  
+  native-image-with-reflect-config
+  {:doc "Builds native image"
+   :depends [graalvm #_uberjar]
+   :task (do
+           #_(shell "java -agentlib:native-image-agent=caller-filter-file=filter.json,config-output-dir=. -jar svg_clj.jar -i drawing.clj -o out.png")
            (shell (str (fs/file graalvm
                                 "bin"
                                 (if windows?
@@ -311,7 +344,8 @@ strictly speaking, translate and rotate are not operating on streams of data, bu
 #+begin_src clojure :tangle ./src/svg_clj/utils.cljc
 (ns svg-clj.utils
   (:require [clojure.string :as str]
-            [clojure.data.xml :as xml]
+            #?(:clj
+               [clojure.data.xml :as xml])
             #?(:cljs
                [cljs.reader :refer [read-string]])))
 
@@ -320,19 +354,29 @@ strictly speaking, translate and rotate are not operating on streams of data, bu
 (def v- (partial mapv -))
 (def v* (partial mapv *))
 
+(def PI    #?(:clj (.PI Math)    :default (.-PI js/Math)))
+(def pow   #?(:clj (.pow Math)   :default (.-pow js/Math)))
+(def round #?(:clj (.round Math) :default (.-round js/Math)))
+(def sqrt  #?(:clj (.sqrt Math)  :default (.-sqrt js/Math)))
+(def abs   #?(:clj (.abs Math)   :default (.-abs js/Math)))
+(def sin   #?(:clj (.sin Math)   :default (.-sin js/Math)))
+(def cos   #?(:clj (.cos Math)   :default (.-cos js/Math)))
+(def acos  #?(:clj (.acos Math)  :default (.-acos js/Math)))
+
+
 ;; simple calcs
 (defn to-deg
   [rad]
-  (* rad (/ 180 Math/PI)))
+  (* rad (/ 180 PI)))
 
 (defn to-rad
   [deg]
-  (* deg (/ Math/PI 180)))
+  (* deg (/ PI 180)))
 
 (defn round
   [num places]
-  (let [d (Math/pow 10 places)]
-    (/ (Math/round (* num d)) d)))
+  (let [d (pow 10 places)]
+    (/ (round (* num d)) d)))
 
 (defn average
   [& numbers]
@@ -386,12 +430,12 @@ strictly speaking, translate and rotate are not operating on streams of data, bu
   [a b]
   (let [v (v- b a)
         v2 (reduce + (v* v v))]
-    (Math/sqrt v2)))
+    (sqrt v2)))
 
 (defn rotate-pt
   [[x y] deg]
-  (let [c (Math/cos (to-rad deg))
-        s (Math/sin (to-rad deg))]
+  (let [c (cos (to-rad deg))
+        s (sin (to-rad deg))]
     [(- (* x c) (* y s))
      (+ (* x s) (* y c))]))
 
@@ -420,15 +464,8 @@ strictly speaking, translate and rotate are not operating on streams of data, bu
 (defn normalize
   "find the unit vector of a given vector"
   [v]
-  (let [m (Math/sqrt (reduce + (v* v v)))]
+  (let [m (sqrt (reduce + (v* v v)))]
     (mapv / v (repeat m))))
-
-#_(defn normal
-  "find normal vector of plane given 3 points"
-  [a b c]
-  (let [ab (mapv - a b)
-        ac (mapv - a c)]
-    (if (on-line? c [a b]) nil (cross* ab ac))))
 
 (defn normal
   "find normal vector of plane given 3 points"
@@ -445,29 +482,32 @@ strictly speaking, translate and rotate are not operating on streams of data, bu
         l1 (distance p1 p2)
         l2 (distance p3 p2)
         n (dot* v1 v2)
-        d (Math/abs (* l1 l2))]
+        d (abs (* l1 l2))]
     (when (not (= 0.0 (float d)))
-      (to-deg (Math/acos (/ n d))))))
+      (to-deg (acos (/ n d))))))
 
 #+end_src
 
 ** xml->hiccup
 #+begin_src clojure :tangle ./src/svg_clj/utils.cljc
-(defn xml->hiccup [xml]
-  (if-let [t (:tag xml)]
-    (let [elt [t]
-          elt (if-let [attrs (:attrs xml)]
-                (conj elt attrs)
-                elt)]
-      (into elt (map xml->hiccup (:content xml))))
-    xml))
+#?(:clj
 
-(defn svg-str->elements
-  [svg-str]
-  (-> svg-str
-      (xml/parse-str :namespace-aware false)
-      xml->hiccup))
+   (defn xml->hiccup [xml]
+     (if-let [t (:tag xml)]
+       (let [elt [t]
+             elt (if-let [attrs (:attrs xml)]
+                   (conj elt attrs)
+                   elt)]
+         (into elt (map xml->hiccup (:content xml))))
+       xml))
 
+   (defn svg-str->elements
+     [svg-str]
+     (-> svg-str
+         (xml/parse-str :namespace-aware false)
+         xml->hiccup))
+
+)
 #+end_src
 
 * elements
@@ -2644,159 +2684,10 @@ Distribute a list of elements onto a list of points.
 Works like map, so whichever runs out first (elements or points) is the limiter.
 
 #+begin_src clojure :tangle ./examples/layout.cljc
-
-#_(tools/cider-show 
+(tools/cider-show 
  (lo/distribute-on-pts 
   (repeatedly rand-rect)
   (lo/rect-grid 10 10 30 30)))
-
-
-(def txt "(defn cider-show
-  [svg-data]
-  (let [fname \"_imgtmp.png\"
-        data (if (= (first svg-data) :svg)
-               svg-data
-               (svg svg-data))]
-    (do (png! data fname)
-        (clojure.java.io/file fname))))")
-
-(def theme
-  { 0 "#2e3440" ;; main bg col
-    1 "#3b4252"
-    2 "#434c5e"
-    3 "#4c566a"
-    4 "#d8dee9"  ;; main col for text
-    5 "#e5e9f0"
-    6 "#eceff4"
-    7 "#8fbcbb"
-    8 "#88c0d0"
-    9 "#81a1c1"
-   10 "#5e81ac"
-   11 "#bf616a"
-   12 "#d08770"
-   13 "#ebcb8b"
-   14 "#a3be8c"
-   15 "#b48ead"})
-
-(def symbol-map
-  {"(" (get theme 3)
-   ")" (get theme 3)
-   "def" (get theme 9)
-   "n" (get theme 9)  ;; cheat for def/defn matching
-   "let" (get theme 9)
-   "if" (get theme 9)
-   "do" (get theme 9)})
-
-(defn colorize
-  [txt symbol-map theme-map]
-  (let [f (fn [txt]
-            (let [col (get symbol-map txt)]
-              (if col
-                [:tspan {:fill col} txt]
-                txt)))
-        ts (-> txt
-               (str/replace #"\(" ";(;")
-               (str/replace #"\)" ";);")
-               (str/replace #"defn" ";defn;")
-               (str/replace #"def" ";def;")
-               (str/replace #"let" ";let;")
-               (str/replace #"if" ";if;")
-               #_(str/replace #"do" ";do;")
-               (str/split #";"))]
-    (map f ts)))
-
-#+end_src
-
-
-#+begin_src clojure :tangle ./examples/layout.cljc
-(defn codeblock-dims
-  [txt font-size]
-  (let [lines (str/split txt #"\n")
-        nlines (count lines)
-        ncols (apply max (map count lines))]
-    [(* (dec ncols) (int (* font-size 2/3)))
-     (int (* nlines (+ font-size 3.25)))]))
-
-(defn codeblock
-  [txt font-size symbol-map theme-map]
-  (let [[w h] (codeblock-dims txt 16)
-        ts (-> txt
-               (str/split #"\n")
-               (->> (map #(colorize % symbol-map theme-map))))
-        f (fn [txt]
-            (-> (svg/text txt)
-                (tf/style {:xml:space "preserve"
-                           :font-family "Menlo"
-                           :text-anchor "start"
-                           :fill (get theme-map 6)
-                           :font-size font-size})))
-        elems (mapv f ts)]
-    (-> (for [i (range (count ts))]
-          (-> (get elems i)
-              (tf/translate [0 (* i (+ font-size 3))])))
-        (tf/translate [0 font-size]))))
-
-(defn code-window
-  [txt font-size symbol-map theme-map]
-  (let [pad 20
-        [w h] (utils/v+ (repeat 2 (* 2 pad)) (codeblock-dims txt font-size))]
-  (svg/g
-   ;; bg
-   (-> (svg/rect (+ w 100) (+ h 100))
-       (tf/style {:fill (get theme-map 14)}))
-   ;; window 'shadow'
-   (-> (svg/rect w h)
-       (tf/translate [4 4])
-       (tf/style {:rx 9
-                  :opacity 0.2
-                  :fill "black"}))
-   (-> (svg/rect w h)
-       (tf/translate [2 2])
-       (tf/style {:rx 9
-                  :opacity 0.2
-                  :fill "black"}))
-   ;; window bg
-   (-> (svg/rect w h)
-       (tf/style {:rx 9
-                  :fill (get theme-map 0)}))
-   (-> (codeblock txt font-size symbol-map theme-map)
-       (tf/translate [(+ pad (/ w -2.0)) (+ (* 0.80 pad) (/ h -2.0))])))))
-
-(defn- anim-frames! [f name framerate dur]
-  (let [mkdir (sh "mkdir" "-pv" name)
-        frames (int (* framerate dur))
-        framefn (fn [fr] (tools/png!
-                          (f (/ fr frames))
-                          (format (str name "/%03d.png") fr)))]
-    (when (= 0 (:exit mkdir))
-      (into [] (map framefn (range 1 (inc frames)))))))
-
-(defn- anim-video! [name framerate]
-  (let [ffmpeg 
-        (sh "ffmpeg" "-f" "image2" "-r" (str framerate)
-            "-i" (str name "/%03d.png")
-            "-c:v" "libvpx-vp9" "-vf" "format=rgba"
-            "-pix_fmt" "yuva420p" "-b:v" "800k"
-            "-y" (str name ".webm"))]
-    (when (= 0 (:exit ffmpeg))
-      (sh "rm" "-rf" name))))
-
-(defn animate! [{:keys [graphics-fn name framerate duration]}]
-  (do (anim-frames! graphics-fn name framerate duration)
-      (anim-video! name framerate)))
-
-
-(def anim
-  {:name "type"
-   :framerate 30
-   :duration 7
-   :graphics-fn
-   (fn [t]
-     (let [txt (clojure.repl/source-fn 'lo/distribute-linear)
-           i (int (* t (count txt)))
-           blank (str/replace txt #"[^\n]" " ")
-           ntxt (concat (take i txt) (drop i blank))]
-       (svg (code-window (apply str ntxt) 16 symbol-map theme))))})
 
 #+end_src
 
@@ -2808,10 +2699,7 @@ Distribute a list of elements onto a parametric curve.
   (repeatedly 40 rand-rect)
   (lo/p-circle 150)))
 
-
 #+end_src
-
-
 
 Distribute a list of elements along X/Y axis, keeping a constant gap between the boundaries of each element.
 
@@ -2822,7 +2710,6 @@ Distribute a list of elements along X/Y axis, keeping a constant gap between the
   :x
   20
   (repeatedly 10 rand-rect)))
-
 
 #+end_src
 * main
@@ -2859,10 +2746,6 @@ Fixing this is possible with alteration to reflect-config.json and/or adding typ
    ["-o" "--outfile FNAME" "The output filename. Valid Extensions: svg, png"
     :default nil]
    ["-h" "--help"]])
-
-#_(def my-ns-map
-  {'svg-clj.composites {'svg svg}
-   'svg-clj.elements {'circle el/circle}})
 
 (def my-ns-map
   (into {} 
