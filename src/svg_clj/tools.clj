@@ -4,7 +4,6 @@
             [clojure.java.browse]
             [clojure.java.io]
             [hiccup.core :refer [html]]
-            [hawk.core :as hawk]
             [svg-clj.elements :as svg]
             [svg-clj.composites :refer [svg]]
             [svg-clj.path :as path]
@@ -37,25 +36,6 @@
     (do (spit fname (html data))
         (clojure.java.browse/browse-url fname)
         #_(sh "rm" fname))))
-
-(defn watch!
-  [fname]
-  (let [ [name ext] (str/split fname #"\.")]
-    (hawk/watch!
-     [{:paths [fname]
-       :handler
-       (fn [ctx e]
-         (require '[svg-clj.elements :refer :all]
-                  '[svg-clj.transforms :refer :all]
-                  '[svg-clj.path :refer :all]
-                  '[hiccup.core :refer [html]])
-         (->> (slurp fname)
-              (format "[%s]")
-              load-string
-              (filter (complement var?))
-              html
-              (spit (str name ".html")))
-         ctx)}])))
 
 (defn save-svg
   [svg-data fname]

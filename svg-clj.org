@@ -29,22 +29,21 @@
            {com.github.seancorfield/depstar {:mvn/version "2.0.216"}}
            :exec-fn hf.depstar/uberjar
            :exec-args {:jar svg_clj.jar
-                       :main-class svg-clj.main
+                       :main-class svg-clj.cli
                        :aot true}}}}
 
 #+end_src
 
 ** bb.edn
 always need GRAALVM_HOME set
-might need to set JAVA executable to GRAAL version as well
+If you want to run an agent to help build a reflect-config.json, then you need to set JAVA executable to GRAAL version as well.
 
 export GRAALVM_HOME=/Users/adam/Downloads/graalvm-ce-java11-21.1.0/Contents/Home
 export JAVA_HOME=$GRAALVM_HOME 
 
-binary file reduction:
+binary file reduction: 'upx', which is a binary compression tool.
 
-'upx'
-
+This is manually added to reflect-config.json to replace what the agent finds. Don't know why, but the one that the agent found on my attempts did not work, but this one (taken from clj-graal-docs github repo) does let the image compile.
 
 {
   "name":"java.lang.reflect.AccessibleObject",
@@ -60,7 +59,7 @@ binary file reduction:
                                         "Windows"))
   run-main
   {:doc "Run main"
-   :task (apply clojure "-M -m svg-clj.main" *command-line-args*)}
+   :task (apply clojure "-M -m svg-clj.cli" *command-line-args*)}
   
   uberjar
   {:doc "Builds uberjar"
@@ -73,6 +72,11 @@ binary file reduction:
    :task (apply shell "java -jar svg_clj.jar" 
                 ,*command-line-args*)}
   
+  gen-reflect
+  {:doc "Generate reflect-config.json by running uberjar with agent."
+   :depends [uberjar]
+   :task (apply shell "java -agentlib:native-image-agent=caller-filter-file=filter.json,config-output-dir=. -jar svg_clj.jar" *command-line-args*)}
+  
   graalvm
   {:doc "Checks GRAALVM_HOME env var"
    :task
@@ -82,7 +86,7 @@ binary file reduction:
   
   native-image
   {:doc "Builds native image"
-   :depends [graalvm uberjar]
+   :depends [graalvm gen-reflect]
    :task (do
            (shell (str (fs/file graalvm
                                 "bin"
@@ -96,6 +100,7 @@ binary file reduction:
                                   "native-image.cmd"
                                   "native-image")))
                   "-H:Name=svg-clj"
+                  "-H:ReflectionConfigurationFiles=reflect-config.json"
                   "-jar" "svg_clj.jar"
                   "--initialize-at-build-time"
                   "--no-fallback"
@@ -174,7 +179,6 @@ Stay tuned for updates!
 * admin
 ** todo
 Some tasks that need to be done on this project.
-*** TODO Add rounding to reduce file sizes from points having too many decimal places
 *** TODO build a mechanism for changing rotate behavior from local to global -> probably use *dynamic-var* 
 *** TODO build a mechanism for changing transform 'baking' behavior
 *** TODO for circle and ellipse, try to remove the transform rotate(0 x y) idea. Seems confusing and unnecessary anyway.
@@ -198,7 +202,6 @@ I think these make more sense in separate libraries. Perhaps as ns inside a 2d-c
   - arrows
   - dimensions
   - figure containers
-  - 
 
 ** misc-notes
 Remember in REPL you can't re-def the defmulti dispatch function with some ns magic.
@@ -320,29 +323,19 @@ strictly speaking, translate and rotate are not operating on streams of data, bu
 (def v- (partial mapv -))
 (def v* (partial mapv *))
 
-(def PI    #?(:clj (.PI Math)    :default (.-PI js/Math)))
-(def pow   #?(:clj (.pow Math)   :default (.-pow js/Math)))
-(def round #?(:clj (.round Math) :default (.-round js/Math)))
-(def sqrt  #?(:clj (.sqrt Math)  :default (.-sqrt js/Math)))
-(def abs   #?(:clj (.abs Math)   :default (.-abs js/Math)))
-(def sin   #?(:clj (.sin Math)   :default (.-sin js/Math)))
-(def cos   #?(:clj (.cos Math)   :default (.-cos js/Math)))
-(def acos  #?(:clj (.acos Math)  :default (.-acos js/Math)))
-
-
 ;; simple calcs
 (defn to-deg
   [rad]
-  (* rad (/ 180 PI)))
+  (* rad (/ 180 Math/PI)))
 
 (defn to-rad
   [deg]
-  (* deg (/ PI 180)))
+  (* deg (/ Math/PI 180)))
 
 (defn round
   [num places]
-  (let [d (pow 10 places)]
-    (/ (round (* num d)) d)))
+  (let [d (Math/pow 10 places)]
+    (/ (Math/round (* num d)) d)))
 
 (defn average
   [& numbers]
@@ -396,12 +389,12 @@ strictly speaking, translate and rotate are not operating on streams of data, bu
   [a b]
   (let [v (v- b a)
         v2 (reduce + (v* v v))]
-    (sqrt v2)))
+    (Math/sqrt v2)))
 
 (defn rotate-pt
   [[x y] deg]
-  (let [c (cos (to-rad deg))
-        s (sin (to-rad deg))]
+  (let [c (Math/cos (to-rad deg))
+        s (Math/sin (to-rad deg))]
     [(- (* x c) (* y s))
      (+ (* x s) (* y c))]))
 
@@ -430,7 +423,7 @@ strictly speaking, translate and rotate are not operating on streams of data, bu
 (defn normalize
   "find the unit vector of a given vector"
   [v]
-  (let [m (sqrt (reduce + (v* v v)))]
+  (let [m (Math/sqrt (reduce + (v* v v)))]
     (mapv / v (repeat m))))
 
 (defn normal
@@ -448,32 +441,29 @@ strictly speaking, translate and rotate are not operating on streams of data, bu
         l1 (distance p1 p2)
         l2 (distance p3 p2)
         n (dot* v1 v2)
-        d (abs (* l1 l2))]
+        d (Math/abs ^double (* l1 l2))]
     (when (not (= 0.0 (float d)))
-      (to-deg (acos (/ n d))))))
+      (to-deg (Math/acos (/ n d))))))
 
 #+end_src
 
 ** xml->hiccup
 #+begin_src clojure :tangle ./src/svg_clj/utils.cljc
-#?(:clj
+(defn xml->hiccup [xml]
+  (if-let [t (:tag xml)]
+    (let [elt [t]
+          elt (if-let [attrs (:attrs xml)]
+                (conj elt attrs)
+                elt)]
+      (into elt (map xml->hiccup (:content xml))))
+    xml))
 
-   (defn xml->hiccup [xml]
-     (if-let [t (:tag xml)]
-       (let [elt [t]
-             elt (if-let [attrs (:attrs xml)]
-                   (conj elt attrs)
-                   elt)]
-         (into elt (map xml->hiccup (:content xml))))
-       xml))
+(defn svg-str->elements
+  [svg-str]
+  (-> svg-str
+      (xml/parse-str :namespace-aware false)
+      xml->hiccup))
 
-   (defn svg-str->elements
-     [svg-str]
-     (-> svg-str
-         (xml/parse-str :namespace-aware false)
-         xml->hiccup))
-
-)
 #+end_src
 
 * elements
@@ -2108,7 +2098,7 @@ This is a helpful default for text elements. It expects a font size arg. This co
         l1 (utils/distance p1 p2)
         l2 (utils/distance p3 p2)
         n (utils/dot* v1 v2)
-        d (Math/abs (* l1 l2))]
+        d (Math/abs ^double (* l1 l2))]
     (when (not (= 0.0 (float d)))
       (utils/to-deg (Math/acos (/ n d))))))
 
@@ -2226,7 +2216,6 @@ THis is not code, it's jsut text. Ideally for humans to read.
             [clojure.java.browse]
             [clojure.java.io]
             [hiccup.core :refer [html]]
-            [hawk.core :as hawk]
             [svg-clj.elements :as svg]
             [svg-clj.composites :refer [svg]]
             [svg-clj.path :as path]
@@ -2277,31 +2266,6 @@ To get it working in CIDER, you have to enable content types.
     (do (spit fname (html data))
         (clojure.java.browse/browse-url fname)
         #_(sh "rm" fname))))
-
-#+end_src
-
-** watcher
-Build tests to make sure the design watcher works. It may be wise to build a nicer interface with clojure/tools.cli
-
-#+begin_src clojure :tangle ./src/svg_clj/tools.clj
-(defn watch!
-  [fname]
-  (let [ [name ext] (str/split fname #"\.")]
-    (hawk/watch!
-     [{:paths [fname]
-       :handler
-       (fn [ctx e]
-         (require '[svg-clj.elements :refer :all]
-                  '[svg-clj.transforms :refer :all]
-                  '[svg-clj.path :refer :all]
-                  '[hiccup.core :refer [html]])
-         (->> (slurp fname)
-              (format "[%s]")
-              load-string
-              (filter (complement var?))
-              html
-              (spit (str name ".html")))
-         ctx)}])))
 
 #+end_src
 
@@ -2678,10 +2642,10 @@ Distribute a list of elements along X/Y axis, keeping a constant gap between the
   (repeatedly 10 rand-rect)))
 
 #+end_src
-* main
-Use this ns for CLI tools.
-
+* cli
 This is a WIP. 
+
+The idea is to have a CLI tool that 'compiles' svg-clj code into an SVG file.
 
 GraalVM native image:
 
@@ -2689,30 +2653,28 @@ bb native-image
 
 The resulting executable will be svg_clj and works for exporting .svg files, but fails with .png due to reflection issues with the Batik library.
 
-Fixing this is possible with alteration to reflect-config.json and/or adding type hints (via a Github pull request perhaps?) to the batik library.
+Fixing this might be possible with alteration to reflect-config.json and/or adding type hints (via a Github pull request perhaps?) to the batik library.
 
-#+begin_src clojure :tangle ./src/svg_clj/main.clj
-(ns svg-clj.main
+#+begin_src clojure :tangle ./src/svg_clj/cli.clj
+(ns svg-clj.cli
   (:require [clojure.string :as str]
             [clojure.tools.cli :as cli]
             [hiccup.core :refer [html]]
+            [hawk.core :as hawk]
             [svg-clj.composites :as cp :refer [svg]]
             [svg-clj.utils :as utils]
             [svg-clj.elements :as el]
             [svg-clj.path :as path]
             [svg-clj.transforms :as tf]
             [svg-clj.layout :as lo]
-            [svg-clj.tools :as tools]
             [sci.core :as sci])
   (:gen-class))
+#+end_src
 
-(def cli-options
-  [["-i" "--infile FNAME" "The file to be compiled."
-    :default nil]
-   ["-o" "--outfile FNAME" "The output filename. Valid Extensions: svg"
-    :default nil]
-   ["-h" "--help"]])
+** load-file
+For GraalVM native image, you can't use Clojure's loading functions. Luckily, Borkdude's Simple Clojure Interpreter (SCI) has eval-string capability which we can use to load our namespaces and evaluate files from a native image.
 
+#+begin_src clojure :tangle ./src/svg_clj/cli.clj
 (def my-ns-map
   (into {} 
         (map #(vector % (ns-publics %))
@@ -2721,21 +2683,56 @@ Fixing this is possible with alteration to reflect-config.json and/or adding typ
               'svg-clj.elements
               'svg-clj.path
               'svg-clj.transforms
-              'svg-clj.layout
-              'svg-clj.tools])))
+              'svg-clj.layout])))
 
 (defn sci-load-file
   [fname]
   (-> (slurp fname)
       (sci/eval-string {:namespaces my-ns-map})))
 
+#+end_src
+
+** watcher
+This fn is not working yet, but the idea is to let the CLI watch a source file, launch a basic server, compile the SVG, and display it in the web browser, which will be auto-refreshed any time the file is updated.
+
+#+begin_src clojure :tangle ./src/svg_clj/cli.clj
+(defn watch!
+  [infile outfile]
+  (let [ [name ext] (str/split infile #"\.")]
+    (hawk/watch!
+     [{:paths [infile]
+       :handler
+       (fn [ctx e]
+         (let [result (deref (sci-load-file infile))
+               data (if (= :svg (first result)) result (svg result))
+               msg (str "| Compiling " infile " into " outfile ". |")]
+           (println (apply str (repeat (count msg) "-")))
+           (println msg)
+           (println (apply str (repeat (count msg) "-")))
+           (spit outfile (html data))
+           (println "Done. Waiting for changes")
+           ctx))}])))
+
+#+end_src
+
+** cli
+#+begin_src clojure :tangle ./src/svg_clj/cli.clj
+(def cli-options
+  [["-i" "--infile FNAME" "The file to be compiled."
+    :default nil]
+   ["-o" "--outfile FNAME" "The output filename. Valid Extensions: svg"
+    :default nil]
+   ["-w" "--watch" "Watch the file for changes and re-compile on change."
+    :default false]
+   ["-h" "--help"]])
+
 (defn -main [& args]
   (let [parsed (cli/parse-opts args cli-options)
-        {:keys [:infile :outfile :help]} (:options parsed)
+        {:keys [:infile :outfile :watch :help]} (:options parsed)
         [in _] (when infile (str/split infile #"\."))
         outfile (if outfile outfile (str in ".svg"))
         [out ext] (str/split outfile #"\.")]
-    (cond 
+    (cond
       help
       (do (println "Usage:")
           (println (:summary parsed)))
@@ -2746,14 +2743,17 @@ Fixing this is possible with alteration to reflect-config.json and/or adding typ
       (not (contains? #{"svg"} ext))
       (println "Please specify a valid output format. Valid formats: svg.")
 
+      watch
+      (watch! infile outfile)
+      
       :else
-      (do 
-        (let [result (deref (sci-load-file infile))
-              data (if (= :svg (first result)) result (svg result))]
-          (do (println (str "Compiling " infile " into " outfile "."))
-              (if (= "svg" ext)
-                (spit outfile (html data))
-                (tools/png! data outfile))
-              (println "Success! Have a nice day :)")))))))
+      (let [result (deref (sci-load-file infile))
+            data (if (= :svg (first result)) result (svg result))
+            msg (str "| Compiling " infile " into " outfile ". |")]
+        (println (apply str (repeat (count msg) "-")))
+        (println msg)
+        (println (apply str (repeat (count msg) "-")))
+        (spit outfile (html data))
+        (println "Success! Have a nice day :)")))))
 
 #+end_src

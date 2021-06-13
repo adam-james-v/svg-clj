@@ -5,7 +5,7 @@
                                         "Windows"))
   run-main
   {:doc "Run main"
-   :task (apply clojure "-M -m svg-clj.main" *command-line-args*)}
+   :task (apply clojure "-M -m svg-clj.cli" *command-line-args*)}
   
   uberjar
   {:doc "Builds uberjar"
@@ -18,6 +18,11 @@
    :task (apply shell "java -jar svg_clj.jar" 
                 *command-line-args*)}
   
+  gen-reflect
+  {:doc "Generate reflect-config.json by running uberjar with agent."
+   :depends [uberjar]
+   :task (apply shell "java -agentlib:native-image-agent=caller-filter-file=filter.json,config-output-dir=. -jar svg_clj.jar" *command-line-args*)}
+  
   graalvm
   {:doc "Checks GRAALVM_HOME env var"
    :task
@@ -27,7 +32,7 @@
   
   native-image
   {:doc "Builds native image"
-   :depends [graalvm uberjar]
+   :depends [graalvm gen-reflect]
    :task (do
            (shell (str (fs/file graalvm
                                 "bin"
@@ -41,6 +46,7 @@
                                   "native-image.cmd"
                                   "native-image")))
                   "-H:Name=svg-clj"
+                  "-H:ReflectionConfigurationFiles=reflect-config.json"
                   "-jar" "svg_clj.jar"
                   "--initialize-at-build-time"
                   "--no-fallback"

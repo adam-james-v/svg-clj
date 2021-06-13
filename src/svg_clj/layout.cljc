@@ -66,7 +66,7 @@
         l1 (utils/distance p1 p2)
         l2 (utils/distance p3 p2)
         n (utils/dot* v1 v2)
-        d (Math/abs (* l1 l2))]
+        d (Math/abs ^double (* l1 l2))]
     (when (not (= 0.0 (float d)))
       (utils/to-deg (Math/acos (/ n d))))))
 
