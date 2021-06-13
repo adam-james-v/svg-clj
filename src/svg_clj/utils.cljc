@@ -10,29 +10,19 @@
 (def v- (partial mapv -))
 (def v* (partial mapv *))
 
-(def PI    #?(:clj (.PI Math)    :default (.-PI js/Math)))
-(def pow   #?(:clj (.pow Math)   :default (.-pow js/Math)))
-(def round #?(:clj (.round Math) :default (.-round js/Math)))
-(def sqrt  #?(:clj (.sqrt Math)  :default (.-sqrt js/Math)))
-(def abs   #?(:clj (.abs Math)   :default (.-abs js/Math)))
-(def sin   #?(:clj (.sin Math)   :default (.-sin js/Math)))
-(def cos   #?(:clj (.cos Math)   :default (.-cos js/Math)))
-(def acos  #?(:clj (.acos Math)  :default (.-acos js/Math)))
-
-
 ;; simple calcs
 (defn to-deg
   [rad]
-  (* rad (/ 180 PI)))
+  (* rad (/ 180 Math/PI)))
 
 (defn to-rad
   [deg]
-  (* deg (/ PI 180)))
+  (* deg (/ Math/PI 180)))
 
 (defn round
   [num places]
-  (let [d (pow 10 places)]
-    (/ (round (* num d)) d)))
+  (let [d (Math/pow 10 places)]
+    (/ (Math/round (* num d)) d)))
 
 (defn average
   [& numbers]
@@ -86,12 +76,12 @@
   [a b]
   (let [v (v- b a)
         v2 (reduce + (v* v v))]
-    (sqrt v2)))
+    (Math/sqrt v2)))
 
 (defn rotate-pt
   [[x y] deg]
-  (let [c (cos (to-rad deg))
-        s (sin (to-rad deg))]
+  (let [c (Math/cos (to-rad deg))
+        s (Math/sin (to-rad deg))]
     [(- (* x c) (* y s))
      (+ (* x s) (* y c))]))
 
@@ -120,7 +110,7 @@
 (defn normalize
   "find the unit vector of a given vector"
   [v]
-  (let [m (sqrt (reduce + (v* v v)))]
+  (let [m (Math/sqrt (reduce + (v* v v)))]
     (mapv / v (repeat m))))
 
 (defn normal
@@ -138,25 +128,21 @@
         l1 (distance p1 p2)
         l2 (distance p3 p2)
         n (dot* v1 v2)
-        d (abs (* l1 l2))]
+        d (Math/abs ^double (* l1 l2))]
     (when (not (= 0.0 (float d)))
-      (to-deg (acos (/ n d))))))
+      (to-deg (Math/acos (/ n d))))))
 
-#?(:clj
+(defn xml->hiccup [xml]
+  (if-let [t (:tag xml)]
+    (let [elt [t]
+          elt (if-let [attrs (:attrs xml)]
+                (conj elt attrs)
+                elt)]
+      (into elt (map xml->hiccup (:content xml))))
+    xml))
 
-   (defn xml->hiccup [xml]
-     (if-let [t (:tag xml)]
-       (let [elt [t]
-             elt (if-let [attrs (:attrs xml)]
-                   (conj elt attrs)
-                   elt)]
-         (into elt (map xml->hiccup (:content xml))))
-       xml))
-
-   (defn svg-str->elements
-     [svg-str]
-     (-> svg-str
-         (xml/parse-str :namespace-aware false)
-         xml->hiccup))
-
-)
+(defn svg-str->elements
+  [svg-str]
+  (-> svg-str
+      (xml/parse-str :namespace-aware false)
+      xml->hiccup))
