@@ -35,7 +35,6 @@
 #+end_src
 
 ** bb.edn
-
 always need GRAALVM_HOME set
 might need to set JAVA executable to GRAAL version as well
 
@@ -47,12 +46,10 @@ binary file reduction:
 'upx'
 
 
-
 {
   "name":"java.lang.reflect.AccessibleObject",
   "methods":[{"name":"canAccess"}]
 },
-
 
 
 #+begin_src clojure :tangle ./bb.edn
@@ -69,12 +66,6 @@ binary file reduction:
   {:doc "Builds uberjar"
    :task (when true #_(seq (fs/modified-since "svg_clj.jar" "src"))
            (clojure "-X:uberjar"))}
-  
-  run-uber-with-agent
-  {:doc "Run uberjar with an agent to generate reflect-config.json."
-   :depends [uberjar]
-   :task (apply shell "java -agentlib:native-image-agent=caller-filter-file=filter.json,config-output-dir=. -jar svg_clj.jar" 
-                ,*command-line-args*)}
 
   run-uber
   {:doc "Run uberjar"
@@ -105,31 +96,6 @@ binary file reduction:
                                   "native-image.cmd"
                                   "native-image")))
                   "-H:Name=svg-clj"
-                  "-jar" "svg_clj.jar"
-                  "--initialize-at-build-time"
-                  "--initialize-at-run-time=org.apache.batik.bridge.RhinoInterpreter"
-                  "--allow-incomplete-classpath"
-                  "--no-fallback"
-                  "--no-server"))}
-  
-  native-image-with-reflect-config
-  {:doc "Builds native image"
-   :depends [graalvm #_uberjar]
-   :task (do
-           #_(shell "java -agentlib:native-image-agent=caller-filter-file=filter.json,config-output-dir=. -jar svg_clj.jar -i drawing.clj -o out.png")
-           (shell (str (fs/file graalvm
-                                "bin"
-                                (if windows?
-                                  "gu.cmd"
-                                  "gu")))
-                  "install" "native-image")
-           (shell (str (fs/file graalvm
-                                "bin"
-                                (if windows?
-                                  "native-image.cmd"
-                                  "native-image")))
-                  "-H:Name=svg-clj"
-                  "-H:ReflectionConfigurationFiles=reflect-config.json"
                   "-jar" "svg_clj.jar"
                   "--initialize-at-build-time"
                   "--no-fallback"
@@ -2743,7 +2709,7 @@ Fixing this is possible with alteration to reflect-config.json and/or adding typ
 (def cli-options
   [["-i" "--infile FNAME" "The file to be compiled."
     :default nil]
-   ["-o" "--outfile FNAME" "The output filename. Valid Extensions: svg, png"
+   ["-o" "--outfile FNAME" "The output filename. Valid Extensions: svg"
     :default nil]
    ["-h" "--help"]])
 
@@ -2777,8 +2743,8 @@ Fixing this is possible with alteration to reflect-config.json and/or adding typ
       (nil? infile)
       (println "Please specify an input file")
 
-      (not (contains? #{"svg" "png"} ext))
-      (println "Please specify a valid output format. Valid formats: svg, png.")
+      (not (contains? #{"svg"} ext))
+      (println "Please specify a valid output format. Valid formats: svg.")
 
       :else
       (do 

@@ -15,7 +15,7 @@
 (def cli-options
   [["-i" "--infile FNAME" "The file to be compiled."
     :default nil]
-   ["-o" "--outfile FNAME" "The output filename. Valid Extensions: svg, png"
+   ["-o" "--outfile FNAME" "The output filename. Valid Extensions: svg"
     :default nil]
    ["-h" "--help"]])
 
@@ -49,8 +49,8 @@
       (nil? infile)
       (println "Please specify an input file")
 
-      (not (contains? #{"svg" "png"} ext))
-      (println "Please specify a valid output format. Valid formats: svg, png.")
+      (not (contains? #{"svg"} ext))
+      (println "Please specify a valid output format. Valid formats: svg.")
 
       :else
       (do 
