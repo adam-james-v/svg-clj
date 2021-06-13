@@ -43,12 +43,45 @@ export JAVA_HOME=$GRAALVM_HOME
 
 binary file reduction: 'upx', which is a binary compression tool.
 
-This is manually added to reflect-config.json to replace what the agent finds. Don't know why, but the one that the agent found on my attempts did not work, but this one (taken from clj-graal-docs github repo) does let the image compile.
+1. Run bb gen-reflect with -i drawing.clj -w
+
+This causes the GraalVM agent to correctly walk the codepath that requires the watcher libs/classes.
+
+Check that the uberjar is running by making a trivial change (such as adding a space) to drawing.clj and saving. You should see a message in the terminal. If successful, you can quit the watcher with CTRL-C in the terminal.
+
+2. Edit the generated reflect-config.json. Manually Replace 
+
+{
+  "name":"java.lang.reflect.Method",  
+"methods":[{"name":"canAccess","parameterTypes":["java.lang.Object"] }]
+},
+
+with
 
 {
   "name":"java.lang.reflect.AccessibleObject",
   "methods":[{"name":"canAccess"}]
 },
+
+And add the following to the end of the list:
+
+{
+  "name":"com.barbarysoftware.watchservice.StandardWatchEventKind$StdWatchEventKind[]",
+  "allPublicMethods":true
+},
+
+This is true on MacOS... I don't yet know how this works on linux or windows.
+
+
+3. Run bb native-image
+
+4. Test the binary by running ./svg_clj -i drawing.clj
+
+This should successfully produce drawing.svg in the directory.
+
+5. Test the binary by running ./svg_clj -i drawing.clj -w
+
+This should successfully start a watcher. Check that it responds to file changes by saving a trivial change to drawing.clj. For example, add a space somewhere and save.
 
 
 #+begin_src clojure :tangle ./bb.edn
@@ -86,7 +119,7 @@ This is manually added to reflect-config.json to replace what the agent finds. D
   
   native-image
   {:doc "Builds native image"
-   :depends [graalvm gen-reflect]
+   :depends [graalvm]
    :task (do
            (shell (str (fs/file graalvm
                                 "bin"
@@ -2744,7 +2777,8 @@ This fn is not working yet, but the idea is to let the CLI watch a source file, 
       (println "Please specify a valid output format. Valid formats: svg.")
 
       watch
-      (watch! infile outfile)
+      (do (println (str "Waiting for changes to " infile "."))
+          (watch! infile outfile))
       
       :else
       (let [result (deref (sci-load-file infile))

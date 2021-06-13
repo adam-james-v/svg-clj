@@ -1,5 +1,4 @@
-[
-{
+[{
   "name":"com.barbarysoftware.watchservice.AbstractWatchKey",
   "allPublicMethods":true
 },
@@ -12,15 +11,15 @@
   "allPublicMethods":true
 },
 {
-    "name":"com.barbarysoftware.watchservice.StandardWatchEventKind$StdWatchEventKind[]",
-    "allPublicMethods":true
-},
-{
   "name":"java.io.File",
   "allPublicMethods":true
 },
 {
   "name":"java.lang.String",
+  "allPublicMethods":true
+},
+{
+  "name":"com.barbarysoftware.watchservice.StandardWatchEventKind$StdWatchEventKind[]",
   "allPublicMethods":true
 },
 {
@@ -38,5 +37,4 @@
 {
   "name":"sun.nio.fs.UnixPath",
   "allPublicMethods":true
-}
-]
+}]
