@@ -15,3 +15,5 @@ pom.xml.asc
 *.png
 *.svg
 *.txt
+svg_clj
+svg_clj_bk

@@ -1,0 +1,15 @@
+[ {
+  "name" : "java.lang.Object[]"
+}, {
+  "name" : "java.lang.String",
+  "allPublicMethods" : true
+}, {
+  "name" : "java.lang.reflect.AccessibleObject",
+  "methods" : [ {
+    "name" : "canAccess",
+    "parameterTypes" : [ "java.lang.Object" ]
+  } ]
+}, {
+  "name" : "java.util.Properties",
+  "allPublicMethods" : true
+} ]

@@ -3,6 +3,7 @@
              [svg-clj.utils :as utils]
              [svg-clj.elements :as svg]
              [svg-clj.path :as path]
+             [svg-clj.parametric :as p]
             #?(:cljs
                [cljs.reader :refer [read-string]])))
 
@@ -759,6 +760,12 @@
         xcmds (map #(scale-path-command ctr % [sx sy]) cmds)]
     [k (assoc props :d (path/cmds->path-string xcmds))]))
 
+(defn- bezier-cmd-pts
+  [{:keys [input cursor]}]
+  (let [control-pts (partition 2 (concat cursor input))
+        c (p/bezier control-pts)]
+    (map c (range 0 1.05 0.05))))
+
 (defn- cmds->elements
   [cmds]
   (let [start (first cmds)
@@ -772,30 +779,67 @@
     (when (> (count cmds) 1)
       (let [cs (map :command (rest cmds))]
         (cond
+          ;; empty
+          (and (= (count cmds) 2)
+               (empty? (remove #{"Z"} cs)))
+          nil
+
           ;; line
           (and (= (count cmds) 2)
-               (empty? (filter (complement #{"L"}) cs)))
+               (empty? (remove #{"L"} cs)))
           (apply svg/line (map :input cmds))
 
           ;; polyline
           (and (> (count cmds) 2)
-               (empty? (filter (complement #{"L"}) cs)))
+               (empty? (remove #{"L"} cs)))
           (svg/polyline (map :input cmds))
 
           ;; polygon
           (and (> (count cmds) 2)
-               (empty? (filter (complement #{"L" "Z"}) cs)))
+               (empty? (remove #{"L" "Z"} cs)))
           (svg/polygon (map :input cmds))
+
+          ;; Quadratic or Cubic Bezier Curve(s)
+          (or (empty? (remove #{"Q"} cs))
+              (empty? (remove #{"C"} cs)))
+          (let [pts (mapcat bezier-cmd-pts (rest cmds))]
+            (svg/polyline pts))
+
+          ;; Quadratic or Cubic Bezier Curve(s) closed path
+          (or (empty? (remove #{"Q" "Z"} cs))
+              (empty? (remove #{"C" "Z"} cs)))
+          (let [pts (mapcat bezier-cmd-pts (drop-last (rest cmds)))]
+            (svg/polygon pts))
           
           :else
           (path/path (path/cmds->path-string)))))))
 
+#_(defn merge-paths
+  "Merges a list of path elements together, keeping props from last path in the list."
+  [& paths]
+  (let [[_ props] (last paths)
+        d (str/join " " (map #(get-in % [1 :d]) paths))]
+    [:path (assoc props :d d)]))
+
+(defn- clean-m-cmds
+  "Remove cmdb if it is an M command with the same position as the last input of cmda."
+  [[cmda cmdb]]
+  (let [[pa pb] (map (comp (partial take-last 2) :input) [cmda cmdb])
+        [ca cb] (map :command [cmda cmdb])]
+    (cond
+      (= "M" ca) [] ;; discard M in first position always
+      (and (= pa pb) (= "M" cb)) [cmda]
+      :else [cmda cmdb])))
+
 (defn merge-paths
   "Merges a list of path elements together, keeping props from last path in the list."
   [& paths]
-  (let [props (second (last paths))
-        d (str/join " " (map #(get-in % [1 :d]) paths))]
-    [:path (assoc props :d d)]))
+  (let [[_ props] (last paths)
+        cmds (mapcat #(path/path-string->commands (get-in % [1 :d])) paths)
+        xf-cmds (conj 
+                 (remove nil? (mapcat clean-m-cmds (partition 2 1 (rest cmds))))
+                 (first cmds))]
+    [:path (assoc props :d (path/cmds->path-string xf-cmds))]))
 
 (defn split-path
   [[k props]]
@@ -817,11 +861,23 @@
          (filter some?)
          (map path/path))))
 
+(defn- combine-z
+  "Merge command-sequence B into CSA only when CSB is a Z command."
+  [[csa csb]]
+  (if (and (= 1 (count csb))
+           (= "Z" (:command (first csb))))
+    (concat csa csb)
+    csa))
+
 (defn path->elements
   [[k {:keys [d]}] & {:keys [break-polys?]}]
-  (let [break-fn (if break-polys?
-                   (partial partition 1)
-                   (partial partition-by :command))]
+  (let [break-fn (fn [s]
+                   (let [sf (if break-polys?
+                              (partial partition 1)
+                              (partial partition-by :command))]
+                     (->> (sf s)
+                          (partition-all 2 1)
+                          (map combine-z))))]
     (->> d
          path/path-string->commands
          path/vh->l
@@ -887,3 +943,9 @@
 (defn elements->path
   [elems]
   (apply merge-paths (map element->path elems)))
+
+(defn decurve
+  [path]
+  (->> (path->elements path)
+       (map element->path)
+       (apply merge-paths)))

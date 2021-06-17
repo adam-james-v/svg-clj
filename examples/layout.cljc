@@ -50,3 +50,36 @@
   :x
   20
   (repeatedly 10 rand-rect)))
+
+(ns examples.bezier
+  (:require [clojure.string :as str]
+            [clojure.java.shell :refer [sh]]
+            [hiccup.core :refer [html]]
+            [svg-clj.composites :as cp :refer [svg]]
+            [svg-clj.utils :as utils]
+            [svg-clj.elements :as el]
+            [svg-clj.path :as path]
+            [svg-clj.transforms :as tf]
+            [svg-clj.layout :as lo]
+            #?(:clj [svg-clj.tools :as tools])))
+
+(def pts [ [0 0] [80 80] [160 -20] ])
+
+(def b
+  (let [c (lo/p-bezier pts)
+        cpts (for [t (range 0 1 0.1)]
+               (c t))]
+    (el/g
+     (map #(-> (el/circle 2.5)
+               (tf/translate %)
+               (tf/style {:fill "red"}))
+          cpts))))
+
+(def a (-> (apply path/bezier pts)
+           (tf/style {:fill "none"
+                      :stroke-width "2px"
+                      :stroke "pink"})))
+
+(def c (el/g a b))
+
+(def d (tools/load-svg "/Users/adam/dev/forge/sk.svg"))
