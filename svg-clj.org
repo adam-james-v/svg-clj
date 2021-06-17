@@ -96,19 +96,13 @@ This should successfully start a watcher. Check that it responds to file changes
   
   uberjar
   {:doc "Builds uberjar"
-   :task (when true #_(seq (fs/modified-since "svg_clj.jar" "src"))
+   :task (when (seq (fs/modified-since "svg_clj.jar" "src"))
            (clojure "-X:uberjar"))}
 
   run-uber
   {:doc "Run uberjar"
    :depends [uberjar]
-   :task (apply shell "java -jar svg_clj.jar" 
-                ,*command-line-args*)}
-  
-  gen-reflect
-  {:doc "Generate reflect-config.json by running uberjar with agent."
-   :depends [uberjar]
-   :task (apply shell "java -agentlib:native-image-agent=caller-filter-file=filter.json,config-output-dir=. -jar svg_clj.jar" *command-line-args*)}
+   :task (apply shell "java -jar svg_clj.jar" *command-line-args*)}
   
   graalvm
   {:doc "Checks GRAALVM_HOME env var"
@@ -117,9 +111,15 @@ This should successfully start a watcher. Check that it responds to file changes
      (assert "Set GRAALVM_HOME")
      env)}
   
+  gen-reflect-config
+  {:doc "Runs scripts/gen-reflect-config.clj on the compiled jar."
+   :depends [graalvm uberjar]
+   :task (binding [*command-line-args* ["java" "-jar" "svg_clj.jar" "-i" "drawing.clj"]]
+           (load-file "scripts/gen-reflect-config.clj"))}
+
   native-image
   {:doc "Builds native image"
-   :depends [graalvm]
+   :depends [graalvm uberjar gen-reflect-config]
    :task (do
            (shell (str (fs/file graalvm
                                 "bin"
@@ -133,11 +133,97 @@ This should successfully start a watcher. Check that it responds to file changes
                                   "native-image.cmd"
                                   "native-image")))
                   "-H:Name=svg-clj"
-                  "-H:ReflectionConfigurationFiles=reflect-config.json"
+                  "-H:ReflectionConfigurationFiles=reflect-config-cleaned.json"
                   "-jar" "svg_clj.jar"
                   "--initialize-at-build-time"
                   "--no-fallback"
                   "--no-server"))}}}
+
+#+end_src
+
+** build-scripts
+Use these scripts to help with the native-image build process. Jar/uberjar builds work just fine with bb tasks already.
+
+This script is from borkdude's example repo:
+
+[[https://github.com/borkdude/refl/blob/main/script/gen-reflect-config.clj]]
+
+This script takes a reflect-config.json and cleans it up by removing unnecessary clojure classes and fixing the bug(?) where java.lang.reflect.Method causes native-image to fail at setup phase.
+
+#+begin_src clojure :tangle ./scripts/gen-reflect-config.clj
+#!/usr/bin/env bb
+
+(require '[babashka.process :refer [process]]
+         '[cheshire.core :as cheshire]
+         '[clojure.string :as str])
+
+(def trace-cmd *command-line-args*)
+
+(def trace-agent-env "-agentlib:native-image-agent=trace-output=trace-file.json")
+(def config-agent-env "-agentlib:native-image-agent=config-output-dir=.")
+
+@(process trace-cmd {:inherit true :extra-env {"JAVA_TOOL_OPTIONS" trace-agent-env}})
+@(process trace-cmd {:inherit true :extra-env {"JAVA_TOOL_OPTIONS" config-agent-env}})
+
+(def trace-json (cheshire/parse-string (slurp "trace-file.json") true))
+
+;; [Z = boolean
+;; [B = byte
+;; [S = short
+;; [I = int
+;; [J = long
+;; [F = float
+;; [D = double
+;; [C = char
+;; [L = any non-primitives(Object)
+
+(defn normalize-array-name [n]
+  ({"[F" "float[]"
+    "[B" "byte[]"
+    "[Z" "boolean[]"
+    "[C" "char[]"
+    "[D" "double[]"
+    "[I" "int[]"
+    "[J" "long[]"
+    "[S" "short[]"} n n))
+
+(def ignored (atom #{}))
+(def unignored (atom #{}))
+
+(defn ignore [{:keys [:tracer :caller_class :function :args] :as _m}]
+  (when (= "reflect" tracer)
+    (when-let [arg (first args)]
+      (let [arg (normalize-array-name arg)]
+        (if (and caller_class
+                 (or (= "clojure.lang.RT" caller_class)
+                     (= "clojure.genclass__init" caller_class)
+                     (and (str/starts-with? caller_class "clojure.core$fn")
+                          (= "java.sql.Timestamp" arg)))
+                 (= "forName" function))
+          (swap! ignored conj arg)
+          (when (= "clojure.lang.RT" caller_class)
+            ;; unignore other reflective calls in clojure.lang.RT
+            (swap! unignored conj arg)))))))
+
+(run! ignore trace-json)
+
+;; (prn @ignored)
+;; (prn @unignored)
+
+(defn process-1 [{:keys [:name] :as m}]
+  (when-not (and (= 1 (count m))
+                 (contains? @ignored name)
+                 (not (contains? @unignored name)))
+    ;; fix bug(?) in automated generated config
+    (if (= "java.lang.reflect.Method" name)
+      (assoc m :name "java.lang.reflect.AccessibleObject")
+      m)))
+
+(def config-json (cheshire/parse-string (slurp "reflect-config.json") true))
+
+(def cleaned (keep process-1 config-json))
+
+(spit "reflect-config-cleaned.json" (cheshire/generate-string cleaned {:pretty true}))
 
 #+end_src
 
@@ -496,6 +582,152 @@ strictly speaking, translate and rotate are not operating on streams of data, bu
   (-> svg-str
       (xml/parse-str :namespace-aware false)
       xml->hiccup))
+
+#+end_src
+
+* parametric
+** ns
+#+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
+(ns svg-clj.parametric
+  (:require [clojure.string :as str]
+            [svg-clj.utils :as utils]))
+
+#+end_src
+
+** pt-list-generators
+#+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
+(defn regular-polygon-pts
+  [r n]
+  (let [angle (* 2 Math/PI (/ 1 n))]
+    (map #(vector (utils/round (* r (Math/cos (* % angle))) 5)
+                  (utils/round (* r (Math/sin (* % angle))) 5))
+         (range n))))
+
+(defn rect-grid
+  [nx ny w h]
+  (for [a (range nx)
+        b (range ny)]
+    [(* w a) (* h b)]))
+#+end_src
+
+** parametric-curves
+#+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
+(defn line
+  [a b]
+  (fn [t]
+    (cond
+      (= (float t) 0.0) a
+      (= (float t) 1.0) b
+      :else
+      (utils/v+ a (utils/v* (utils/v- b a) (repeat t))))))
+
+(defn- radius-from-pts
+  "compute the radius of an arc defined by 3 points"
+  [p1 p2 p3]
+  (let [a (utils/distance p3 p2)
+        b (utils/distance p3 p1)
+        c (utils/distance p2 p1)
+        s (/ (+ a b c) 2)
+        sa ( - s a)
+        sb ( - s b)
+        sc ( - s c)
+        rt (Math/sqrt (* s sa sb sc))
+        radius (/ (/ (* a b c) 4) rt)]
+    radius))
+
+(defn- center-from-pts
+  "compute the center point of an arc through 3 points"
+  [p1 p2 p3]
+  (let [u1 (utils/v- p2 p1)
+        u2 (utils/v- p3 p1)
+        w1 (utils/cross* (utils/v- p3 p1) u1)
+        u (utils/normalize u1)
+        w (utils/normalize w1)
+        v (utils/cross* w u)
+        [bx by] [(utils/dot* u1 u) 0]
+        [cx cy] [(utils/dot* u2 u) (utils/dot* u2 v)]
+        h (/ (+ (Math/pow (- cx (/ bx 2)) 2) 
+                (Math/pow cy 2)
+                (- (Math/pow (/ bx 2) 2))) 
+             (* 2 cy))]
+    (utils/v+ p1
+              (utils/v* (repeat (/ bx 2)) u) 
+              (utils/v* (repeat h) v))))
+
+(defn- angle-from-pts
+  [p1 p2 p3]
+  (let [v1 (utils/v- p2 p1)
+        v2 (utils/v- p2 p3)
+        l1 (utils/distance p1 p2)
+        l2 (utils/distance p3 p2)
+        n (utils/dot* v1 v2)
+        d (Math/abs ^double (* l1 l2))]
+    (when (not (= 0.0 (float d)))
+      (utils/to-deg (Math/acos (/ n d))))))
+
+(defn circle
+  ([r]
+   (fn [t]
+     (let [t (* 2 Math/PI t)
+           x (* r (Math/cos t))
+           y (* r (Math/sin t))]
+       [x y])))
+
+  ([a b c]
+   (let [[a b c] (map #(conj % 0) [a b c])
+         n (utils/normalize (utils/normal a b c))
+         r (radius-from-pts a b c)
+         cp (center-from-pts a b c)
+         u (utils/normalize (utils/v- a cp))
+         v (utils/cross* n u)]
+     (fn [t]
+       (cond
+         (or (< t 0.0) (> t 1.0)) nil
+         (= (float t) 0.0) (vec (drop-last a))
+         (= (float t) 1.0) (vec (drop-last a))
+         :else
+         (let [t (* 2 Math/PI t)]
+           (mapv 
+            #(utils/round % 5)
+            (drop-last 
+             (utils/v+ cp
+                       (utils/v* (repeat (* r (Math/cos t))) u)
+                       (utils/v* (repeat (* r (Math/sin t))) v))))))))))
+
+(defn ellipse
+  [rx ry]
+  (fn [t]
+    (let [t (* 2 Math/PI t)
+          x (* rx (Math/cos t))
+          y (* ry (Math/sin t))]
+      [x y])))
+
+(defn arc
+  [a b c]
+  (let [[a b c] (map #(conj % 0) [a b c])
+        f (p-circle a b c)
+        cp (center-from-pts a b c)
+        angle (angle-from-pts a cp c)]
+    (fn [t]
+      (let [t (* t (/ angle 360.0))]
+        (f t)))))
+
+(defn- quadratic-bezier
+  [a b c]
+  (fn [t]
+    (let [l1 (p-line a b)
+          l2 (p-line b c)
+          l3 (p-line (l1 t) (l2 t))]
+      (l3 t))))
+
+(defn bezier
+  [pts]
+  (if (= 3 (count pts))
+    (apply quadratic-bezier pts)
+    (let [lines (map #(apply p-line %) (partition 2 1 pts))] 
+      (fn [t]
+        (let [npts (map #(% t) lines)]
+          ((bezier npts) t))))))
 
 #+end_src
 
@@ -968,6 +1200,7 @@ So, I either should fix the interface fn or eliminate it entirely.
              [svg-clj.utils :as utils]
              [svg-clj.elements :as svg]
              [svg-clj.path :as path]
+             [svg-clj.parametric :as p]
             #?(:cljs
                [cljs.reader :refer [read-string]])))
 
@@ -1840,6 +2073,12 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
 
 ** path-manipulations
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
+(defn- bezier-cmd-pts
+  [{:keys [input cursor]}]
+  (let [control-pts (partition 2 (concat cursor input))
+        c (p/bezier control-pts)]
+    (map c (range 0 1.05 0.05))))
+
 (defn- cmds->elements
   [cmds]
   (let [start (first cmds)
@@ -1853,30 +2092,67 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
     (when (> (count cmds) 1)
       (let [cs (map :command (rest cmds))]
         (cond
+          ;; empty
+          (and (= (count cmds) 2)
+               (empty? (remove #{"Z"} cs)))
+          nil
+
           ;; line
           (and (= (count cmds) 2)
-               (empty? (filter (complement #{"L"}) cs)))
+               (empty? (remove #{"L"} cs)))
           (apply svg/line (map :input cmds))
 
           ;; polyline
           (and (> (count cmds) 2)
-               (empty? (filter (complement #{"L"}) cs)))
+               (empty? (remove #{"L"} cs)))
           (svg/polyline (map :input cmds))
 
           ;; polygon
           (and (> (count cmds) 2)
-               (empty? (filter (complement #{"L" "Z"}) cs)))
+               (empty? (remove #{"L" "Z"} cs)))
           (svg/polygon (map :input cmds))
+
+          ;; Quadratic or Cubic Bezier Curve(s)
+          (or (empty? (remove #{"Q"} cs))
+              (empty? (remove #{"C"} cs)))
+          (let [pts (mapcat bezier-cmd-pts (rest cmds))]
+            (svg/polyline pts))
+
+          ;; Quadratic or Cubic Bezier Curve(s) closed path
+          (or (empty? (remove #{"Q" "Z"} cs))
+              (empty? (remove #{"C" "Z"} cs)))
+          (let [pts (mapcat bezier-cmd-pts (drop-last (rest cmds)))]
+            (svg/polygon pts))
           
           :else
           (path/path (path/cmds->path-string)))))))
 
+#_(defn merge-paths
+  "Merges a list of path elements together, keeping props from last path in the list."
+  [& paths]
+  (let [[_ props] (last paths)
+        d (str/join " " (map #(get-in % [1 :d]) paths))]
+    [:path (assoc props :d d)]))
+
+(defn- clean-m-cmds
+  "Remove cmdb if it is an M command with the same position as the last input of cmda."
+  [[cmda cmdb]]
+  (let [[pa pb] (map (comp (partial take-last 2) :input) [cmda cmdb])
+        [ca cb] (map :command [cmda cmdb])]
+    (cond
+      (= "M" ca) [] ;; discard M in first position always
+      (and (= pa pb) (= "M" cb)) [cmda]
+      :else [cmda cmdb])))
+
 (defn merge-paths
   "Merges a list of path elements together, keeping props from last path in the list."
   [& paths]
-  (let [props (second (last paths))
-        d (str/join " " (map #(get-in % [1 :d]) paths))]
-    [:path (assoc props :d d)]))
+  (let [[_ props] (last paths)
+        cmds (mapcat #(path/path-string->commands (get-in % [1 :d])) paths)
+        xf-cmds (conj 
+                 (remove nil? (mapcat clean-m-cmds (partition 2 1 (rest cmds))))
+                 (first cmds))]
+    [:path (assoc props :d (path/cmds->path-string xf-cmds))]))
 
 (defn split-path
   [[k props]]
@@ -1898,11 +2174,23 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
          (filter some?)
          (map path/path))))
 
+(defn- combine-z
+  "Merge command-sequence B into CSA only when CSB is a Z command."
+  [[csa csb]]
+  (if (and (= 1 (count csb))
+           (= "Z" (:command (first csb))))
+    (concat csa csb)
+    csa))
+
 (defn path->elements
   [[k {:keys [d]}] & {:keys [break-polys?]}]
-  (let [break-fn (if break-polys?
-                   (partial partition 1)
-                   (partial partition-by :command))]
+  (let [break-fn (fn [s]
+                   (let [sf (if break-polys?
+                              (partial partition 1)
+                              (partial partition-by :command))]
+                     (->> (sf s)
+                          (partition-all 2 1)
+                          (map combine-z))))]
     (->> d
          path/path-string->commands
          path/vh->l
@@ -1968,6 +2256,13 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
 (defn elements->path
   [elems]
   (apply merge-paths (map element->path elems)))
+
+(defn decurve
+  [path]
+  (->> (path->elements path)
+       (map element->path)
+       (apply merge-paths)))
+
 
 #+END_SRC
 * composites
@@ -2062,126 +2357,6 @@ This is a helpful default for text elements. It expects a font size arg. This co
             [svg-clj.elements :as svg]
             [svg-clj.utils :as utils]
             [svg-clj.transforms :as tf]))
-#+end_src
-
-** pt-list-generators
-#+begin_src clojure :tangle ./src/svg_clj/layout.cljc
-(defn regular-polygon-pts
-  [r n]
-  (let [angle (* 2 Math/PI (/ 1 n))]
-    (map #(vector (utils/round (* r (Math/cos (* % angle))) 5)
-                  (utils/round (* r (Math/sin (* % angle))) 5))
-         (range n))))
-
-(defn rect-grid
-  [nx ny w h]
-  (for [a (range nx)
-        b (range ny)]
-    [(* w a) (* h b)]))
-#+end_src
-
-** parametric-curves
-#+begin_src clojure :tangle ./src/svg_clj/layout.cljc
-(defn p-line
-  [a b]
-  (fn [t]
-    (cond
-      (= (float t) 0.0) a
-      (= (float t) 1.0) b
-      :else
-      (utils/v+ a (utils/v* (utils/v- b a) (repeat t))))))
-
-(defn- radius-from-pts
-  "compute the radius of an arc defined by 3 points"
-  [p1 p2 p3]
-  (let [a (utils/distance p3 p2)
-        b (utils/distance p3 p1)
-        c (utils/distance p2 p1)
-        s (/ (+ a b c) 2)
-        sa ( - s a)
-        sb ( - s b)
-        sc ( - s c)
-        rt (Math/sqrt (* s sa sb sc))
-        radius (/ (/ (* a b c) 4) rt)]
-    radius))
-
-(defn- center-from-pts
-  "compute the center point of an arc through 3 points"
-  [p1 p2 p3]
-  (let [u1 (utils/v- p2 p1)
-        u2 (utils/v- p3 p1)
-        w1 (utils/cross* (utils/v- p3 p1) u1)
-        u (utils/normalize u1)
-        w (utils/normalize w1)
-        v (utils/cross* w u)
-        [bx by] [(utils/dot* u1 u) 0]
-        [cx cy] [(utils/dot* u2 u) (utils/dot* u2 v)]
-        h (/ (+ (Math/pow (- cx (/ bx 2)) 2) 
-                (Math/pow cy 2)
-                (- (Math/pow (/ bx 2) 2))) 
-             (* 2 cy))]
-    (utils/v+ p1
-              (utils/v* (repeat (/ bx 2)) u) 
-              (utils/v* (repeat h) v))))
-
-(defn- angle-from-pts
-  [p1 p2 p3]
-  (let [v1 (utils/v- p2 p1)
-        v2 (utils/v- p2 p3)
-        l1 (utils/distance p1 p2)
-        l2 (utils/distance p3 p2)
-        n (utils/dot* v1 v2)
-        d (Math/abs ^double (* l1 l2))]
-    (when (not (= 0.0 (float d)))
-      (utils/to-deg (Math/acos (/ n d))))))
-
-(defn p-circle
-  ([r]
-   (fn [t]
-     (let [t (* 2 Math/PI t)
-           x (* r (Math/cos t))
-           y (* r (Math/sin t))]
-       [x y])))
-
-  ([a b c]
-   (let [[a b c] (map #(conj % 0) [a b c])
-         n (utils/normalize (utils/normal a b c))
-         r (radius-from-pts a b c)
-         cp (center-from-pts a b c)
-         u (utils/normalize (utils/v- a cp))
-         v (utils/cross* n u)]
-     (fn [t]
-       (cond
-         (or (< t 0.0) (> t 1.0)) nil
-         (= (float t) 0.0) (vec (drop-last a))
-         (= (float t) 1.0) (vec (drop-last a))
-         :else
-         (let [t (* 2 Math/PI t)]
-           (mapv 
-            #(utils/round % 5)
-            (drop-last 
-             (utils/v+ cp
-                       (utils/v* (repeat (* r (Math/cos t))) u)
-                       (utils/v* (repeat (* r (Math/sin t))) v))))))))))
-
-(defn p-ellipse
-  [rx ry]
-  (fn [t]
-    (let [t (* 2 Math/PI t)
-          x (* rx (Math/cos t))
-          y (* ry (Math/sin t))]
-      [x y])))
-
-(defn p-arc
-  [a b c]
-  (let [[a b c] (map #(conj % 0) [a b c])
-        f (p-circle a b c)
-        cp (center-from-pts a b c)
-        angle (angle-from-pts a cp c)]
-    (fn [t]
-      (let [t (* t (/ angle 360.0))]
-        (f t)))))
-
 #+end_src
 
 ** distribute
@@ -2673,8 +2848,45 @@ Distribute a list of elements along X/Y axis, keeping a constant gap between the
   :x
   20
   (repeatedly 10 rand-rect)))
+#+end_src
+
+** bezier
+#+begin_src clojure :tangle ./examples/layout.cljc
+(ns examples.bezier
+  (:require [clojure.string :as str]
+            [clojure.java.shell :refer [sh]]
+            [hiccup.core :refer [html]]
+            [svg-clj.composites :as cp :refer [svg]]
+            [svg-clj.utils :as utils]
+            [svg-clj.elements :as el]
+            [svg-clj.path :as path]
+            [svg-clj.transforms :as tf]
+            [svg-clj.layout :as lo]
+            #?(:clj [svg-clj.tools :as tools])))
+
+(def pts [ [0 0] [80 80] [160 -20] ])
+
+(def b
+  (let [c (lo/p-bezier pts)
+        cpts (for [t (range 0 1 0.1)]
+               (c t))]
+    (el/g
+     (map #(-> (el/circle 2.5)
+               (tf/translate %)
+               (tf/style {:fill "red"}))
+          cpts))))
+
+(def a (-> (apply path/bezier pts)
+           (tf/style {:fill "none"
+                      :stroke-width "2px"
+                      :stroke "pink"})))
+
+(def c (el/g a b))
+
+(def d (tools/load-svg "/Users/adam/dev/forge/sk.svg"))
 
 #+end_src
+
 * cli
 This is a WIP. 
 
@@ -2693,7 +2905,6 @@ Fixing this might be possible with alteration to reflect-config.json and/or addi
   (:require [clojure.string :as str]
             [clojure.tools.cli :as cli]
             [hiccup.core :refer [html]]
-            [hawk.core :as hawk]
             [svg-clj.composites :as cp :refer [svg]]
             [svg-clj.utils :as utils]
             [svg-clj.elements :as el]
@@ -2702,6 +2913,7 @@ Fixing this might be possible with alteration to reflect-config.json and/or addi
             [svg-clj.layout :as lo]
             [sci.core :as sci])
   (:gen-class))
+
 #+end_src
 
 ** load-file
@@ -2725,10 +2937,98 @@ For GraalVM native image, you can't use Clojure's loading functions. Luckily, Bo
 
 #+end_src
 
+** cli
+#+begin_src clojure :tangle ./src/svg_clj/cli.clj
+(def cli-options
+  [["-i" "--infile FNAME" "The file to be compiled."
+    :default nil]
+   ["-o" "--outfile FNAME" "The output filename. Valid Extensions: svg"
+    :default nil]
+   ["-h" "--help"]])
+
+(defn -main [& args]
+  (let [parsed (cli/parse-opts args cli-options)
+        {:keys [:infile :outfile :watch :help]} (:options parsed)
+        [in _] (when infile (str/split infile #"\."))
+        outfile (if outfile outfile (str in ".svg"))
+        [out ext] (str/split outfile #"\.")]
+    (cond
+      help
+      (do (println "Usage:")
+          (println (:summary parsed)))
+          
+      (nil? infile)
+      (println "Please specify an input file")
+
+      (not (contains? #{"svg"} ext))
+      (println "Please specify a valid output format. Valid formats: svg.")
+      
+      :else
+      (let [result (deref (sci-load-file infile))
+            data (if (= :svg (first result)) result (svg result))
+            msg (str "| Compiling " infile " into " outfile ". |")]
+        (println (apply str (repeat (count msg) "-")))
+        (println msg)
+        (println (apply str (repeat (count msg) "-")))
+        (spit outfile (html data))
+        (println "Success! Have a nice day :)")))))
+
+#+end_src
+* cli2
+This is a WIP. 
+
+The idea is to have a CLI tool that 'compiles' svg-clj code into an SVG file.
+
+GraalVM native image:
+
+bb native-image
+
+The resulting executable will be svg_clj and works for exporting .svg files, but fails with .png due to reflection issues with the Batik library.
+
+Fixing this might be possible with alteration to reflect-config.json and/or adding type hints (via a Github pull request perhaps?) to the batik library.
+
+#+begin_src clojure
+(ns svg-clj.cli2
+  (:require [clojure.string :as str]
+            [clojure.tools.cli :as cli]
+            [hiccup.core :refer [html]]
+            [hawk.core :as hawk]
+            [svg-clj.composites :as cp :refer [svg]]
+            [svg-clj.utils :as utils]
+            [svg-clj.elements :as el]
+            [svg-clj.path :as path]
+            [svg-clj.transforms :as tf]
+            [svg-clj.layout :as lo]
+            [sci.core :as sci])
+  (:gen-class))
+
+#+end_src
+
+** load-file
+For GraalVM native image, you can't use Clojure's loading functions. Luckily, Borkdude's Simple Clojure Interpreter (SCI) has eval-string capability which we can use to load our namespaces and evaluate files from a native image.
+
+#+begin_src clojure
+(def my-ns-map
+  (into {} 
+        (map #(vector % (ns-publics %))
+             ['svg-clj.composites
+              'svg-clj.utils
+              'svg-clj.elements
+              'svg-clj.path
+              'svg-clj.transforms
+              'svg-clj.layout])))
+
+(defn sci-load-file
+  [fname]
+  (-> (slurp fname)
+      (sci/eval-string {:namespaces my-ns-map})))
+
+#+end_src
+
 ** watcher
 This fn is not working yet, but the idea is to let the CLI watch a source file, launch a basic server, compile the SVG, and display it in the web browser, which will be auto-refreshed any time the file is updated.
 
-#+begin_src clojure :tangle ./src/svg_clj/cli.clj
+#+begin_src clojure
 (defn watch!
   [infile outfile]
   (let [ [name ext] (str/split infile #"\.")]
@@ -2749,7 +3049,9 @@ This fn is not working yet, but the idea is to let the CLI watch a source file, 
 #+end_src
 
 ** cli
-#+begin_src clojure :tangle ./src/svg_clj/cli.clj
+Experimental... trying to compile with more features like a file watcher and rasterizing.
+
+#+begin_src clojure
 (def cli-options
   [["-i" "--infile FNAME" "The file to be compiled."
     :default nil]

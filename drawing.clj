@@ -15,14 +15,14 @@
                             (+ 100 (rand-int 150)) ","
                             (+ 100 (rand-int 150)) ")")})))
 
-(def dwg
+#_(def dwg
   (svg
-   (lo/distribute-linear :x 10 (repeatedly 20 rand-rect))))
+   (lo/distribute-linear :y 10 (repeatedly 20 rand-rect))))
 
 (def dwg2
   (svg
    (el/g
-    (for [step (range 1 5 1)]
+    (for [step (range 1 9 1)]
       (lo/distribute-on-curve
        (repeatedly (* 10 step) rand-rect)
        (lo/p-circle (* 50 step)))))))

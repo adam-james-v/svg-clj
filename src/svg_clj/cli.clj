@@ -2,7 +2,6 @@
   (:require [clojure.string :as str]
             [clojure.tools.cli :as cli]
             [hiccup.core :refer [html]]
-            [hawk.core :as hawk]
             [svg-clj.composites :as cp :refer [svg]]
             [svg-clj.utils :as utils]
             [svg-clj.elements :as el]
@@ -27,30 +26,11 @@
   (-> (slurp fname)
       (sci/eval-string {:namespaces my-ns-map})))
 
-(defn watch!
-  [infile outfile]
-  (let [ [name ext] (str/split infile #"\.")]
-    (hawk/watch!
-     [{:paths [infile]
-       :handler
-       (fn [ctx e]
-         (let [result (deref (sci-load-file infile))
-               data (if (= :svg (first result)) result (svg result))
-               msg (str "| Compiling " infile " into " outfile ". |")]
-           (println (apply str (repeat (count msg) "-")))
-           (println msg)
-           (println (apply str (repeat (count msg) "-")))
-           (spit outfile (html data))
-           (println "Done. Waiting for changes")
-           ctx))}])))
-
 (def cli-options
   [["-i" "--infile FNAME" "The file to be compiled."
     :default nil]
    ["-o" "--outfile FNAME" "The output filename. Valid Extensions: svg"
     :default nil]
-   ["-w" "--watch" "Watch the file for changes and re-compile on change."
-    :default false]
    ["-h" "--help"]])
 
 (defn -main [& args]
@@ -69,10 +49,6 @@
 
       (not (contains? #{"svg"} ext))
       (println "Please specify a valid output format. Valid formats: svg.")
-
-      watch
-      (do (println (str "Waiting for changes to " infile "."))
-          (watch! infile outfile))
       
       :else
       (let [result (deref (sci-load-file infile))

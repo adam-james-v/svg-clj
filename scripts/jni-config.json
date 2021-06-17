@@ -1,0 +1,10 @@
+[
+{
+  "name":"java.lang.ClassLoader",
+  "methods":[{"name":"getPlatformClassLoader","parameterTypes":[] }]
+},
+{
+  "name":"svg_clj.cli",
+  "methods":[{"name":"main","parameterTypes":["java.lang.String[]"] }]
+}
+]
