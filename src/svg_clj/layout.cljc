@@ -26,9 +26,18 @@
 
 (defn distribute-on-curve
   [items curve]
-  (let [n (count items)
-        step (/ 1.0 n)]
-    (map #(-> %1 (tf/translate (curve %2))) items (range 0 1.0 step))))
+  (let [eps 0.00001
+        n (count items)
+        step (/ 1.0 n)
+        xf (fn [item t]
+             (let [pt (curve t)
+                   n (utils/normal (curve (- t eps)) (curve (+ t eps)))
+                   a (utils/angle-from-pts [0 1] [0 0] n)
+                   o (map #(utils/round % 4) (utils/rotate-pt (tf/centroid item) a))]
+               (-> item
+                   (tf/rotate a)
+                   (tf/translate (utils/v- (curve t) o (tf/centroid item))))))]
+    (map xf items (range 0.0 (+ 1.0 step) step))))
 
 (defn pattern-on-pts
   [item pts]

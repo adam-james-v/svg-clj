@@ -3,6 +3,7 @@
   org.clojure/tools.cli  {:mvn/version "1.0.206"}
   org.clojure/test.check {:mvn/version "1.1.0"}
   org.clojure/data.xml   {:mvn/version "0.0.8"}
+  same/ish               {:mvn/version "0.1.4"}
   hawk/hawk              {:mvn/version "0.2.11"}
   hiccup/hiccup          {:mvn/version "2.0.0-alpha2"}
   batik-rasterize/batik-rasterize {:local/root "/Users/adam/dev/batik-rasterize"} #_{:mvn/version "0.1.2"}

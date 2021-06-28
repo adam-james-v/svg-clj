@@ -15,6 +15,7 @@
   org.clojure/tools.cli  {:mvn/version "1.0.206"}
   org.clojure/test.check {:mvn/version "1.1.0"}
   org.clojure/data.xml   {:mvn/version "0.0.8"}
+  same/ish               {:mvn/version "0.1.4"}
   hawk/hawk              {:mvn/version "0.2.11"}
   hiccup/hiccup          {:mvn/version "2.0.0-alpha2"}
   batik-rasterize/batik-rasterize {:local/root "/Users/adam/dev/batik-rasterize"} #_{:mvn/version "0.1.2"}
@@ -432,6 +433,7 @@ strictly speaking, translate and rotate are not operating on streams of data, bu
 #+begin_src clojure :tangle ./src/svg_clj/utils.cljc
 (ns svg-clj.utils
   (:require [clojure.string :as str]
+            [same :refer [zeroish?]]
             #?(:clj
                [clojure.data.xml :as xml])
             #?(:cljs
@@ -502,7 +504,6 @@ strictly speaking, translate and rotate are not operating on streams of data, bu
                (map str->xf-kv)))
     {}))
 
-;; geom
 (defn distance
   "compute distance between two points"
   [a b]
@@ -546,23 +547,73 @@ strictly speaking, translate and rotate are not operating on streams of data, bu
     (mapv / v (repeat m))))
 
 (defn normal
-  "find normal vector of plane given 3 points"
-  [a b c]
-  (let [ab (mapv - a b)
-        ac (mapv - a c)]
-    (cross* ab ac)))
+  "Find normal vector of plane given 3 points. Find normal vector of line given two (2D) points."
+  ([a b]
+   (let [[x1 y1] a
+         [x2 y2] b
+         dx (- x2 x1)
+         dy (- y2 y1)]
+     [(- dy) dx]))
+  ([a b c]
+   (let [ab (mapv - a b)
+         ac (mapv - a c)]
+     (cross* ab ac))))
 
 ;; https://math.stackexchange.com/questions/361412/finding-the-angle-between-three-points
+(defn- check-quadrants
+  [p1 p2 p3]
+  (let [v1 (v- p1 p2)
+        v2 (v- p3 p2)
+        qf (fn [[x y]]
+             (cond (and (pos? x) (pos? y)) "pp"
+                   (and (pos? x) (neg? y)) "pn"
+                   (and (neg? x) (neg? y)) "nn"
+                   (and (neg? x) (pos? y)) "np"
+                   (pos? x) "p_"
+                   (neg? x) "n_"
+                   (pos? y) "_p"
+                   (neg? y) "_n"))]
+    (apply str (map qf [v1 v2]))))
+
 (defn angle-from-pts
   [p1 p2 p3]
-  (let [v1 (v- p2 p1)
-        v2 (v- p2 p3)
+  (let [v1 (v- p1 p2)
+        v2 (v- p3 p2)
         l1 (distance p1 p2)
         l2 (distance p3 p2)
         n (dot* v1 v2)
-        d (Math/abs ^double (* l1 l2))]
-    (when (not (= 0.0 (float d)))
-      (to-deg (Math/acos (/ n d))))))
+        d (* l1 l2)
+        q (if (#{"nnnn" "npnp" "_pnn" "_pnp" "_pn_"} (check-quadrants p1 p2 p3)) 1 -1)]
+    (when (not (zeroish? (float d)))
+      (* q (to-deg (Math/acos (/ n d)))))))
+
+(defn determinant
+  [a b]
+  (- (* (first a) (second b))
+     (* (second a) (first b))))
+
+
+;; this fn name doesn't make sense? It inverts y, which is not
+;; the same as giving a perpendicular line
+;; maybe call it 'invert-y' or 'vertical-flip'
+(defn perpendicular
+  [[x y]]
+  [(- y) x])
+
+(defn line-intersection
+  [[a b] [c d]]
+  (let [[ax ay] a
+        [bx by] b
+        [cx cy] c
+        [dx dy] d
+        xdiff [(- ax bx) (- cx dx)]
+        ydiff [(- ay by) (- cy dy)]
+        div (determinant xdiff ydiff)]
+    (when (not (zeroish? (Math/abs div)))
+      (let [d [(determinant a b) (determinant c d)]
+            x (/ (determinant d xdiff) div)
+            y (/ (determinant d ydiff) div)]
+        [x y]))))
 
 #+end_src
 
@@ -594,7 +645,55 @@ strictly speaking, translate and rotate are not operating on streams of data, bu
 
 #+end_src
 
-** pt-list-generators
+** curve-calcs
+i 	weight - wi 	abscissa - xi
+1 	0.3626837833783620 	-0.1834346424956498
+2 	0.3626837833783620 	0.1834346424956498
+3 	0.3137066458778873 	-0.5255324099163290
+4 	0.3137066458778873 	0.5255324099163290
+5 	0.2223810344533745 	-0.7966664774136267
+6 	0.2223810344533745 	0.7966664774136267
+7 	0.1012285362903763 	-0.9602898564975363
+8 	0.1012285362903763 	0.9602898564975363
+
+
+#+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
+(defn arc-length
+  ([curve] (arc-length curve 0 1))
+  ([curve t] (arc-length curve 0 t))
+  ([curve ta tb]
+   (let [eps 0.0000075]
+     (->> (range ta (+ tb eps) eps)
+          (pmap curve)
+          (partition 2 1)
+          (map #(apply utils/distance %))
+          (reduce +)))))
+
+;; https://pomax.github.io/bezierinfo/legendre-gauss.html
+(def gaussian-quadrature-n-8
+  [{:w 0.3626837833783620 :x -0.1834346424956498}
+   {:w 0.3626837833783620 :x 0.1834346424956498}
+   {:w 0.3137066458778873 :x -0.5255324099163290}
+   {:w 0.3137066458778873 :x 0.5255324099163290}
+   {:w 0.2223810344533745 :x -0.7966664774136267}
+   {:w 0.2223810344533745 :x 0.7966664774136267}
+   {:w 0.1012285362903763 :x -0.9602898564975363}
+   {:w 0.1012285362903763 :x 0.9602898564975363}])
+
+;; https://pomax.github.io/bezierinfo/#arclength
+(defn arc-length-exact
+  [curve]
+  (let [lut gaussian-quadrature-n-8
+        z 1
+        z-frac (/ z 2)
+        f (fn [t] (Math/sqrt (reduce + (map #(* % %) (curve t)))))
+        len (fn [{:keys [w x]}]
+              (* w (f (+ z-frac (* z-frac x)))))]
+    (reduce + (map len lut))))
+
+#+end_src
+
+** regular-polygons
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn regular-polygon-pts
   [r n]
@@ -602,7 +701,10 @@ strictly speaking, translate and rotate are not operating on streams of data, bu
     (map #(vector (utils/round (* r (Math/cos (* % angle))) 5)
                   (utils/round (* r (Math/sin (* % angle))) 5))
          (range n))))
+#+end_src
 
+** rectilinear-grid
+#+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn rect-grid
   [nx ny w h]
   (for [a (range nx)
@@ -610,17 +712,39 @@ strictly speaking, translate and rotate are not operating on streams of data, bu
     [(* w a) (* h b)]))
 #+end_src
 
-** parametric-curves
+** hex-grid
+#+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
+(defn hex-grid
+  [nx ny w]
+  (let [a-offset (/ w 2)
+        h (/ w 0.8660254)]
+    (concat
+     (for [x (range 0 nx)
+           y (range 0 (Math/floor (/ ny 2)))]
+       [(+ a-offset (* w x)) (* 2 h y)])
+     (for [x (range 0 nx)
+           y (range 1 (Math/ceil (/ ny 2)))]
+       [(* w x) (+ h (* 2 h y))]))))
+  
+#+end_src
+
+** line
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn line
   [a b]
-  (fn [t]
-    (cond
-      (= (float t) 0.0) a
-      (= (float t) 1.0) b
-      :else
-      (utils/v+ a (utils/v* (utils/v- b a) (repeat t))))))
+  (fn
+    ([] {:fn 'line :input [a b]})
+    ([t]
+     (cond
+       (= (float t) 0.0) a
+       (= (float t) 1.0) b
+       :else
+       (utils/v+ a (utils/v* (utils/v- b a) (repeat t)))))))
 
+#+end_src
+
+** circle
+#+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn- radius-from-pts
   "compute the radius of an arc defined by 3 points"
   [p1 p2 p3]
@@ -667,11 +791,13 @@ strictly speaking, translate and rotate are not operating on streams of data, bu
 
 (defn circle
   ([r]
-   (fn [t]
-     (let [t (* 2 Math/PI t)
-           x (* r (Math/cos t))
-           y (* r (Math/sin t))]
-       [x y])))
+   (fn
+     ([] {:fn 'circle :input [r]})
+     ([t]
+      (let [t (* 2 Math/PI t)
+            x (* r (Math/cos t))
+            y (* r (Math/sin t))]
+        [x y]))))
 
   ([a b c]
    (let [[a b c] (map #(conj % 0) [a b c])
@@ -680,7 +806,9 @@ strictly speaking, translate and rotate are not operating on streams of data, bu
          cp (center-from-pts a b c)
          u (utils/normalize (utils/v- a cp))
          v (utils/cross* n u)]
-     (fn [t]
+     (fn
+       ([] {:fn 'circle :input [a b c]})
+       ([t]
        (cond
          (or (< t 0.0) (> t 1.0)) nil
          (= (float t) 0.0) (vec (drop-last a))
@@ -692,42 +820,270 @@ strictly speaking, translate and rotate are not operating on streams of data, bu
             (drop-last 
              (utils/v+ cp
                        (utils/v* (repeat (* r (Math/cos t))) u)
-                       (utils/v* (repeat (* r (Math/sin t))) v))))))))))
+                       (utils/v* (repeat (* r (Math/sin t))) v)))))))))))
+#+end_src
 
+** ellipse
+#+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn ellipse
   [rx ry]
-  (fn [t]
-    (let [t (* 2 Math/PI t)
-          x (* rx (Math/cos t))
-          y (* ry (Math/sin t))]
-      [x y])))
+  (fn 
+    ([] {:fn 'ellipse :input [rx ry]})
+    ([t]
+     (let [t (* 2 Math/PI t)
+           x (* rx (Math/cos t))
+           y (* ry (Math/sin t))]
+       [x y]))))
 
+#+end_src
+
+** arc
+#+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn arc
   [a b c]
   (let [[a b c] (map #(conj % 0) [a b c])
-        f (p-circle a b c)
+        f (circle a b c)
         cp (center-from-pts a b c)
         angle (angle-from-pts a cp c)]
-    (fn [t]
-      (let [t (* t (/ angle 360.0))]
-        (f t)))))
+    (fn
+      ([] {:fn 'arc :input [a b c]})
+      ([t]
+       (let [t (* t (/ angle 360.0))]
+         (f t))))))
 
+#+end_src
+
+** bezier
+More permanent notes end up here.
+
+[[https://pomax.github.io/bezierinfo/#splitting]]
+
+Splitting is needed as part of approximating bezier curve offsets with 'chains' of other bezier curves.
+
+#+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn- quadratic-bezier
   [a b c]
   (fn [t]
-    (let [l1 (p-line a b)
-          l2 (p-line b c)
-          l3 (p-line (l1 t) (l2 t))]
+    (let [l1 (line a b)
+          l2 (line b c)
+          l3 (line (l1 t) (l2 t))]
       (l3 t))))
 
 (defn bezier
   [pts]
   (if (= 3 (count pts))
     (apply quadratic-bezier pts)
-    (let [lines (map #(apply p-line %) (partition 2 1 pts))] 
+    (let [lines (map #(apply line %) (partition 2 1 pts))] 
+      (fn
+        ([] {:fn 'bezier :input [pts]})
+        ([t]
+         (let [npts (map #(% t) lines)]
+           ((bezier npts) t)))))))
+
+(defn split-bezier
+  "Returns the Control Point 'de Casteljau Skeleton', used to derive split Bezier Curve Control Points."
+  ([curve t]
+   (let [pts (-> (curve) :input first)]
+     (split-bezier {:a [(first pts)]
+                    :b [(last pts)]} pts t)))
+ 
+  ([{:keys [a b]} pts t]
+   (let [cs (map #(apply line  %) (partition 2 1 pts))
+         npts (map #(% t) cs)]
+     (if (= 1 (count npts))
+       {:a (conj a (first npts))
+        :b (-> b
+               reverse
+               (conj (first npts))
+               vec)}
+       (recur {:a (conj a (first npts))
+               :b (conj b (last npts))} npts t)))))
+
+(defn- t-from-curve-distance
+  [curve d]
+  (let [eps 0.000001
+        l (arc-length curve)
+        guess (/ d l)
+        itr (fn [[t-prev t-guess]]
+              (let [d-guess (arc-length curve t-guess)]
+                [t-guess (+ t-guess (/ (- d d-guess) l))]))]
+    (->> (iterate itr [0 guess])
+         (take 25)
+         (take-while #(< eps (Math/abs (apply - %))))
+         last
+         last
+         (#(utils/round % 5)))))
+
+(defn split-bezier-between
+  [curve ta tb]
+  (let [da (arc-length curve ta)
+        split1 (split-bezier curve tb)
+        curve1 (bezier (:a split1))
+        partial-result {:c (:b split1)}
+        ta1 (t-from-curve-distance curve1 da)]
+    (merge (split-bezier curve1 ta1) partial-result)))
+
+(defn multi-split-bezier
+  ([curve ts]
+   (let [ds (map #(arc-length curve %) (sort ts))]
+     (multi-split-bezier [] curve (reverse ds))))
+  ([acc curve ds]
+   (if (< 1 (count ds))
+     (let [remapped-t (t-from-curve-distance curve (first ds)) 
+           {:keys [a b]} (split-bezier curve remapped-t)]
+       (recur (conj acc b) (bezier a) (rest ds)))
+     (let [remapped-t (t-from-curve-distance curve (first ds)) 
+           {:keys [a b]} (split-bezier curve remapped-t)]
+       (-> acc
+           (conj b)
+           (conj a)
+           reverse)))))
+#+end_src
+
+#+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
+(defn uniform-split-bezier
+  [curve n-segments]
+  (let [l (arc-length curve)
+        step (/ l n-segments)
+        ds (range step l step)]
+    (if (= 2 n-segments)
+      (split-bezier curve 0.5)
+      (multi-split-bezier [] curve (reverse (sort ds))))))
+
+#+end_src
+
+** rational-bezier
+#+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
+(defn- next-pascal
+  [row]
+  (vec (concat [(first row)]
+          (mapv #(apply + %) (partition 2 1 row))
+          [(last row)])))
+
+(defn- binomial
+  [n i]
+  (let [pascal-tri-row (last (take (inc n) (iterate next-pascal [1])))]
+  (get pascal-tri-row i)))
+
+(defn- polynomial
+  [n i t]
+  (* (Math/pow (- 1 t) (- n i)) (Math/pow t i)))
+
+(defn- half-bezier
+  [ws t]
+  (let [n (dec (count ws))
+        poly (partial polynomial n)
+        bi (partial binomial n)]
+    (reduce + (map-indexed 
+               (fn [i w]
+                 (* (bi i) (poly i t) w))
+               ws))))
+
+(defn rational-bezier
+  [pts wts]
+  (let [xs (map #(* (first %1) %2) pts wts)
+        ys (map #(* (second %1) %2) pts wts)
+        dn (partial half-bezier wts)]
+    (fn [t]
+      [(/ (half-bezier xs t) (dn t)) 
+       (/ (half-bezier ys t) (dn t))])))
+
+#+end_src
+
+** b-spline
+#+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
+(defn- domain
+  [degree knots]
+  (let [knots (vec knots)]
+    [(get knots degree)
+     (get knots (- (count knots) 1 degree))]))
+
+(defn- remap-t
+  [degree knots t]
+  (let [[ds de] (domain degree knots)
+        sc (- de ds)]
+    (+ ds (* sc t))))
+
+(defn- section-index
+  [degree knots t]
+  (let [t (remap-t degree knots t)
+        knots (vec knots)
+        [ds de] (domain degree knots)]
+    (->>
+     (map (fn [[s0 s1]]
+            (when (<= s0 t s1) s0))
+                  (partition 2 1 (range ds (inc de))))
+     (filter some?)
+     first)))
+
+;; degree example: quadratic b-spline = degree 2, cubic degree 3
+;; order is (inc degree) and is the number of knots needed for any one section
+;; order, k, is called 'knot interval'
+;; n is number of control points. 
+;; NOTE: for b-splines, the degree and n_cpts are NOT related.
+
+
+;; current issue is index out of bounds. Seems like it's probably related to
+;; incorrect s or i value, so (get knots i...) fails in some cases. 
+(defn- b-spline-inner
+  [[pts degree knots]
+   [l v]
+   t]
+  (let [s (section-index degree knots t)
+        order (inc degree)]
+     (loop [v v
+           i s]
+      (if (> i (+ s l (- order)))
+        (let [[x y :as vi] (get v i)
+              numerator (- t (get knots i))
+              denominator (- (get knots (+ i (- l) order))
+                             (get knots i))
+              alpha (/ numerator denominator)
+              new-vi (utils/v+ (map #(* alpha %) vi)
+                               (map #(* (- 1 alpha) %) (get v (dec i))))
+              new-v (assoc v i new-vi)]
+          (recur new-vi (dec i)))
+        v))))
+
+(defn b-spline
+  [pts degree knots]
+  (let [k (count knots)
+        d degree
+        order (inc degree)
+        n (count pts)]
+    (when (= k (+ d n 1))
       (fn [t]
-        (let [npts (map #(% t) lines)]
-          ((bezier npts) t))))))
+        (let [s (section-index degree knots t)]
+          (loop [v-outer pts
+                 l 1]
+            (if (<= l order)
+              (let [new-v (b-spline-inner
+                           [pts degree knots]
+                           [l v-outer]
+                           t)]
+                (recur new-v (inc l))
+                #_(loop [v v-outer
+                         i s]
+                    (if (> i (+ s l (- order)))
+                      (let [[x y :as vi] (get v i)
+                            numerator (- t (get knots i))
+                            denominator (- (get knots (+ i (- l) order))
+                                           (get knots i))
+                            alpha (/ numerator denominator)
+                            new-vi (utils/v+ (map #(* alpha %) vi)
+                                             (map #(* (- 1 alpha) %) (get v (dec i))))
+                            new-v (assoc v i new-vi)]
+                        (recur new-vi (dec i)))
+                      v)))
+              v-outer)))))))
+#+end_src
+
+#+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
+#_(def test-spline
+  (let [degree 3
+        pts [[0 0] [5 5] [10 -5] [15 25] [20 -5] [25 5] [30 0]]
+        knots [1 2 3 4 5 6 7 8 9 10 11]]
+    (partial b-spline-inner [pts degree knots] [1 pts])))
 
 #+end_src
 
@@ -1191,8 +1547,6 @@ Transforms are translate, rotate, and scale. All transforms work well for most o
 
 This leads to challenges with groups. Groups must have their centroid calculated such that rotation and translation can correctly occur about the group's centroid. Internally, this means that the group's centroid is treated as the 'temporary global origin' and all objects are globally rotated about that temp. origin. This has the appearance of a group rotating locally, which is the intended outcome.
 
-So, I either should fix the interface fn or eliminate it entirely.
-
 ** ns
 #+begin_src clojure :tangle ./src/svg_clj/transforms.cljc
 (ns svg-clj.transforms
@@ -1548,7 +1902,7 @@ This is a suggestion from maacl72
 (defmethod translate :polygon
   [[k props] [x y]]
   (let [pts (mapv utils/s->v (str/split (:points props) #" "))
-        xpts (->> pts 
+        xpts (->> pts
                   (map (partial utils/v+ [x y]))
                   (map utils/v->s))]
     [k (assoc props :points (str/join " " xpts))]))
@@ -2263,8 +2617,188 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
        (map element->path)
        (apply merge-paths)))
 
+#+END_SRC
+
+** offset
+*** offset-elements
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
+(defn- offset-edge
+  [[a b] d]
+  (let [p (utils/perpendicular (utils/v- b a))
+        pd (utils/v* (utils/normalize p) (repeat (- d)))
+        xa (utils/v+ a pd)
+        xb (utils/v+ b pd)]
+    [xa xb]))
+
+(defn- cycle-pairs
+  [pts]
+  (let [n (count pts)]
+    (vec (take n (partition 2 1 (cycle pts))))))
+
+(defn- wrap-list-once
+  [s]
+  (conj (drop-last s) (last s)))
+
+(defn- every-other
+  [v]
+  (let [n (count v)]
+    (map #(get v %) (filter even? (range n)))))
+
+(defn offset-pts
+  [pts d]
+  (let [edges (cycle-pairs pts)
+        opts (mapcat #(offset-edge % d) edges)
+        oedges (every-other (cycle-pairs opts))
+        edge-pairs (cycle-pairs oedges)]
+    (wrap-list-once (map #(apply utils/line-intersection %) edge-pairs))))
+
+;; maacl72 showed me how to do this via a Twitch Stream :) Thanks!
+(derive ::polyline ::poly)
+(derive ::polygon ::poly)
+
+(defmulti offset
+  (fn [element _]
+    (if (keyword? (first element))
+      (first element)
+      :list)))
+
+(defmethod offset :list
+  [elems d]
+  (map #(offset % d) elems))
+
+(defmethod offset :circle
+  [[k props] d]
+  (let [new-props (update props :r + d)]
+    [k new-props]))
+
+(defmethod offset :ellipse
+  [[k props] d]
+  (let [new-props (-> props
+                      (update :rx + d)
+                      (update :ry + d))]
+    [k new-props]))
+
+(defmethod offset :rect
+  [[k props] d]
+  (let [new-props (-> props
+                      (update :x - d)
+                      (update :y - d)
+                      (update :width + (* d 2))
+                      (update :height + (* d 2)))]
+    [k new-props]))
+
+(defmethod offset :line
+  [[k {:keys [x1 y1 x2 y2] :as props}] d]
+  (let [[[nx1 ny1] [nx2 ny2]] (offset-edge [[x1 y1] [x2 y2]] d)
+        new-props (-> props
+                      (assoc :x1 nx1)
+                      (assoc :y1 ny1)
+                      (assoc :x2 nx2)
+                      (assoc :y2 ny2))]
+    [k new-props]))
+
+(defmethod offset :polygon
+  [[k {:keys [points] :as props}] d]
+  (let [pts (map vec (partition 2 (utils/s->v points)))
+        opts (offset-pts pts d)
+        npoints (str/join " " (map utils/v->s opts))
+        new-props (assoc props :points npoints)]
+    [k new-props]))
+
+(defmethod offset :polyline
+  [[k {:keys [points] :as props}] d]
+  (let [pts (map vec (partition 2 (utils/s->v points)))
+        opts (offset-pts pts d)
+        npoints (str/join " " (map utils/v->s opts))
+        new-props (assoc props :points npoints)]
+    [k new-props]))
 
 #+END_SRC
+
+*** offset-path
+Offsetting paths is trickier.
+
+First, I have to make it possible to split cmd sequences into their sub parts (polyline/polygon are MLLL...Z commands only)
+
+Bezier curve offsets cannot technically be represented with another bezier curve. What has to happen is a 'good enough' approximation. This is done by splitting the source curve into 'safe' segments, and for each segment doing a simpler point offset for the start/end of each curve.
+
+See [[https://pomax.github.io/bezierinfo/#offsetting]]
+
+For details.
+
+First, I have to split up the bezier. To split a bezier curve, you have to create 'de Casteljau's Skeleton' which is all of the straight line segments that 'build up' to create the Bezier Curve.
+
+
+
+
+
+#+BEGIN_SRC clojure
+(defmulti offset-path-command
+  (fn [cmd _]
+    (:command cmd)))
+
+(defmethod offset-path-command "M"
+  [{:keys [:input] :as m} [x y]]
+  (assoc m :input (utils/v+ [x y] input)))
+
+(defmethod offset-path-command "L"
+  [{:keys [:input] :as m} [x y]]
+  (assoc m :input (utils/v+ [x y] input)))
+
+(defmethod offset-path-command "H"
+  [{:keys [:input] :as m} [x y]]
+  (assoc m :input (utils/v+ [x] input)))
+
+(defmethod offset-path-command "V"
+  [{:keys [:input] :as m} [x y]]
+  (assoc m :input (utils/v+ [y] input)))
+
+;; x y x y x y because input will ahve the form:
+;; [x1 y1 x2 y2 x y] (first two pairs are control points)
+(defmethod offset-path-command "C"
+  [{:keys [:input] :as m} [x y]]
+  (assoc m :input (utils/v+ [x y x y x y] input)))
+
+;; similar approach to above, but one control point is implicit
+(defmethod offset-path-command "S"
+  [{:keys [:input] :as m} [x y]]
+  (assoc m :input (utils/v+ [x y x y] input)))
+
+(defmethod offset-path-command "Q"
+  [{:keys [:input] :as m} [x y]]
+  (assoc m :input (utils/v+ [x y x y] input)))
+
+(defmethod offset-path-command "T"
+  [{:keys [:input] :as m} [x y]]
+  (assoc m :input (utils/v+ [x y] input)))
+
+;; [rx ry xrot laf swf x y]
+;; rx, ry do not change
+;; xrot also no change
+;; large arc flag and swf again no change
+(defmethod offset-path-command "A"
+  [{:keys [:input] :as m} [x y]]
+  (let [[rx ry xrot laf swf ox oy] input]
+    (assoc m :input [rx ry xrot laf swf (+ x ox) (+ y oy)])))
+
+(defmethod offset-path-command "Z"
+  [cmd _]
+  cmd)
+
+(defmethod offset-path-command :default
+  [cmd a]
+  [cmd a])
+
+#_(defmethod offset :path
+  [[k props] d]
+  [k props])
+  #_(let [cmds (path/path-string->commands (:d props))
+        xcmds (map #(offset-path-command % d) cmds)]
+    [k (assoc props :d (path/cmds->path-string xcmds))]))
+
+
+#+END_SRC
+
 * composites
 Composites are drawing elements that are not represented in the base SVG elements. For example, arrows are combinations of a polygon and line shape. These kinds of composite shapes should work as if they were base elements. This means that all transform functions must work normally on them. This shouldn't be too difficult, as composites are mostly going to be grouped up elements anyway.
 ** ns
@@ -2357,6 +2891,7 @@ This is a helpful default for text elements. It expects a font size arg. This co
             [svg-clj.elements :as svg]
             [svg-clj.utils :as utils]
             [svg-clj.transforms :as tf]))
+
 #+end_src
 
 ** distribute
@@ -2393,9 +2928,18 @@ Distribute has a few options:
 
 (defn distribute-on-curve
   [items curve]
-  (let [n (count items)
-        step (/ 1.0 n)]
-    (map #(-> %1 (tf/translate (curve %2))) items (range 0 1.0 step))))
+  (let [eps 0.00001
+        n (count items)
+        step (/ 1.0 n)
+        xf (fn [item t]
+             (let [pt (curve t)
+                   n (utils/normal (curve (- t eps)) (curve (+ t eps)))
+                   a (utils/angle-from-pts [0 1] [0 0] n)
+                   o (map #(utils/round % 4) (utils/rotate-pt (tf/centroid item) a))]
+               (-> item
+                   (tf/rotate a)
+                   (tf/translate (utils/v- (curve t) o (tf/centroid item))))))]
+    (map xf items (range 0.0 (+ 1.0 step) step))))
 
 #+end_src
 
@@ -2785,32 +3329,37 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
             [hiccup.core :refer [html]]
             [svg-clj.composites :as cp :refer [svg]]
             [svg-clj.utils :as utils]
-            [svg-clj.elements :as svg]
+            [svg-clj.elements :as el]
             [svg-clj.path :as path]
             [svg-clj.transforms :as tf]
             [svg-clj.layout :as lo]
+            [svg-clj.parametric :as p]
             #?(:clj [svg-clj.tools :as tools])))
 
 (defn show-debug-geom
   [elem]
   (let [ctr (tf/centroid elem)
         bds (tf/bounds elem)]
-    (svg/g elem
-       (svg/g (-> (svg/polygon bds)
+    (el/g elem
+       (el/g (-> (el/polygon bds)
                (tf/style {:fill "none"
                        :stroke "red"
                        :stroke-width "3px"}))
-          (-> (svg/circle 2)
+          (-> (el/circle 2)
                (tf/translate ctr)
                (tf/style {:fill "red"}))))))
 
 (defn rand-rect
   []
-  (-> (svg/rect (+ 5 (rand-int 20)) (+ 5 (rand-int 20)))
-      (tf/style {:fill (str "rgb("
-                            (rand-int 255) ","
-                            (rand-int 255) ","
-                            (rand-int 255) ")")})))
+  (let [w (+ 5 (rand-int 20)) 
+        h (+ 5 (rand-int 20))
+        origin [0 (/ h 2)]]
+    (-> (el/rect w h)
+        (tf/translate origin)
+        (tf/style {:fill (str "rgb("
+                              (rand-int 255) ","
+                              (rand-int 255) ","
+                              (rand-int 255) ")")}))))
 
 (tools/cider-show (map show-debug-geom (drop 2 (lo/distribute-linear :x 10 (repeatedly 7 rand-rect)))))
 
@@ -2832,26 +3381,58 @@ Works like map, so whichever runs out first (elements or points) is the limiter.
 Distribute a list of elements onto a parametric curve.
 
 #+begin_src clojure :tangle ./examples/layout.cljc
+(def pts [ [70 -20] [10 70] [200 -300] [300 0]])
+(def curve (p/bezier pts))
+(def asdf (-> (el/line [0 0] [0 15])
+              (tf/style {:stroke "red" :stroke-width "3px"})))
+
+(tools/cider-show
+ (el/g
+  (el/circle 150)
+  (lo/distribute-on-curve
+   (repeat 80 asdf)
+   (p/circle 150))))
+
+(tools/cider-show 
+ (lo/distribute-on-curve
+  (repeatedly 20 rand-rect)
+  curve))
+
 (tools/cider-show 
  (lo/distribute-on-curve
   (repeatedly 40 rand-rect)
-  (lo/p-circle 150)))
+  (p/circle 150)))
+
+(def city
+  (let [buildings (lo/distribute-on-curve
+                   (repeatedly 100 rand-rect)
+                   (p/circle 150))
+        paths (map tf/element->path buildings)
+        skyline (apply tf/merge-paths paths)]
+    (-> skyline
+        (tf/style {:fill "none"
+                   :stroke "hotpink"}))))
 
 #+end_src
 
 Distribute a list of elements along X/Y axis, keeping a constant gap between the boundaries of each element.
 
 #+begin_src clojure :tangle ./examples/layout.cljc
-
 (tools/cider-show 
  (lo/distribute-linear
   :x
-  20
+  3
   (repeatedly 10 rand-rect)))
+
+(tools/cider-show 
+ (lo/distribute-on-pts
+  (repeat (el/circle 1))
+  (p/rect-grid 20 30 10 10)))
+
 #+end_src
 
 ** bezier
-#+begin_src clojure :tangle ./examples/layout.cljc
+#+begin_src clojure :tangle ./examples/bezier.cljc
 (ns examples.bezier
   (:require [clojure.string :as str]
             [clojure.java.shell :refer [sh]]
@@ -2862,28 +3443,145 @@ Distribute a list of elements along X/Y axis, keeping a constant gap between the
             [svg-clj.path :as path]
             [svg-clj.transforms :as tf]
             [svg-clj.layout :as lo]
+            [svg-clj.parametric :as p]
             #?(:clj [svg-clj.tools :as tools])))
 
-(def pts [ [0 0] [80 80] [160 -20] ])
+(def pts [ [0 0] [100 -300] [200 -300] [300 0]])
+#_(def pts [ [110 150] [25 190] [210 250] [210 30]])
+
+(def ts [0.2 0.4 0.6 0.8])
+(def curve (p/bezier pts))
+(def curve2 (p/rational-bezier pts [1 2.5 0.5 1]))
+
+(def cols ["blue" "cyan" "purple" "pink" "blue" "skyblue" "slategray" "gold" "orange" "red"]) 
+
+(def curves
+  (let [cpts (p/uniform-split-bezier curve 6) #_(p/multi-split-bezier curve ts)]
+    (map-indexed #(el/g 
+                   (-> (apply path/bezier %2)
+                       (tf/style {:fill "none"
+                                  :stroke-width "3px"
+                                  :stroke (get cols %1)}))
+                   (-> (el/circle 5)
+                       (tf/translate (last %2))
+                       (tf/style {:fill "red"})))
+                   cpts)))
+
+#_(tools/cider-show curves)
+
+(defn wrong-offset-beizer
+  [curve d]
+  (let [cpts (first (:input (curve)))
+        n-cpts (tf/offset-pts cpts d)]
+    (el/g
+     (-> (apply path/bezier cpts)
+         (tf/style {:fill "none" :stroke-width "3px" :stroke "skyblue"}))
+     (-> (apply path/bezier n-cpts)
+         (tf/style {:fill "none" :stroke-width "3px" :stroke "hotpink"})))))
+
+(defonce split-curve (p/uniform-split-bezier curve 4))
+
+(defn offset-beizer
+  [curve d]
+  (let [cpts (first (:input (curve)))
+        curves split-curve]
+    (el/g
+     (-> (apply path/bezier cpts)
+         (tf/style {:fill "none" :stroke-width "3px" :stroke "skyblue"}))
+     (map #(-> (path/polyline (tf/offset-pts % d))
+               (tf/style {:fill "none"
+                          :stroke-width "3px"
+                          :stroke "hotpink"})) curves))))
+
+(def a (-> (apply path/bezier pts)
+           (tf/style {:fill "none"
+                      :stroke-width "6px"
+                      :stroke "pink"})))
+
+(def aa (-> (p/split-bezier curve 0.2)
+            :a
+            (#(apply path/bezier %))
+            (tf/style {:fill "none"
+                       :stroke-width "3px"
+                       :stroke "blue"})))
+
+(def ab (-> (p/split-bezier curve 0.2)
+            :b
+            (#(apply path/bezier %))
+            (tf/style {:fill "none"
+                       :stroke-width "3px"
+                       :stroke "green"})))
 
 (def b
-  (let [c (lo/p-bezier pts)
-        cpts (for [t (range 0 1 0.1)]
-               (c t))]
+  (let [cpts (map curve2 (range 0 1.01 0.01))]
     (el/g
-     (map #(-> (el/circle 2.5)
+     (map #(-> (el/circle 3)
                (tf/translate %)
                (tf/style {:fill "red"}))
           cpts))))
 
-(def a (-> (apply path/bezier pts)
+(def c (el/g a aa ab b))
+
+(tools/cider-show c)
+
+#+end_src
+
+** offset
+#+begin_src clojure :tangle ./examples/offset.cljc
+(ns examples.offset
+  (:require [clojure.string :as str]
+            [clojure.java.shell :refer [sh]]
+            [hiccup.core :refer [html]]
+            [svg-clj.composites :as cp :refer [svg]]
+            [svg-clj.utils :as utils]
+            [svg-clj.elements :as el]
+            [svg-clj.parametric :as p]
+            [svg-clj.path :as path]
+            [svg-clj.transforms :as tf]
+            [svg-clj.layout :as lo]
+            #?(:clj [svg-clj.tools :as tools])))
+
+(def a (-> (p/regular-polygon-pts 120 10)
+           (el/polygon)
            (tf/style {:fill "none"
-                      :stroke-width "2px"
-                      :stroke "pink"})))
+                      :stroke "red"
+                      :stroke-width "3px"})))
 
-(def c (el/g a b))
+(def b (-> (tf/offset a 20)
+           (tf/style {:fill "none"
+                      :stroke "limegreen"
+                      :stroke-width "3px"})))
 
-(def d (tools/load-svg "/Users/adam/dev/forge/sk.svg"))
+(def c (-> (el/circle 40)
+           (tf/style {:fill "none"
+                      :stroke "red"
+                      :stroke-width "3px"})))
+
+(def d (-> (tf/offset c -3)
+           (tf/style {:fill "none"
+                      :stroke "limegreen"
+                      :stroke-width "3px"})))
+
+(tools/cider-show (el/g a b))
+(tools/cider-show (el/g c d))
+
+(def pts [ [0 0] [100 -300] [200 -300] [300 0]])
+(def curve (p/bezier pts))
+
+(def e (-> (map curve (range 0 1.05 0.05))
+           (el/polyline)
+           (tf/style {:fill "none"
+                      :stroke "red"
+                      :stroke-width "3px"})))
+
+(def f (-> (map curve (range 0 1.05 0.05))
+           (tf/offset-pts 20)
+           (el/polyline)
+           (tf/style {:fill "none"
+                      :stroke "limegreen"
+                      :stroke-width "3px"})))
+
+(tools/cider-show (el/g e f))
 
 #+end_src
 

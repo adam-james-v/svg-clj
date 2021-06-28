@@ -1,5 +1,6 @@
 (ns svg-clj.utils
   (:require [clojure.string :as str]
+            [same :refer [zeroish?]]
             #?(:clj
                [clojure.data.xml :as xml])
             #?(:cljs
@@ -70,7 +71,6 @@
                (map str->xf-kv)))
     {}))
 
-;; geom
 (defn distance
   "compute distance between two points"
   [a b]
@@ -114,23 +114,73 @@
     (mapv / v (repeat m))))
 
 (defn normal
-  "find normal vector of plane given 3 points"
-  [a b c]
-  (let [ab (mapv - a b)
-        ac (mapv - a c)]
-    (cross* ab ac)))
+  "Find normal vector of plane given 3 points. Find normal vector of line given two (2D) points."
+  ([a b]
+   (let [[x1 y1] a
+         [x2 y2] b
+         dx (- x2 x1)
+         dy (- y2 y1)]
+     [(- dy) dx]))
+  ([a b c]
+   (let [ab (mapv - a b)
+         ac (mapv - a c)]
+     (cross* ab ac))))
 
 ;; https://math.stackexchange.com/questions/361412/finding-the-angle-between-three-points
+(defn- check-quadrants
+  [p1 p2 p3]
+  (let [v1 (v- p1 p2)
+        v2 (v- p3 p2)
+        qf (fn [[x y]]
+             (cond (and (pos? x) (pos? y)) "pp"
+                   (and (pos? x) (neg? y)) "pn"
+                   (and (neg? x) (neg? y)) "nn"
+                   (and (neg? x) (pos? y)) "np"
+                   (pos? x) "p_"
+                   (neg? x) "n_"
+                   (pos? y) "_p"
+                   (neg? y) "_n"))]
+    (apply str (map qf [v1 v2]))))
+
 (defn angle-from-pts
   [p1 p2 p3]
-  (let [v1 (v- p2 p1)
-        v2 (v- p2 p3)
+  (let [v1 (v- p1 p2)
+        v2 (v- p3 p2)
         l1 (distance p1 p2)
         l2 (distance p3 p2)
         n (dot* v1 v2)
-        d (Math/abs ^double (* l1 l2))]
-    (when (not (= 0.0 (float d)))
-      (to-deg (Math/acos (/ n d))))))
+        d (* l1 l2)
+        q (if (#{"nnnn" "npnp" "_pnn" "_pnp" "_pn_"} (check-quadrants p1 p2 p3)) 1 -1)]
+    (when (not (zeroish? (float d)))
+      (* q (to-deg (Math/acos (/ n d)))))))
+
+(defn determinant
+  [a b]
+  (- (* (first a) (second b))
+     (* (second a) (first b))))
+
+
+;; this fn name doesn't make sense? It inverts y, which is not
+;; the same as giving a perpendicular line
+;; maybe call it 'invert-y' or 'vertical-flip'
+(defn perpendicular
+  [[x y]]
+  [(- y) x])
+
+(defn line-intersection
+  [[a b] [c d]]
+  (let [[ax ay] a
+        [bx by] b
+        [cx cy] c
+        [dx dy] d
+        xdiff [(- ax bx) (- cx dx)]
+        ydiff [(- ay by) (- cy dy)]
+        div (determinant xdiff ydiff)]
+    (when (not (zeroish? (Math/abs div)))
+      (let [d [(determinant a b) (determinant c d)]
+            x (/ (determinant d xdiff) div)
+            y (/ (determinant d ydiff) div)]
+        [x y]))))
 
 (defn xml->hiccup [xml]
   (if-let [t (:tag xml)]

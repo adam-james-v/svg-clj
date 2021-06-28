@@ -22,7 +22,7 @@
 (def dwg2
   (svg
    (el/g
-    (for [step (range 1 9 1)]
+    (for [step (range 1 4 1)]
       (lo/distribute-on-curve
        (repeatedly (* 10 step) rand-rect)
        (lo/p-circle (* 50 step)))))))

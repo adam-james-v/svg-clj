@@ -294,7 +294,7 @@
 (defmethod translate :polygon
   [[k props] [x y]]
   (let [pts (mapv utils/s->v (str/split (:points props) #" "))
-        xpts (->> pts 
+        xpts (->> pts
                   (map (partial utils/v+ [x y]))
                   (map utils/v->s))]
     [k (assoc props :points (str/join " " xpts))]))
@@ -949,3 +949,94 @@
   (->> (path->elements path)
        (map element->path)
        (apply merge-paths)))
+
+(defn- offset-edge
+  [[a b] d]
+  (let [p (utils/perpendicular (utils/v- b a))
+        pd (utils/v* (utils/normalize p) (repeat (- d)))
+        xa (utils/v+ a pd)
+        xb (utils/v+ b pd)]
+    [xa xb]))
+
+(defn- cycle-pairs
+  [pts]
+  (let [n (count pts)]
+    (vec (take n (partition 2 1 (cycle pts))))))
+
+(defn- wrap-list-once
+  [s]
+  (conj (drop-last s) (last s)))
+
+(defn- every-other
+  [v]
+  (let [n (count v)]
+    (map #(get v %) (filter even? (range n)))))
+
+(defn offset-pts
+  [pts d]
+  (let [edges (cycle-pairs pts)
+        opts (mapcat #(offset-edge % d) edges)
+        oedges (every-other (cycle-pairs opts))
+        edge-pairs (cycle-pairs oedges)]
+    (wrap-list-once (map #(apply utils/line-intersection %) edge-pairs))))
+
+;; maacl72 showed me how to do this via a Twitch Stream :) Thanks!
+(derive ::polyline ::poly)
+(derive ::polygon ::poly)
+
+(defmulti offset
+  (fn [element _]
+    (if (keyword? (first element))
+      (first element)
+      :list)))
+
+(defmethod offset :list
+  [elems d]
+  (map #(offset % d) elems))
+
+(defmethod offset :circle
+  [[k props] d]
+  (let [new-props (update props :r + d)]
+    [k new-props]))
+
+(defmethod offset :ellipse
+  [[k props] d]
+  (let [new-props (-> props
+                      (update :rx + d)
+                      (update :ry + d))]
+    [k new-props]))
+
+(defmethod offset :rect
+  [[k props] d]
+  (let [new-props (-> props
+                      (update :x - d)
+                      (update :y - d)
+                      (update :width + (* d 2))
+                      (update :height + (* d 2)))]
+    [k new-props]))
+
+(defmethod offset :line
+  [[k {:keys [x1 y1 x2 y2] :as props}] d]
+  (let [[[nx1 ny1] [nx2 ny2]] (offset-edge [[x1 y1] [x2 y2]] d)
+        new-props (-> props
+                      (assoc :x1 nx1)
+                      (assoc :y1 ny1)
+                      (assoc :x2 nx2)
+                      (assoc :y2 ny2))]
+    [k new-props]))
+
+(defmethod offset :polygon
+  [[k {:keys [points] :as props}] d]
+  (let [pts (map vec (partition 2 (utils/s->v points)))
+        opts (offset-pts pts d)
+        npoints (str/join " " (map utils/v->s opts))
+        new-props (assoc props :points npoints)]
+    [k new-props]))
+
+(defmethod offset :polyline
+  [[k {:keys [points] :as props}] d]
+  (let [pts (map vec (partition 2 (utils/s->v points)))
+        opts (offset-pts pts d)
+        npoints (str/join " " (map utils/v->s opts))
+        new-props (assoc props :points npoints)]
+    [k new-props]))
