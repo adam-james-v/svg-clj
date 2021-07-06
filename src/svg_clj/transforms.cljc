@@ -831,6 +831,18 @@
       (and (= pa pb) (= "M" cb)) [cmda]
       :else [cmda cmdb])))
 
+
+
+
+
+
+
+;; doesn't always work. Check xf-cmds logic to see if it is incorrectly discarding some paths. For example, my ob-babashka example project I noticed that two beziers are not merging correctly (one is dropped entirely) but they seem to work when I don't use xf-cmnds but jsut cmds directly
+
+
+
+
+
 (defn merge-paths
   "Merges a list of path elements together, keeping props from last path in the list."
   [& paths]

@@ -2498,6 +2498,18 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
       (and (= pa pb) (= "M" cb)) [cmda]
       :else [cmda cmdb])))
 
+
+
+
+
+
+
+;; doesn't always work. Check xf-cmds logic to see if it is incorrectly discarding some paths. For example, my ob-babashka example project I noticed that two beziers are not merging correctly (one is dropped entirely) but they seem to work when I don't use xf-cmnds but jsut cmds directly
+
+
+
+
+
 (defn merge-paths
   "Merges a list of path elements together, keeping props from last path in the list."
   [& paths]
@@ -2957,10 +2969,9 @@ Pattern and distribute are so similar, I wonder if I should remove one of them? 
     (map #(-> item (tf/translate (curve %))) (range 0 1.0 step))))
 
 #+end_src
+
 * tools
 ** ns
-THis is not code, it's jsut text. Ideally for humans to read.
-
 #+begin_src clojure :tangle ./src/svg_clj/tools.clj
 (ns svg-clj.tools
   (:require [clojure.string :as str]
@@ -2977,7 +2988,7 @@ THis is not code, it's jsut text. Ideally for humans to read.
 
 #+end_src
 
-** png!
+** png
 #+begin_src clojure :tangle ./src/svg_clj/tools.clj
 (defn sh-png! [svg-data fname]
   (sh "convert" "-background" "none" "/dev/stdin" fname
@@ -2988,45 +2999,8 @@ THis is not code, it's jsut text. Ideally for humans to read.
 
 #+end_src
 
-** show
-The cider-show fn works with Batik. It lets you quickly view SVG elements in a CIDER REPL.
-
-To get similar results from a clojurescript context, it might be possible to use a serialize->rasterize approach as shown here:
-
-[[https://observablehq.com/@mbostock/saving-svg]]
-
-To get it working in CIDER, you have to enable content types.
-
-~M-x cider-repl-toggle-content-types~
-
+** save-load
 #+begin_src clojure :tangle ./src/svg_clj/tools.clj
-(defn cider-show
-  [svg-data]
-  (let [fname "_imgtmp.png"
-        data (if (= (first svg-data) :svg)
-               svg-data
-               (svg svg-data))]
-    (do (png! data fname)
-        (clojure.java.io/file fname))))
-
-(defn show
-  [svg-data]
-  (let [fname "_tmp.html"
-        data (if (= (first svg-data) :svg)
-               svg-data
-               (svg svg-data))]
-    (do (spit fname (html data))
-        (clojure.java.browse/browse-url fname)
-        #_(sh "rm" fname))))
-
-#+end_src
-
-** loader
-The xml parse/transform technique comes from:
-
-[[https://github.com/babashka/babashka/blob/master/examples/portal.clj]]
-
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/tools.clj
 (defn save-svg
   [svg-data fname]
   (let [data (if (= (first svg-data) :svg)
@@ -3039,8 +3013,26 @@ The xml parse/transform technique comes from:
   (-> fname
       slurp
       utils/svg-str->elements))
+#+end_src
 
-#+END_SRC
+** repl-show
+#+begin_src clojure :tangle ./src/svg_clj/tools.clj
+(defn cider-show
+  [svg-data]
+  (let [fname "_imgtmp.png"
+        data (if (= (first svg-data) :svg)
+               svg-data
+               (svg svg-data))]
+    (do (png! data fname)
+        (clojure.java.io/file fname))))
+
+(defn show
+  [svg-data]
+  (let [fname "_tmp.svg"]
+    (do (save-svg svg-data fname))
+        (clojure.java.io/file fname)))
+
+#+end_src
 
 * tests
 Create more tests. Try to use a bit of TDD to help improve implementations, starting with better transform functions.
@@ -3230,44 +3222,44 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
             [svg-clj.utils :as utils]
             [svg-clj.path :as path]
             [svg-clj.transforms :as tf]
-            [svg-clj.elements :as svg]
+            [svg-clj.elements :as el]
             [svg-clj.composites :refer [svg]]
-            [svg-clj.tools :refer [cider-show]]))
+            [svg-clj.tools :refer [show cider-show]]))
 
 (defn show-debug-geom
   [elem]
   (let [ctr (tf/centroid elem)
         bds (tf/bounds elem)]
-    (svg/g elem
-       (svg/g (-> (svg/polygon bds)
-               (tf/style {:fill "none"
+    (el/g elem
+       (el/g (-> (el/polygon bds)
+                 (tf/style {:fill "none"
                        :stroke "red"
                        :stroke-width "3px"}))
-          (-> (svg/circle 2)
+          (-> (el/circle 2)
                (tf/translate ctr)
                (tf/style {:fill "red"}))))))
 
-(def a (svg/g (-> (svg/circle 50)
+(def a (el/g (-> (el/circle 50)
               (tf/translate [100 100])
               (tf/style {:fill "pink"
                       :stroke-width "5px"
                       :stroke "hotpink"}))
-          (-> (svg/circle 10)
+          (-> (el/circle 10)
               (tf/translate [15 15])
               (tf/style {:fill "pink"
                       :stroke-width "5px"
                       :stroke "hotpink"}))))
 
 (def basic-group
-  (svg/g
-   (svg/rect 20 20)
-   (-> (svg/rect 20 20) (tf/translate [20 0]))
-   (-> (svg/rect 20 20) (tf/translate [0 20]))
-   (-> (svg/rect 20 20) (tf/translate [20 20]))))
+  (el/g
+   (el/rect 20 20)
+   (-> (el/rect 20 20) (tf/translate [20 0]))
+   (-> (el/rect 20 20) (tf/translate [0 20]))
+   (-> (el/rect 20 20) (tf/translate [20 20]))))
 
 (def circles
-  (-> (svg/g (for [a (range 0 12)]
-           (-> (svg/circle (+ 5 (* a 4)))
+  (-> (el/g (for [a (range 0 12)]
+           (-> (el/circle (+ 5 (* a 4)))
                (tf/translate [(/ (+ 5 (* a 4)) 2) 0])
                (tf/translate (utils/rotate-pt [20 0] (* a -40)))
                (tf/style {:stroke 
@@ -3278,21 +3270,27 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
       (tf/translate [100 100])
       (svg 200 200)))
 
-(def basics [(arc [0 0] [50 0] 90)
-             (circle-path 40)
-             (bezier [0 0] [30 20] [80 40] [120 180])
-             (circle 80)
-             (rect-path 70 120)
-             (ellipse 40 80)
-             (line [0 0] [100 100])
-             (line-path [0 0] [100 100])
-             (polygon [ [0 0] [30 0] [30 20] [15 10] [0 20] ])
-             (polyline [ [0 0] [30 0] [30 20] [15 10] [0 20] ])
-             (polygon-path [ [0 0] [30 0] [30 20] [15 10] [0 20] ])
-             (text "this is text")
-             (image "https://www.fillmurray.com/300/200" 100 67)
-             (merge-paths (rect-path 100 100) (rect-path 80 80))
+(def basics [(path/arc [0 0] [50 0] 90)
+             (path/circle 40)
+             (path/bezier [0 0] [30 20] [80 40] [120 180])
+             (el/circle 80)
+             (path/rect 70 120)
+             (path/ellipse 40 80)
+             (el/line [0 0] [100 100])
+             (path/line [0 0] [100 100])
+             (el/polygon [ [0 0] [30 0] [30 20] [15 10] [0 20] ])
+             (el/polyline [ [0 0] [30 0] [30 20] [15 10] [0 20] ])
+             (path/polygon [ [0 0] [30 0] [30 20] [15 10] [0 20] ])
+             (el/text "this is text")
+             (el/image "https://www.fillmurray.com/300/200" 100 67)
+             (tf/merge-paths (path/rect 100 100) (path/rect 80 80))
              basic-group])
+
+(def styled-circle
+  (-> (el/circle 40)
+      (tf/style {:fill "blue"
+                 :stroke-width "3px"
+                 :stroke "red"})))
 
 (def doc
   (->>

@@ -18,25 +18,6 @@
 (defn png! [svg-data fname]
   (b/render-svg-string (html svg-data) fname))
 
-(defn cider-show
-  [svg-data]
-  (let [fname "_imgtmp.png"
-        data (if (= (first svg-data) :svg)
-               svg-data
-               (svg svg-data))]
-    (do (png! data fname)
-        (clojure.java.io/file fname))))
-
-(defn show
-  [svg-data]
-  (let [fname "_tmp.html"
-        data (if (= (first svg-data) :svg)
-               svg-data
-               (svg svg-data))]
-    (do (spit fname (html data))
-        (clojure.java.browse/browse-url fname)
-        #_(sh "rm" fname))))
-
 (defn save-svg
   [svg-data fname]
   (let [data (if (= (first svg-data) :svg)
@@ -49,3 +30,18 @@
   (-> fname
       slurp
       utils/svg-str->elements))
+
+(defn cider-show
+  [svg-data]
+  (let [fname "_imgtmp.png"
+        data (if (= (first svg-data) :svg)
+               svg-data
+               (svg svg-data))]
+    (do (png! data fname)
+        (clojure.java.io/file fname))))
+
+(defn show
+  [svg-data]
+  (let [fname "_tmp.svg"]
+    (do (save-svg svg-data fname))
+        (clojure.java.io/file fname)))
