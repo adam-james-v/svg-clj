@@ -1,6 +1,5 @@
 (ns examples.offset
   (:require [clojure.string :as str]
-            [clojure.java.shell :refer [sh]]
             [hiccup.core :refer [html]]
             [svg-clj.composites :as cp :refer [svg]]
             [svg-clj.utils :as utils]
@@ -32,9 +31,6 @@
                       :stroke "limegreen"
                       :stroke-width "3px"})))
 
-(tools/cider-show (el/g a b))
-(tools/cider-show (el/g c d))
-
 (def pts [ [0 0] [100 -300] [200 -300] [300 0]])
 (def curve (p/bezier pts))
 
@@ -51,4 +47,30 @@
                       :stroke "limegreen"
                       :stroke-width "3px"})))
 
-(tools/cider-show (el/g e f))
+(def examples [a
+               b
+               c
+               d
+               (el/g a b)
+               (el/g c d)
+               e
+               f
+               (el/g e f)])
+
+(def doc
+  (->>
+   (for [elem examples]
+     (-> elem
+         svg
+         (tf/style {:style {:outline "1px solid blue"
+                            :margin "10px"}})))
+   (partition-all 3)
+   (interpose [:br])))
+
+(spit 
+ "examples/offset.html"
+ (html 
+  [:html 
+   [:body
+    [:h1 "Offset Examples"]
+    doc]]))

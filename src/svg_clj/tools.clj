@@ -26,7 +26,7 @@
 (defn cider-show
   [svg-data]
   (let [fname "_tmp.svg"]
-    (do (save-svg data fname)
+    (do (save-svg svg-data fname)
         (clojure.java.io/file fname))))
 
 (defn show

@@ -112,43 +112,112 @@ clojure -M:js
 #+BEGIN_SRC markdown :tangle ./readme.md
 # svg-clj
 
-A helper library for creating SVGs in Clojure/Clojurescript.
+[![Clojars Project](https://img.shields.io/clojars/v/io.github.adam-james-v/svg-clj.svg)](https://clojars.org/io.github.adam-james-v/svg-clj)
 
-You can play around with the library [here](https://adam-james-v.github.io/dev/svg-clj/)
+svg-clj is a library for creating SVGs in Clojure/Clojurescript. This is done using functions which emit hiccup data structures. Since hiccup is quite common and well-known in the Clojure ecosystem, it is rather simple to use svg-clj alongside other libraries that emit and/or expect hiccup-style data structures.
 
-This is currently a work in progress. Until a stable release is provided, this library is considered to be in a 'prototype' state. Breaking changes are possible until a proper release is achieved.
+Here is an example using most of svg-clj's features:
 
-![An SVG Image of Circles Spiralling, shrinking, and fading towards the image center.](https://github.com/adam-james-v/svg-clj/blob/main/examples/circles.svg "Circles")
+![An SVG Image of a stylized flower blossom.](https://github.com/adam-james-v/svg-clj/blob/main/examples/blossom.svg "Blossom")
 
-These circles are produced by the following code:
+This blossom is produced with the following code:
 
 ```clojure
-(ns example
-  (:require [svg-clj.elements :as svg]
-            [svg-clj.composites :refer [svg]]
+(ns examples.blossom
+  (:require [svg-clj.utils :as utils]
+            [svg-clj.elements :as el]
             [svg-clj.transforms :as tf]
-            [svg-clj.utils :as utils]
-            [hiccup.core :refer [html]]))
+            [svg-clj.composites :as comp :refer [svg]]
+            [svg-clj.path :as path]
+            [svg-clj.parametric :as p]
+            [svg-clj.layout :as lo]
+            [svg-clj.tools :as tools]
+            #?(:clj [svg-clj.tools :as tools])))
+            
+(defn flip-y
+  [pts]
+  (mapv #(utils/v* % [1 -1]) pts))
 
-(def circles
-  (-> (svg/g 
-       (for [a (range 0 12)]
-         (-> (svg/circle (+ 5 (* a 4)))
-             (tf/translate [(/ (+ 5 (* a 4)) 2) 0])
-             (tf/translate (utils/rotate-pt [20 0] (* a -40)))
-             (tf/style 
-              {:stroke (str "rgba(163,190,140," (/ (inc a) 10.0) ")")
-               :stroke-width "2px"
-               :fill "none"}))))
-      (tf/translate [100 100])
-      (svg 200 200)))
+(defn petal
+  [cpts]
+  (let [beza (apply path/bezier cpts)
+        bezb (apply path/bezier (flip-y cpts))
+        shape (tf/merge-paths beza bezb)
+        ctr (tf/centroid shape)]
+    (-> shape
+        (tf/rotate -90)
+        (tf/translate (utils/v* ctr [-1 -1])))))
 
-;; use hiccup or your favourite hiccup compiler.
-;; the SVG library works with Reagent as well.
-(html circles)
+(defn petal-ring
+  [petal r n]
+  (el/g
+   (lo/distribute-on-curve
+    (repeat n petal)
+    (p/circle r))))
+
+(def petal-01
+  (-> (petal [[0 0] [5 -50] [50 -20] [75 0]])
+      (tf/style {:fill "#ff8b94"
+                 :stroke "#ffaaa5"
+                 :stroke-width "4px"
+                 :stroke-linecap "round"})))
+
+(def petal-02
+  (-> (petal [[0 0] [1 -20] [20 -10] [40 0]])
+      (tf/style {:fill "#ffaaa5"
+                 :stroke "none"})))
+
+(def petal-03
+  (-> (tf/merge-paths petal-01 petal-02)
+      (tf/style {:fill "#a8e6cf"})))
+
+(def petal-ring-01 (petal-ring petal-01 120 12))
+(def petal-ring-02 (petal-ring petal-02 120 12))
+
+(def petal-ring-03
+  (-> (petal-ring petal-03 70 6)
+      (tf/rotate (/ 360.0 24))))
+
+(def petal-ring-04
+  (let [petal (-> petal-03 (tf/style {:fill "#cc5963"}))]
+    (-> (petal-ring petal 90 6)
+        (tf/rotate (/ 360.0 24))
+        (tf/rotate (/ 360.0 12)))))
+
+(def petal-ring-05
+  (let [petal (-> petal-02
+                  (tf/rotate 180)
+                  (tf/style {:fill "none"
+                             :stroke "#f4f1d7"
+                             :stroke-width "2px"}))]
+    (-> (petal-ring petal 70 36)
+        (tf/rotate (/ 360.0 24)))))
+
+(def petal-ring-06
+  (let [petal (-> petal-02
+                  (tf/style {:fill "none"
+                             :stroke "#f4f1d7"
+                             :stroke-width "2px"}))]
+    (-> (petal-ring petal 40 20)
+        (tf/rotate (/ 360.0 24)))))
+
+(def blossom (el/g
+              (-> (el/circle 105) (tf/style {:fill "#69b599"}))
+              petal-ring-01
+              petal-ring-02
+              petal-ring-06
+              petal-ring-05
+              petal-ring-04
+              petal-ring-03))
+
+;; when in a Clojure context, you can compile to SVG files
+;; this uses the Hiccup html compiler
+;; emitted SVG data works with Reagent as well.
+
+(tools/save-svg blossom "examples/blossom.svg")
 ```
 
-### Deps.edn
+## deps.edn
 
 ```clj
 svg-clj/svg-clj {:git/url "https://github.com/adam-james-v/svg-clj"
@@ -167,34 +236,28 @@ If you would like to understand my motivations, decisions, and reasoning for the
 |                    svg-clj                   |                       dali                      |
 |:--------------------------------------------:|:-----------------------------------------------:|
 | users write functions which emit hiccup data | users write hiccup data directly                |
-| no layout engine                             | layout engine                                   |
+| very basic layout engine                     | layout engine is a key feature                  |
 | no built-in rasterization                    | rasterize SVGs using Batik                      |
 | Clojure and Clojurescript                    | Clojure only                                    |
 | SVG primitives only (for now)                | SVG primitives + 'prefabs' (eg. markers/arrows) |
 
-Stay tuned for updates!
 
 #+END_SRC
 
 * admin
 ** todo
 Some tasks that need to be done on this project.
-*** TODO build a mechanism for changing rotate behavior from local to global -> probably use *dynamic-var* 
-*** TODO build a mechanism for changing transform 'baking' behavior
-*** TODO for circle and ellipse, try to remove the transform rotate(0 x y) idea. Seems confusing and unnecessary anyway.
+
+*** TODO fix/test scale tranform on all elements
+*** TODO fix/test offset for paths
+*** TODO fix/test bounds calculations for paths
 
 ** roadmap
 Some features that are planned for implementation.
 
 *** candidate-features
-Should I add these to the svg-clj library? Or should they be some different library?
-
-I think these make more sense in separate libraries. Perhaps as ns inside a 2d-cad-drawing lib or something along those lines. 
-
-- math helpers
-  - to-deg
-  - to-rad
-  - vector arithemetic helpers v* v+ v-
+Some features that might be added. 
+    
 - drawing features  
   - regular-polygon-pts  
   - offset
@@ -2328,13 +2391,6 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
           :else
           (path/path (path/cmds->path-string cmds)))))))
 
-#_(defn merge-paths
-  "Merges a list of path elements together, keeping props from last path in the list."
-  [& paths]
-  (let [[_ props] (last paths)
-        d (str/join " " (map #(get-in % [1 :d]) paths))]
-    [:path (assoc props :d d)]))
-
 (defn- clean-m-cmds
   "Remove cmdb if it is an M command with the same position as the last input of cmda."
   [[cmda cmdb]]
@@ -2351,10 +2407,10 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
   [& paths]
   (let [[_ props] (last paths)
         cmds (mapcat #(path/path-string->commands (get-in % [1 :d])) paths)
-        xf-cmds (conj 
+        #_#_xf-cmds (conj 
                  (remove nil? (mapcat clean-m-cmds (partition 2 1 (rest cmds))))
                  (first cmds))]
-    [:path (assoc props :d (path/cmds->path-string xf-cmds))]))
+    [:path (assoc props :d (path/cmds->path-string cmds))]))
 
 (defn split-path
   [[k props]]
@@ -2507,7 +2563,7 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
       :list)))
 
 (defmethod offset :default
-  [[k props]]
+  [[k props :as elem]]
   (println (str "Offset not implemented for " k "."))
   elem)
 
@@ -2842,7 +2898,7 @@ Pattern and distribute are so similar, I wonder if I should remove one of them? 
 (defn cider-show
   [svg-data]
   (let [fname "_tmp.svg"]
-    (do (save-svg data fname)
+    (do (save-svg svg-data fname)
         (clojure.java.io/file fname))))
 
 (defn show
@@ -3036,7 +3092,6 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
 #+begin_src clojure :tangle ./examples/basics.cljc
 (ns examples.basics
   (:require [clojure.string :as str]
-            [clojure.java.shell :refer [sh]]
             [hiccup.core :refer [html]]
             [svg-clj.utils :as utils]
             [svg-clj.path :as path]
@@ -3052,22 +3107,13 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
     (el/g elem
        (el/g (-> (el/polygon bds)
                  (tf/style {:fill "none"
-                       :stroke "red"
-                       :stroke-width "3px"}))
+                            :stroke "red"
+                            :stroke-width "1px"
+                            :opacity 0.3}))
           (-> (el/circle 2)
                (tf/translate ctr)
-               (tf/style {:fill "red"}))))))
-
-(def a (el/g (-> (el/circle 50)
-              (tf/translate [100 100])
-              (tf/style {:fill "pink"
-                      :stroke-width "5px"
-                      :stroke "hotpink"}))
-          (-> (el/circle 10)
-              (tf/translate [15 15])
-              (tf/style {:fill "pink"
-                      :stroke-width "5px"
-                      :stroke "hotpink"}))))
+               (tf/style {:fill "red"
+                          :opacity 0.3}))))))
 
 (def basic-group
   (el/g
@@ -3077,17 +3123,17 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
    (-> (el/rect 20 20) (tf/translate [20 20]))))
 
 (def circles
-  (-> (el/g (for [a (range 0 12)]
-           (-> (el/circle (+ 5 (* a 4)))
-               (tf/translate [(/ (+ 5 (* a 4)) 2) 0])
-               (tf/translate (utils/rotate-pt [20 0] (* a -40)))
-               (tf/style {:stroke 
+  (-> (for [a (range 0 12)]
+        (-> (el/circle (+ 5 (* a 4)))
+            (tf/translate [(/ (+ 5 (* a 4)) 2) 0])
+            (tf/translate (utils/rotate-pt [20 0] (* a -40)))
+            (tf/style {:stroke 
                        (str "rgba(163,190,140," 
                             (/ (inc a) 10.0) ")")
                        :stroke-width "2px"
-                       :fill "none"}))))
-      (tf/translate [100 100])
-      (svg 200 200)))
+                       :fill "none"})))
+      el/g
+      (tf/translate [100 100])))
 
 (def basics [(path/arc [0 0] [50 0] 90)
              (path/circle 40)
@@ -3103,26 +3149,21 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
              (el/text "this is text")
              (el/image "https://www.fillmurray.com/300/200" 100 67)
              (tf/merge-paths (path/rect 100 100) (path/rect 80 80))
-             basic-group])
-
-(def styled-circle
-  (-> (el/circle 40)
-      (tf/style {:fill "blue"
-                 :stroke-width "3px"
-                 :stroke "red"})))
+             basic-group
+             circles])
 
 (def doc
   (->>
    (for [elem basics]
      (-> elem
-         (translate [80 80])
-         (rotate 20)
-         (style {:fill "pink"
+         (tf/translate [80 80])
+         (tf/rotate 20)
+         (tf/style {:fill "pink"
                  :stroke-width "2px"
                  :stroke "hotpink"})
          show-debug-geom
-         (svg 200 200)
-         (style {:style {:outline "1px solid blue"
+         svg
+         (tf/style {:style {:outline "1px solid blue"
                          :margin "10px"}})))
    (partition-all 3)
    (interpose [:br])))
@@ -3133,8 +3174,7 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
   [:html 
    [:body
     [:h1 "Basic Geometry Examples"]
-    doc
-    circles]]))
+    doc]]))
 
 #+end_src
 
@@ -3178,73 +3218,83 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
                               (rand-int 255) ","
                               (rand-int 255) ")")}))))
 
-(tools/cider-show (map show-debug-geom (drop 2 (lo/distribute-linear :x 10 (repeatedly 7 rand-rect)))))
+;; Distribute a list of elements along X/Y axis, keeping a constant gap between the boundaries of each element.
 
-(tools/cider-show (map show-debug-geom (drop 2 (lo/distribute-linear :y 10 (repeatedly 7 rand-rect)))))
+(def horizontal-dist
+  (el/g
+   (map show-debug-geom
+        (drop 2 (lo/distribute-linear :x 10 (repeatedly 7 rand-rect))))))
 
-#+end_src
+(def vertical-dist
+  (el/g
+   (map show-debug-geom
+        (drop 2 (lo/distribute-linear :y 10 (repeatedly 7 rand-rect))))))
 
-Distribute a list of elements onto a list of points.
-Works like map, so whichever runs out first (elements or points) is the limiter.
+;; Distribute a list of elements onto a list of points.
+;; Works like map, so whichever runs out first (elements or points) is the limiter.
 
-#+begin_src clojure :tangle ./examples/layout.cljc
-(tools/cider-show 
+(def grid-dist
  (lo/distribute-on-pts 
   (repeatedly rand-rect)
-  (lo/rect-grid 10 10 30 30)))
+  (p/rect-grid 10 10 30 30)))
 
-#+end_src
+(def grid-dist2
+ (lo/distribute-on-pts
+  (repeat (el/circle 1.5))
+  (p/rect-grid 20 30 10 10)))
 
-Distribute a list of elements onto a parametric curve.
+;; Distribute a list of elements onto a parametric curve.
+(def redline
+  (-> (el/line [0 0] [0 15])
+      (tf/style {:stroke "red" :stroke-width "3px"})))
 
-#+begin_src clojure :tangle ./examples/layout.cljc
-(def pts [ [70 -20] [10 70] [200 -300] [300 0]])
-(def curve (p/bezier pts))
-(def asdf (-> (el/line [0 0] [0 15])
-              (tf/style {:stroke "red" :stroke-width "3px"})))
-
-(tools/cider-show
+(def circle-curve-dist
  (el/g
   (el/circle 150)
   (lo/distribute-on-curve
-   (repeat 80 asdf)
+   (repeat 80 redline)
    (p/circle 150))))
 
-(tools/cider-show 
+(def circle-curve-dist2
+ (el/g
+  (el/circle 150)
+  (lo/distribute-on-curve
+   (repeatedly 40 rand-rect)
+   (p/circle 150))))
+
+;; Distribute on any curve available in parametric.cljc
+(def bez-curve (p/bezier [ [70 -20] [10 70] [200 -300] [300 0]]))
+
+(def bezier-curve-dist 
  (lo/distribute-on-curve
   (repeatedly 20 rand-rect)
-  curve))
+  bez-curve))
 
-(tools/cider-show 
- (lo/distribute-on-curve
-  (repeatedly 40 rand-rect)
-  (p/circle 150)))
+(def examples [horizontal-dist
+               vertical-dist
+               grid-dist
+               grid-dist2
+               circle-curve-dist
+               circle-curve-dist2
+               bezier-curve-dist])
 
-(def city
-  (let [buildings (lo/distribute-on-curve
-                   (repeatedly 100 rand-rect)
-                   (p/circle 150))
-        paths (map tf/element->path buildings)
-        skyline (apply tf/merge-paths paths)]
-    (-> skyline
-        (tf/style {:fill "none"
-                   :stroke "hotpink"}))))
+(def doc
+  (->>
+   (for [elem examples]
+     (-> elem
+         svg
+         (tf/style {:style {:outline "1px solid blue"
+                         :margin "10px"}})))
+   (partition-all 3)
+   (interpose [:br])))
 
-#+end_src
-
-Distribute a list of elements along X/Y axis, keeping a constant gap between the boundaries of each element.
-
-#+begin_src clojure :tangle ./examples/layout.cljc
-(tools/cider-show 
- (lo/distribute-linear
-  :x
-  3
-  (repeatedly 10 rand-rect)))
-
-(tools/cider-show 
- (lo/distribute-on-pts
-  (repeat (el/circle 1))
-  (p/rect-grid 20 30 10 10)))
+(spit 
+ "examples/layout.html"
+ (html 
+  [:html 
+   [:body
+    [:h1 "Layout Examples"]
+    doc]]))
 
 #+end_src
 
@@ -3252,7 +3302,6 @@ Distribute a list of elements along X/Y axis, keeping a constant gap between the
 #+begin_src clojure :tangle ./examples/bezier.cljc
 (ns examples.bezier
   (:require [clojure.string :as str]
-            [clojure.java.shell :refer [sh]]
             [hiccup.core :refer [html]]
             [svg-clj.composites :as cp :refer [svg]]
             [svg-clj.utils :as utils]
@@ -3272,7 +3321,8 @@ Distribute a list of elements along X/Y axis, keeping a constant gap between the
 
 (def cols ["blue" "cyan" "purple" "pink" "blue" "skyblue" "slategray" "gold" "orange" "red"]) 
 
-(def curves
+;; runs slow due to arc-length calc
+#_(def curves
   (let [cpts (p/uniform-split-bezier curve 6) #_(p/multi-split-bezier curve ts)]
     (map-indexed #(el/g 
                    (-> (apply path/bezier %2)
@@ -3284,31 +3334,7 @@ Distribute a list of elements along X/Y axis, keeping a constant gap between the
                        (tf/style {:fill "red"})))
                    cpts)))
 
-#_(tools/cider-show curves)
-
-(defn wrong-offset-beizer
-  [curve d]
-  (let [cpts (first (:input (curve)))
-        n-cpts (tf/offset-pts cpts d)]
-    (el/g
-     (-> (apply path/bezier cpts)
-         (tf/style {:fill "none" :stroke-width "3px" :stroke "skyblue"}))
-     (-> (apply path/bezier n-cpts)
-         (tf/style {:fill "none" :stroke-width "3px" :stroke "hotpink"})))))
-
-(defonce split-curve (p/uniform-split-bezier curve 4))
-
-(defn offset-beizer
-  [curve d]
-  (let [cpts (first (:input (curve)))
-        curves split-curve]
-    (el/g
-     (-> (apply path/bezier cpts)
-         (tf/style {:fill "none" :stroke-width "3px" :stroke "skyblue"}))
-     (map #(-> (path/polyline (tf/offset-pts % d))
-               (tf/style {:fill "none"
-                          :stroke-width "3px"
-                          :stroke "hotpink"})) curves))))
+#_(def split-curve (p/uniform-split-bezier curve 4))
 
 (def a (-> (apply path/bezier pts)
            (tf/style {:fill "none"
@@ -3339,7 +3365,29 @@ Distribute a list of elements along X/Y axis, keeping a constant gap between the
 
 (def c (el/g a aa ab b))
 
-(tools/cider-show c)
+(def examples [a
+               aa
+               ab
+               b
+               c])
+
+(def doc
+  (->>
+   (for [elem examples]
+     (-> elem
+         svg
+         (tf/style {:style {:outline "1px solid blue"
+                            :margin "10px"}})))
+   (partition-all 3)
+   (interpose [:br])))
+
+(spit 
+ "examples/bezier.html"
+ (html 
+  [:html 
+   [:body
+    [:h1 "Bezier Curve Examples"]
+    doc]]))
 
 #+end_src
 
@@ -3347,7 +3395,6 @@ Distribute a list of elements along X/Y axis, keeping a constant gap between the
 #+begin_src clojure :tangle ./examples/offset.cljc
 (ns examples.offset
   (:require [clojure.string :as str]
-            [clojure.java.shell :refer [sh]]
             [hiccup.core :refer [html]]
             [svg-clj.composites :as cp :refer [svg]]
             [svg-clj.utils :as utils]
@@ -3379,9 +3426,6 @@ Distribute a list of elements along X/Y axis, keeping a constant gap between the
                       :stroke "limegreen"
                       :stroke-width "3px"})))
 
-(tools/cider-show (el/g a b))
-(tools/cider-show (el/g c d))
-
 (def pts [ [0 0] [100 -300] [200 -300] [300 0]])
 (def curve (p/bezier pts))
 
@@ -3398,6 +3442,128 @@ Distribute a list of elements along X/Y axis, keeping a constant gap between the
                       :stroke "limegreen"
                       :stroke-width "3px"})))
 
-(tools/cider-show (el/g e f))
+(def examples [a
+               b
+               c
+               d
+               (el/g a b)
+               (el/g c d)
+               e
+               f
+               (el/g e f)])
 
+(def doc
+  (->>
+   (for [elem examples]
+     (-> elem
+         svg
+         (tf/style {:style {:outline "1px solid blue"
+                            :margin "10px"}})))
+   (partition-all 3)
+   (interpose [:br])))
+
+(spit 
+ "examples/offset.html"
+ (html 
+  [:html 
+   [:body
+    [:h1 "Offset Examples"]
+    doc]]))
+
+#+end_src
+
+** blossom
+#+begin_src clojure :tangle ./examples/blossom.cljc
+(ns examples.blossom
+  (:require [svg-clj.utils :as utils]
+            [svg-clj.elements :as el]
+            [svg-clj.transforms :as tf]
+            [svg-clj.composites :as comp :refer [svg]]
+            [svg-clj.path :as path]
+            [svg-clj.parametric :as p]
+            [svg-clj.layout :as lo]
+            [svg-clj.tools :as tools]
+            #?(:clj [svg-clj.tools :as tools])))
+            
+(defn flip-y
+  [pts]
+  (mapv #(utils/v* % [1 -1]) pts))
+
+(defn petal
+  [cpts]
+  (let [beza (apply path/bezier cpts)
+        bezb (apply path/bezier (flip-y cpts))
+        shape (tf/merge-paths beza bezb)
+        ctr (tf/centroid shape)]
+    (-> shape
+        (tf/rotate -90)
+        (tf/translate (utils/v* ctr [-1 -1])))))
+
+(defn petal-ring
+  [petal r n]
+  (el/g
+   (lo/distribute-on-curve
+    (repeat n petal)
+    (p/circle r))))
+
+(def petal-01
+  (-> (petal [[0 0] [5 -50] [50 -20] [75 0]])
+      (tf/style {:fill "#ff8b94"
+                 :stroke "#ffaaa5"
+                 :stroke-width "4px"
+                 :stroke-linecap "round"})))
+
+(def petal-02
+  (-> (petal [[0 0] [1 -20] [20 -10] [40 0]])
+      (tf/style {:fill "#ffaaa5"
+                 :stroke "none"})))
+
+(def petal-03
+  (-> (tf/merge-paths petal-01 petal-02)
+      (tf/style {:fill "#a8e6cf"})))
+
+(def petal-ring-01 (petal-ring petal-01 120 12))
+(def petal-ring-02 (petal-ring petal-02 120 12))
+
+(def petal-ring-03
+  (-> (petal-ring petal-03 70 6)
+      (tf/rotate (/ 360.0 24))))
+
+(def petal-ring-04
+  (let [petal (-> petal-03 (tf/style {:fill "#cc5963"}))]
+    (-> (petal-ring petal 90 6)
+        (tf/rotate (/ 360.0 24))
+        (tf/rotate (/ 360.0 12)))))
+
+(def petal-ring-05
+  (let [petal (-> petal-02
+                  (tf/rotate 180)
+                  (tf/style {:fill "none"
+                             :stroke "#f4f1d7"
+                             :stroke-width "2px"}))]
+    (-> (petal-ring petal 70 36)
+        (tf/rotate (/ 360.0 24)))))
+
+(def petal-ring-06
+  (let [petal (-> petal-02
+                  (tf/style {:fill "none"
+                             :stroke "#f4f1d7"
+                             :stroke-width "2px"}))]
+    (-> (petal-ring petal 40 20)
+        (tf/rotate (/ 360.0 24)))))
+
+(def blossom (el/g
+              (-> (el/circle 105) (tf/style {:fill "#69b599"}))
+              petal-ring-01
+              petal-ring-02
+              petal-ring-06
+              petal-ring-05
+              petal-ring-04
+              petal-ring-03))
+
+;; when in a Clojure context, you can compile to SVG files
+;; this uses the Hiccup html compiler
+;; emitted SVG data works with Reagent as well.
+
+(tools/save-svg blossom "examples/blossom.svg")
 #+end_src

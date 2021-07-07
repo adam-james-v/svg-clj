@@ -1,16 +1,3 @@
-# svg-clj
-
-[![Clojars Project](https://img.shields.io/clojars/v/io.github.adam-james-v/svg-clj.svg)](https://clojars.org/io.github.adam-james-v/svg-clj)
-
-svg-clj is a library for creating SVGs in Clojure/Clojurescript. This is done using functions which emit hiccup data structures. Since hiccup is quite common and well-known in the Clojure ecosystem, it is rather simple to use svg-clj alongside other libraries that emit and/or expect hiccup-style data structures.
-
-Here is an example using most of svg-clj's features:
-
-![An SVG Image of a stylized flower blossom.](https://github.com/adam-james-v/svg-clj/blob/main/examples/blossom.svg "Blossom")
-
-This blossom is produced with the following code:
-
-```clojure
 (ns examples.blossom
   (:require [svg-clj.utils :as utils]
             [svg-clj.elements :as el]
@@ -103,28 +90,3 @@ This blossom is produced with the following code:
 ;; emitted SVG data works with Reagent as well.
 
 (tools/save-svg blossom "examples/blossom.svg")
-```
-
-## deps.edn
-
-```clj
-svg-clj/svg-clj {:git/url "https://github.com/adam-james-v/svg-clj"
-                 :sha "grab-latest-sha"}
-```
-
-
-If you would like to understand my motivations, decisions, and reasoning for the choices I've made in this library, you can read the .org file in the top level of this repo.
-
-[svg-clj.org](https://github.com/adam-james-v/svg-clj/blob/main/svg-clj.org). I attempt to do literate programming in my org files, but I have a scattered approach, so please be patient if you're reading the notes; they may not always make sense. Proper documentation is, naturally, a key element in bringing this project from prototype to release.
-
-## Other Work
-
-[Dali](https://github.com/stathissideris/dali) is a library by Stathis Sideris that also works with SVG. Since I have only recently heard about this library, I have not yet had time to do a detailed comparison but, at a glance, some differences I see are:
-
-|                    svg-clj                   |                       dali                      |
-|:--------------------------------------------:|:-----------------------------------------------:|
-| users write functions which emit hiccup data | users write hiccup data directly                |
-| very basic layout engine                     | layout engine is a key feature                  |
-| no built-in rasterization                    | rasterize SVGs using Batik                      |
-| Clojure and Clojurescript                    | Clojure only                                    |
-| SVG primitives only (for now)                | SVG primitives + 'prefabs' (eg. markers/arrows) |

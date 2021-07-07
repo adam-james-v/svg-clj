@@ -814,13 +814,6 @@
           :else
           (path/path (path/cmds->path-string cmds)))))))
 
-#_(defn merge-paths
-  "Merges a list of path elements together, keeping props from last path in the list."
-  [& paths]
-  (let [[_ props] (last paths)
-        d (str/join " " (map #(get-in % [1 :d]) paths))]
-    [:path (assoc props :d d)]))
-
 (defn- clean-m-cmds
   "Remove cmdb if it is an M command with the same position as the last input of cmda."
   [[cmda cmdb]]
@@ -837,10 +830,10 @@
   [& paths]
   (let [[_ props] (last paths)
         cmds (mapcat #(path/path-string->commands (get-in % [1 :d])) paths)
-        xf-cmds (conj 
+        #_#_xf-cmds (conj 
                  (remove nil? (mapcat clean-m-cmds (partition 2 1 (rest cmds))))
                  (first cmds))]
-    [:path (assoc props :d (path/cmds->path-string xf-cmds))]))
+    [:path (assoc props :d (path/cmds->path-string cmds))]))
 
 (defn split-path
   [[k props]]
@@ -988,7 +981,7 @@
       :list)))
 
 (defmethod offset :default
-  [[k props]]
+  [[k props :as elem]]
   (println (str "Offset not implemented for " k "."))
   elem)
 

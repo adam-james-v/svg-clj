@@ -36,54 +36,80 @@
                               (rand-int 255) ","
                               (rand-int 255) ")")}))))
 
-(tools/cider-show (map show-debug-geom (drop 2 (lo/distribute-linear :x 10 (repeatedly 7 rand-rect)))))
+;; Distribute a list of elements along X/Y axis, keeping a constant gap between the boundaries of each element.
 
-(tools/cider-show (map show-debug-geom (drop 2 (lo/distribute-linear :y 10 (repeatedly 7 rand-rect)))))
+(def horizontal-dist
+  (el/g
+   (map show-debug-geom
+        (drop 2 (lo/distribute-linear :x 10 (repeatedly 7 rand-rect))))))
 
-(tools/cider-show 
+(def vertical-dist
+  (el/g
+   (map show-debug-geom
+        (drop 2 (lo/distribute-linear :y 10 (repeatedly 7 rand-rect))))))
+
+;; Distribute a list of elements onto a list of points.
+;; Works like map, so whichever runs out first (elements or points) is the limiter.
+
+(def grid-dist
  (lo/distribute-on-pts 
   (repeatedly rand-rect)
-  (lo/rect-grid 10 10 30 30)))
+  (p/rect-grid 10 10 30 30)))
 
-(def pts [ [70 -20] [10 70] [200 -300] [300 0]])
-(def curve (p/bezier pts))
-(def asdf (-> (el/line [0 0] [0 15])
-              (tf/style {:stroke "red" :stroke-width "3px"})))
+(def grid-dist2
+ (lo/distribute-on-pts
+  (repeat (el/circle 1.5))
+  (p/rect-grid 20 30 10 10)))
 
-(tools/cider-show
+;; Distribute a list of elements onto a parametric curve.
+(def redline
+  (-> (el/line [0 0] [0 15])
+      (tf/style {:stroke "red" :stroke-width "3px"})))
+
+(def circle-curve-dist
  (el/g
   (el/circle 150)
   (lo/distribute-on-curve
-   (repeat 80 asdf)
+   (repeat 80 redline)
    (p/circle 150))))
 
-(tools/cider-show 
+(def circle-curve-dist2
+ (el/g
+  (el/circle 150)
+  (lo/distribute-on-curve
+   (repeatedly 40 rand-rect)
+   (p/circle 150))))
+
+;; Distribute on any curve available in parametric.cljc
+(def bez-curve (p/bezier [ [70 -20] [10 70] [200 -300] [300 0]]))
+
+(def bezier-curve-dist 
  (lo/distribute-on-curve
   (repeatedly 20 rand-rect)
-  curve))
+  bez-curve))
 
-(tools/cider-show 
- (lo/distribute-on-curve
-  (repeatedly 40 rand-rect)
-  (p/circle 150)))
+(def examples [horizontal-dist
+               vertical-dist
+               grid-dist
+               grid-dist2
+               circle-curve-dist
+               circle-curve-dist2
+               bezier-curve-dist])
 
-(def city
-  (let [buildings (lo/distribute-on-curve
-                   (repeatedly 100 rand-rect)
-                   (p/circle 150))
-        paths (map tf/element->path buildings)
-        skyline (apply tf/merge-paths paths)]
-    (-> skyline
-        (tf/style {:fill "none"
-                   :stroke "hotpink"}))))
+(def doc
+  (->>
+   (for [elem examples]
+     (-> elem
+         svg
+         (tf/style {:style {:outline "1px solid blue"
+                         :margin "10px"}})))
+   (partition-all 3)
+   (interpose [:br])))
 
-(tools/cider-show 
- (lo/distribute-linear
-  :x
-  3
-  (repeatedly 10 rand-rect)))
-
-(tools/cider-show 
- (lo/distribute-on-pts
-  (repeat (el/circle 1))
-  (p/rect-grid 20 30 10 10)))
+(spit 
+ "examples/layout.html"
+ (html 
+  [:html 
+   [:body
+    [:h1 "Layout Examples"]
+    doc]]))

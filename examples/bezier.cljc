@@ -1,6 +1,5 @@
 (ns examples.bezier
   (:require [clojure.string :as str]
-            [clojure.java.shell :refer [sh]]
             [hiccup.core :refer [html]]
             [svg-clj.composites :as cp :refer [svg]]
             [svg-clj.utils :as utils]
@@ -20,7 +19,8 @@
 
 (def cols ["blue" "cyan" "purple" "pink" "blue" "skyblue" "slategray" "gold" "orange" "red"]) 
 
-(def curves
+;; runs slow due to arc-length calc
+#_(def curves
   (let [cpts (p/uniform-split-bezier curve 6) #_(p/multi-split-bezier curve ts)]
     (map-indexed #(el/g 
                    (-> (apply path/bezier %2)
@@ -32,31 +32,7 @@
                        (tf/style {:fill "red"})))
                    cpts)))
 
-#_(tools/cider-show curves)
-
-(defn wrong-offset-beizer
-  [curve d]
-  (let [cpts (first (:input (curve)))
-        n-cpts (tf/offset-pts cpts d)]
-    (el/g
-     (-> (apply path/bezier cpts)
-         (tf/style {:fill "none" :stroke-width "3px" :stroke "skyblue"}))
-     (-> (apply path/bezier n-cpts)
-         (tf/style {:fill "none" :stroke-width "3px" :stroke "hotpink"})))))
-
-(defonce split-curve (p/uniform-split-bezier curve 4))
-
-(defn offset-beizer
-  [curve d]
-  (let [cpts (first (:input (curve)))
-        curves split-curve]
-    (el/g
-     (-> (apply path/bezier cpts)
-         (tf/style {:fill "none" :stroke-width "3px" :stroke "skyblue"}))
-     (map #(-> (path/polyline (tf/offset-pts % d))
-               (tf/style {:fill "none"
-                          :stroke-width "3px"
-                          :stroke "hotpink"})) curves))))
+#_(def split-curve (p/uniform-split-bezier curve 4))
 
 (def a (-> (apply path/bezier pts)
            (tf/style {:fill "none"
@@ -87,4 +63,26 @@
 
 (def c (el/g a aa ab b))
 
-(tools/cider-show c)
+(def examples [a
+               aa
+               ab
+               b
+               c])
+
+(def doc
+  (->>
+   (for [elem examples]
+     (-> elem
+         svg
+         (tf/style {:style {:outline "1px solid blue"
+                            :margin "10px"}})))
+   (partition-all 3)
+   (interpose [:br])))
+
+(spit 
+ "examples/bezier.html"
+ (html 
+  [:html 
+   [:body
+    [:h1 "Bezier Curve Examples"]
+    doc]]))
