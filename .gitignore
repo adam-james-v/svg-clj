@@ -15,6 +15,5 @@ pom.xml.asc
 .cpcache/
 .shadow-cljs/
 _tmp.svg
-*.png
 *.txt
 svgcli
