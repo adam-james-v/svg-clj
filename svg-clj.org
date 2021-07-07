@@ -43,7 +43,7 @@
 #+end_src
 
 ** release.edn
-#+begin_src clojure :tangle ./deps.edn
+#+begin_src clojure :tangle ./release.edn
 {:group-id "io.github.adam-james-v"
  :artifact-id "svg-clj"
  :scm-url "https://github.com/adam-james-v/svg-clj"}
