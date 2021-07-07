@@ -14,7 +14,7 @@ pom.xml.asc
 .nrepl-port
 .cpcache/
 .shadow-cljs/
+_tmp.svg
 *.png
-*.svg
 *.txt
 svgcli
