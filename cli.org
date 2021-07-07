@@ -1,0 +1,503 @@
+* ;;
+#+Title: cli
+#+AUTHOR: adam-james
+#+STARTUP: overview
+#+EXCLUDE_TAGS: excl
+#+PROPERTY: header-args :cache yes :noweb yes :results value :mkdirp yes :padline yes :async
+#+HTML_DOCTYPE: html5
+#+OPTIONS: toc:2 num:nil html-style:nil html-postamble:nil html-preamble:nil html5-fancy:t
+
+Use this org file to experiment with CLI creation. Keep CLI functionality out of the main library, to keep things clean and lean.
+
+** deps.edn
+#+NAME: deps.edn
+#+begin_src clojure
+{:deps 
+ {org.clojure/clojure    {:mvn/version "1.10.3"}
+  org.clojure/tools.cli  {:mvn/version "1.0.206"}
+  org.clojure/test.check {:mvn/version "1.1.0"}
+  org.clojure/data.xml   {:mvn/version "0.0.8"}
+  same/ish               {:mvn/version "0.1.4"}
+  hawk/hawk              {:mvn/version "0.2.11"}
+  hiccup/hiccup          {:mvn/version "2.0.0-alpha2"}
+  batik-rasterize/batik-rasterize {:local/root "/Users/adam/dev/batik-rasterize"} #_{:mvn/version "0.1.2"}
+  borkdude/sci           {:mvn/version "0.2.5"}}
+ 
+:aliases {:test {:extra-paths ["test"]
+                 :extra-deps {com.cognitect/test-runner {:git/url "https://github.com/cognitect-labs/test-runner.git"
+                                                         :sha "209b64504cb3bd3b99ecfec7937b358a879f55c1"}}
+                 :main-opts ["-m" "cognitect.test-runner"]}
+          :uberjar
+          {:replace-deps
+           {com.github.seancorfield/depstar {:mvn/version "2.0.216"}}
+           :exec-fn hf.depstar/uberjar
+           :exec-args {:jar svg_clj.jar
+                       :main-class svg-clj.cli
+                       :aot true}}}}
+
+#+end_src
+
+** bb.edn
+always need GRAALVM_HOME set
+If you want to run an agent to help build a reflect-config.json, then you need to set JAVA executable to GRAAL version as well.
+
+export GRAALVM_HOME=/Users/adam/Downloads/graalvm-ce-java11-21.1.0/Contents/Home
+export JAVA_HOME=$GRAALVM_HOME 
+
+binary file reduction: 'upx', which is a binary compression tool.
+
+1. Run bb gen-reflect with -i drawing.clj -w
+
+This causes the GraalVM agent to correctly walk the codepath that requires the watcher libs/classes.
+
+Check that the uberjar is running by making a trivial change (such as adding a space) to drawing.clj and saving. You should see a message in the terminal. If successful, you can quit the watcher with CTRL-C in the terminal.
+
+2. Edit the generated reflect-config.json. Manually Replace 
+
+{
+  "name":"java.lang.reflect.Method",  
+"methods":[{"name":"canAccess","parameterTypes":["java.lang.Object"] }]
+},
+
+with
+
+{
+  "name":"java.lang.reflect.AccessibleObject",
+  "methods":[{"name":"canAccess"}]
+},
+
+And add the following to the end of the list:
+
+{
+  "name":"com.barbarysoftware.watchservice.StandardWatchEventKind$StdWatchEventKind[]",
+  "allPublicMethods":true
+},
+
+This is true on MacOS... I don't yet know how this works on linux or windows.
+
+
+3. Run bb native-image
+
+4. Test the binary by running ./svg_clj -i drawing.clj
+
+This should successfully produce drawing.svg in the directory.
+
+5. Test the binary by running ./svg_clj -i drawing.clj -w
+
+This should successfully start a watcher. Check that it responds to file changes by saving a trivial change to drawing.clj. For example, add a space somewhere and save.
+
+
+#+begin_src clojure
+{:tasks
+ {:requires ([babashka.fs :as fs]
+             [clojure.string :as str])
+  :init (def windows? (str/starts-with? (System/getProperty "os.name")
+                                        "Windows"))
+  run-main
+  {:doc "Run main"
+   :task (apply clojure "-M -m svg-clj.cli" *command-line-args*)}
+  
+  uberjar
+  {:doc "Builds uberjar"
+   :task (when (seq (fs/modified-since "svg_clj.jar" "src"))
+           (clojure "-X:uberjar"))}
+
+  run-uber
+  {:doc "Run uberjar"
+   :depends [uberjar]
+   :task (apply shell "java -jar svg_clj.jar" *command-line-args*)}
+  
+  graalvm
+  {:doc "Checks GRAALVM_HOME env var"
+   :task
+   (let [env (System/getenv "GRAALVM_HOME")]
+     (assert "Set GRAALVM_HOME")
+     env)}
+  
+  gen-reflect-config
+  {:doc "Runs scripts/gen-reflect-config.clj on the compiled jar."
+   :depends [graalvm uberjar]
+   :task (binding [*command-line-args* ["java" "-jar" "svg_clj.jar" "-i" "drawing.clj"]]
+           (load-file "scripts/gen-reflect-config.clj"))}
+
+  native-image
+  {:doc "Builds native image"
+   :depends [graalvm uberjar gen-reflect-config]
+   :task (do
+           (shell (str (fs/file graalvm
+                                "bin"
+                                (if windows?
+                                  "gu.cmd"
+                                  "gu")))
+                  "install" "native-image")
+           (shell (str (fs/file graalvm
+                                "bin"
+                                (if windows?
+                                  "native-image.cmd"
+                                  "native-image")))
+                  "-H:Name=svg-clj"
+                  "-H:ReflectionConfigurationFiles=reflect-config-cleaned.json"
+                  "-jar" "svg_clj.jar"
+                  "--initialize-at-build-time"
+                  "--no-fallback"
+                  "--no-server"))}}}
+
+#+end_src
+
+** build-scripts
+Use these scripts to help with the native-image build process. Jar/uberjar builds work just fine with bb tasks already.
+
+This script is from borkdude's example repo:
+
+[[https://github.com/borkdude/refl/blob/main/script/gen-reflect-config.clj]]
+
+This script takes a reflect-config.json and cleans it up by removing unnecessary clojure classes and fixing the bug(?) where java.lang.reflect.Method causes native-image to fail at setup phase.
+
+#+begin_src clojure :tangle ./scripts/gen-reflect-config.clj
+#!/usr/bin/env bb
+
+(require '[babashka.process :refer [process]]
+         '[cheshire.core :as cheshire]
+         '[clojure.string :as str])
+
+(def trace-cmd *command-line-args*)
+
+(def trace-agent-env "-agentlib:native-image-agent=trace-output=trace-file.json")
+(def config-agent-env "-agentlib:native-image-agent=config-output-dir=.")
+
+@(process trace-cmd {:inherit true :extra-env {"JAVA_TOOL_OPTIONS" trace-agent-env}})
+@(process trace-cmd {:inherit true :extra-env {"JAVA_TOOL_OPTIONS" config-agent-env}})
+
+(def trace-json (cheshire/parse-string (slurp "trace-file.json") true))
+
+;; [Z = boolean
+;; [B = byte
+;; [S = short
+;; [I = int
+;; [J = long
+;; [F = float
+;; [D = double
+;; [C = char
+;; [L = any non-primitives(Object)
+
+(defn normalize-array-name [n]
+  ({"[F" "float[]"
+    "[B" "byte[]"
+    "[Z" "boolean[]"
+    "[C" "char[]"
+    "[D" "double[]"
+    "[I" "int[]"
+    "[J" "long[]"
+    "[S" "short[]"} n n))
+
+(def ignored (atom #{}))
+(def unignored (atom #{}))
+
+(defn ignore [{:keys [:tracer :caller_class :function :args] :as _m}]
+  (when (= "reflect" tracer)
+    (when-let [arg (first args)]
+      (let [arg (normalize-array-name arg)]
+        (if (and caller_class
+                 (or (= "clojure.lang.RT" caller_class)
+                     (= "clojure.genclass__init" caller_class)
+                     (and (str/starts-with? caller_class "clojure.core$fn")
+                          (= "java.sql.Timestamp" arg)))
+                 (= "forName" function))
+          (swap! ignored conj arg)
+          (when (= "clojure.lang.RT" caller_class)
+            ;; unignore other reflective calls in clojure.lang.RT
+            (swap! unignored conj arg)))))))
+
+(run! ignore trace-json)
+
+;; (prn @ignored)
+;; (prn @unignored)
+
+(defn process-1 [{:keys [:name] :as m}]
+  (when-not (and (= 1 (count m))
+                 (contains? @ignored name)
+                 (not (contains? @unignored name)))
+    ;; fix bug(?) in automated generated config
+    (if (= "java.lang.reflect.Method" name)
+      (assoc m :name "java.lang.reflect.AccessibleObject")
+      m)))
+
+(def config-json (cheshire/parse-string (slurp "reflect-config.json") true))
+
+(def cleaned (keep process-1 config-json))
+
+(spit "reflect-config-cleaned.json" (cheshire/generate-string cleaned {:pretty true}))
+
+#+end_src
+
+* tools
+** ns
+#+begin_src clojure :tangle ./src/svg_clj/tools.clj
+(ns svg-clj.tools
+  (:require [clojure.string :as str]
+            [clojure.java.shell :refer [sh]]
+            [clojure.java.browse]
+            [clojure.java.io]
+            [hiccup.core :refer [html]]
+            [svg-clj.elements :as svg]
+            [svg-clj.composites :refer [svg]]
+            [svg-clj.path :as path]
+            [svg-clj.transforms :as tf]
+            [batik.rasterize :as b]
+            [svg-clj.utils :as utils]))
+
+#+end_src
+
+** png
+#+begin_src clojure :tangle ./src/svg_clj/tools.clj
+(defn sh-png! [svg-data fname]
+  (sh "convert" "-background" "none" "/dev/stdin" fname
+      :in (html svg-data)))
+
+(defn png! [svg-data fname]
+  (b/render-svg-string (html svg-data) fname))
+
+#+end_src
+
+** save-load
+#+begin_src clojure :tangle ./src/svg_clj/tools.clj
+(defn save-svg
+  [svg-data fname]
+  (let [data (if (= (first svg-data) :svg)
+               svg-data
+               (svg svg-data))]
+    (spit fname (html data))))
+
+(defn load-svg
+  [fname]
+  (-> fname
+      slurp
+      utils/svg-str->elements))
+#+end_src
+
+** repl-show
+#+begin_src clojure :tangle ./src/svg_clj/tools.clj
+(defn cider-show
+  [svg-data]
+  (let [fname "_imgtmp.png"
+        data (if (= (first svg-data) :svg)
+               svg-data
+               (svg svg-data))]
+    (do (png! data fname)
+        (clojure.java.io/file fname))))
+
+(defn show
+  [svg-data]
+  (let [fname "_tmp.svg"]
+    (do (save-svg svg-data fname))
+        (clojure.java.io/file fname)))
+
+#+end_src
+
+
+* cli
+This is a WIP. 
+
+The idea is to have a CLI tool that 'compiles' svg-clj code into an SVG file.
+
+GraalVM native image:
+
+bb native-image
+
+The resulting executable will be svg_clj and works for exporting .svg files, but fails with .png due to reflection issues with the Batik library.
+
+Fixing this might be possible with alteration to reflect-config.json and/or adding type hints (via a Github pull request perhaps?) to the batik library.
+
+#+begin_src clojure
+(ns svg-clj.cli
+  (:require [clojure.string :as str]
+            [clojure.tools.cli :as cli]
+            [hiccup.core :refer [html]]
+            [svg-clj.composites :as cp :refer [svg]]
+            [svg-clj.utils :as utils]
+            [svg-clj.elements :as el]
+            [svg-clj.path :as path]
+            [svg-clj.transforms :as tf]
+            [svg-clj.layout :as lo]
+            [sci.core :as sci])
+  (:gen-class))
+
+#+end_src
+
+** load-file
+For GraalVM native image, you can't use Clojure's loading functions. Luckily, Borkdude's Simple Clojure Interpreter (SCI) has eval-string capability which we can use to load our namespaces and evaluate files from a native image.
+
+#+begin_src clojure
+(def my-ns-map
+  (into {} 
+        (map #(vector % (ns-publics %))
+             ['svg-clj.composites
+              'svg-clj.utils
+              'svg-clj.elements
+              'svg-clj.path
+              'svg-clj.transforms
+              'svg-clj.layout])))
+
+(defn sci-load-file
+  [fname]
+  (-> (slurp fname)
+      (sci/eval-string {:namespaces my-ns-map})))
+
+#+end_src
+
+** cli
+#+begin_src clojure
+(def cli-options
+  [["-i" "--infile FNAME" "The file to be compiled."
+    :default nil]
+   ["-o" "--outfile FNAME" "The output filename. Valid Extensions: svg"
+    :default nil]
+   ["-h" "--help"]])
+
+(defn -main [& args]
+  (let [parsed (cli/parse-opts args cli-options)
+        {:keys [:infile :outfile :watch :help]} (:options parsed)
+        [in _] (when infile (str/split infile #"\."))
+        outfile (if outfile outfile (str in ".svg"))
+        [out ext] (str/split outfile #"\.")]
+    (cond
+      help
+      (do (println "Usage:")
+          (println (:summary parsed)))
+          
+      (nil? infile)
+      (println "Please specify an input file")
+
+      (not (contains? #{"svg"} ext))
+      (println "Please specify a valid output format. Valid formats: svg.")
+      
+      :else
+      (let [result (deref (sci-load-file infile))
+            data (if (= :svg (first result)) result (svg result))
+            msg (str "| Compiling " infile " into " outfile ". |")]
+        (println (apply str (repeat (count msg) "-")))
+        (println msg)
+        (println (apply str (repeat (count msg) "-")))
+        (spit outfile (html data))
+        (println "Success! Have a nice day :)")))))
+
+#+end_src
+* cli2
+This is a WIP. 
+
+The idea is to have a CLI tool that 'compiles' svg-clj code into an SVG file.
+
+GraalVM native image:
+
+bb native-image
+
+The resulting executable will be svg_clj and works for exporting .svg files, but fails with .png due to reflection issues with the Batik library.
+
+Fixing this might be possible with alteration to reflect-config.json and/or adding type hints (via a Github pull request perhaps?) to the batik library.
+
+#+begin_src clojure
+(ns svg-clj.cli2
+  (:require [clojure.string :as str]
+            [clojure.tools.cli :as cli]
+            [hiccup.core :refer [html]]
+            [hawk.core :as hawk]
+            [svg-clj.composites :as cp :refer [svg]]
+            [svg-clj.utils :as utils]
+            [svg-clj.elements :as el]
+            [svg-clj.path :as path]
+            [svg-clj.transforms :as tf]
+            [svg-clj.layout :as lo]
+            [sci.core :as sci])
+  (:gen-class))
+
+#+end_src
+
+** load-file
+For GraalVM native image, you can't use Clojure's loading functions. Luckily, Borkdude's Simple Clojure Interpreter (SCI) has eval-string capability which we can use to load our namespaces and evaluate files from a native image.
+
+#+begin_src clojure
+(def my-ns-map
+  (into {} 
+        (map #(vector % (ns-publics %))
+             ['svg-clj.composites
+              'svg-clj.utils
+              'svg-clj.elements
+              'svg-clj.path
+              'svg-clj.transforms
+              'svg-clj.layout])))
+
+(defn sci-load-file
+  [fname]
+  (-> (slurp fname)
+      (sci/eval-string {:namespaces my-ns-map})))
+
+#+end_src
+
+** watcher
+This fn is not working yet, but the idea is to let the CLI watch a source file, launch a basic server, compile the SVG, and display it in the web browser, which will be auto-refreshed any time the file is updated.
+
+#+begin_src clojure
+(defn watch!
+  [infile outfile]
+  (let [ [name ext] (str/split infile #"\.")]
+    (hawk/watch!
+     [{:paths [infile]
+       :handler
+       (fn [ctx e]
+         (let [result (deref (sci-load-file infile))
+               data (if (= :svg (first result)) result (svg result))
+               msg (str "| Compiling " infile " into " outfile ". |")]
+           (println (apply str (repeat (count msg) "-")))
+           (println msg)
+           (println (apply str (repeat (count msg) "-")))
+           (spit outfile (html data))
+           (println "Done. Waiting for changes")
+           ctx))}])))
+
+#+end_src
+
+** cli
+Experimental... trying to compile with more features like a file watcher and rasterizing.
+
+#+begin_src clojure
+(def cli-options
+  [["-i" "--infile FNAME" "The file to be compiled."
+    :default nil]
+   ["-o" "--outfile FNAME" "The output filename. Valid Extensions: svg"
+    :default nil]
+   ["-w" "--watch" "Watch the file for changes and re-compile on change."
+    :default false]
+   ["-h" "--help"]])
+
+(defn -main [& args]
+  (let [parsed (cli/parse-opts args cli-options)
+        {:keys [:infile :outfile :watch :help]} (:options parsed)
+        [in _] (when infile (str/split infile #"\."))
+        outfile (if outfile outfile (str in ".svg"))
+        [out ext] (str/split outfile #"\.")]
+    (cond
+      help
+      (do (println "Usage:")
+          (println (:summary parsed)))
+          
+      (nil? infile)
+      (println "Please specify an input file")
+
+      (not (contains? #{"svg"} ext))
+      (println "Please specify a valid output format. Valid formats: svg.")
+
+      watch
+      (do (println (str "Waiting for changes to " infile "."))
+          (watch! infile outfile))
+      
+      :else
+      (let [result (deref (sci-load-file infile))
+            data (if (= :svg (first result)) result (svg result))
+            msg (str "| Compiling " infile " into " outfile ". |")]
+        (println (apply str (repeat (count msg) "-")))
+        (println msg)
+        (println (apply str (repeat (count msg) "-")))
+        (spit outfile (html data))
+        (println "Success! Have a nice day :)")))))
+
+#+end_src

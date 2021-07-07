@@ -1,22 +1,33 @@
 {:deps 
  {org.clojure/clojure    {:mvn/version "1.10.3"}
+  org.clojure/clojurescript {:mvn/version "1.10.866"}
   org.clojure/tools.cli  {:mvn/version "1.0.206"}
   org.clojure/test.check {:mvn/version "1.1.0"}
-  org.clojure/data.xml   {:mvn/version "0.0.8"}
+  org.clojure/data.xml   {:mvn/version "0.2.0-alpha6"}
   same/ish               {:mvn/version "0.1.4"}
-  hawk/hawk              {:mvn/version "0.2.11"}
-  hiccup/hiccup          {:mvn/version "2.0.0-alpha2"}
-  batik-rasterize/batik-rasterize {:local/root "/Users/adam/dev/batik-rasterize"} #_{:mvn/version "0.1.2"}
-  borkdude/sci           {:mvn/version "0.2.5"}}
+  hiccup/hiccup          {:mvn/version "2.0.0-alpha2"}}
  
-:aliases {:test {:extra-paths ["test"]
-                 :extra-deps {com.cognitect/test-runner {:git/url "https://github.com/cognitect-labs/test-runner.git"
-                                                         :sha "209b64504cb3bd3b99ecfec7937b358a879f55c1"}}
-                 :main-opts ["-m" "cognitect.test-runner"]}
-          :uberjar
-          {:replace-deps
-           {com.github.seancorfield/depstar {:mvn/version "2.0.216"}}
-           :exec-fn hf.depstar/uberjar
-           :exec-args {:jar svg_clj.jar
-                       :main-class svg-clj.cli
-                       :aot true}}}}
+ :aliases
+ {:test
+  {:extra-paths ["test"]
+   :extra-deps {com.cognitect/test-runner
+                {:git/url "https://github.com/cognitect-labs/test-runner.git"
+                 :sha "209b64504cb3bd3b99ecfec7937b358a879f55c1"}}
+   :main-opts ["-m" "cognitect.test-runner"]}
+
+  :jar
+  {:replace-deps {com.github.seancorfield/depstar {:mvn/version "2.1.245"}}
+   :exec-fn hf.depstar/jar
+   :exec-args {}}
+
+  :release
+  {:extra-deps {applied-science/deps-library {:mvn/version "0.4.0"}}
+   :main-opts ["-m" "applied-science.deps-library"]}
+  
+  :js
+  {:extra-deps {thheller/shadow-cljs {:mvn/version "2.14.6"}}
+   :main-opts ["-m" "shadow.cljs.devtools.cli" "compile" "jslib"]}}}
+
+{:group-id "io.github.adam-james-v"
+ :artifact-id "svg-clj"
+ :scm-url "https://github.com/adam-james-v/svg-clj"}

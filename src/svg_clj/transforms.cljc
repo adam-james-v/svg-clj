@@ -812,7 +812,7 @@
             (svg/polygon pts))
           
           :else
-          (path/path (path/cmds->path-string)))))))
+          (path/path (path/cmds->path-string cmds)))))))
 
 #_(defn merge-paths
   "Merges a list of path elements together, keeping props from last path in the list."
@@ -831,18 +831,7 @@
       (and (= pa pb) (= "M" cb)) [cmda]
       :else [cmda cmdb])))
 
-
-
-
-
-
-
 ;; doesn't always work. Check xf-cmds logic to see if it is incorrectly discarding some paths. For example, my ob-babashka example project I noticed that two beziers are not merging correctly (one is dropped entirely) but they seem to work when I don't use xf-cmnds but jsut cmds directly
-
-
-
-
-
 (defn merge-paths
   "Merges a list of path elements together, keeping props from last path in the list."
   [& paths]
@@ -992,15 +981,16 @@
         edge-pairs (cycle-pairs oedges)]
     (wrap-list-once (map #(apply utils/line-intersection %) edge-pairs))))
 
-;; maacl72 showed me how to do this via a Twitch Stream :) Thanks!
-(derive ::polyline ::poly)
-(derive ::polygon ::poly)
-
 (defmulti offset
   (fn [element _]
     (if (keyword? (first element))
       (first element)
       :list)))
+
+(defmethod offset :default
+  [[k props]]
+  (println (str "Offset not implemented for " k "."))
+  elem)
 
 (defmethod offset :list
   [elems d]

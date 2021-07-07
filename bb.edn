@@ -15,39 +15,4 @@
   run-uber
   {:doc "Run uberjar"
    :depends [uberjar]
-   :task (apply shell "java -jar svg_clj.jar" *command-line-args*)}
-  
-  graalvm
-  {:doc "Checks GRAALVM_HOME env var"
-   :task
-   (let [env (System/getenv "GRAALVM_HOME")]
-     (assert "Set GRAALVM_HOME")
-     env)}
-  
-  gen-reflect-config
-  {:doc "Runs scripts/gen-reflect-config.clj on the compiled jar."
-   :depends [graalvm uberjar]
-   :task (binding [*command-line-args* ["java" "-jar" "svg_clj.jar" "-i" "drawing.clj"]]
-           (load-file "scripts/gen-reflect-config.clj"))}
-
-  native-image
-  {:doc "Builds native image"
-   :depends [graalvm uberjar gen-reflect-config]
-   :task (do
-           (shell (str (fs/file graalvm
-                                "bin"
-                                (if windows?
-                                  "gu.cmd"
-                                  "gu")))
-                  "install" "native-image")
-           (shell (str (fs/file graalvm
-                                "bin"
-                                (if windows?
-                                  "native-image.cmd"
-                                  "native-image")))
-                  "-H:Name=svg-clj"
-                  "-H:ReflectionConfigurationFiles=reflect-config-cleaned.json"
-                  "-jar" "svg_clj.jar"
-                  "--initialize-at-build-time"
-                  "--no-fallback"
-                  "--no-server"))}}}
+   :task (apply shell "java -jar svg_clj.jar" *command-line-args*)}}}

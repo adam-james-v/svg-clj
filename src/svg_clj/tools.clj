@@ -8,15 +8,7 @@
             [svg-clj.composites :refer [svg]]
             [svg-clj.path :as path]
             [svg-clj.transforms :as tf]
-            [batik.rasterize :as b]
             [svg-clj.utils :as utils]))
-
-(defn sh-png! [svg-data fname]
-  (sh "convert" "-background" "none" "/dev/stdin" fname
-      :in (html svg-data)))
-
-(defn png! [svg-data fname]
-  (b/render-svg-string (html svg-data) fname))
 
 (defn save-svg
   [svg-data fname]
@@ -33,15 +25,12 @@
 
 (defn cider-show
   [svg-data]
-  (let [fname "_imgtmp.png"
-        data (if (= (first svg-data) :svg)
-               svg-data
-               (svg svg-data))]
-    (do (png! data fname)
+  (let [fname "_tmp.svg"]
+    (do (save-svg data fname)
         (clojure.java.io/file fname))))
 
 (defn show
   [svg-data]
-  (let [fname "_tmp.svg"]
+  (let [fname "_tmp.svg.html"]
     (do (save-svg svg-data fname))
         (clojure.java.io/file fname)))

@@ -6,8 +6,7 @@
   "Wraps a path string `d` in a hiccup-style data structure.
   The path string is minimally evaluated and is otherwise untouched. Users should consider the function `polygon-path` for constructing paths from points. More complex paths can be built by combining paths with the function `merge-paths`"
   [d]
-  [:path {:d d
-          :fill-rule "evenodd"}])
+  [:path {:d d :fill-rule "evenodd"}])
 
 (defn- path-command-strings
   "Split the path string `ps` into a vector of path command strings."

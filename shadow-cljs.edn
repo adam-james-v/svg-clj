@@ -1,0 +1,20 @@
+{:deps {:aliases [:js]}
+ :source-paths ["src"]
+ :builds
+ {:jslib
+  {:target :npm-module
+   :output-dir "public/js"
+   :entries [svg-clj.utils
+             svg-clj.elements
+             svg-clj.path
+             svg-clj.transforms
+             svg-clj.composites
+             svg-clj.parametric
+             svg-clj.layout]}}
+ #_{:jslib
+  {:target :browser
+   :output-dir "public/js"
+   :modules
+   {:utils    {:entries [svg-clj.utils]}
+    :elements {:entries [svg-clj.elements]
+               :depends-on #{:utils}}}}}}

@@ -6,34 +6,12 @@
   ([curve] (arc-length curve 0 1))
   ([curve t] (arc-length curve 0 t))
   ([curve ta tb]
-   (let [eps 0.0000075]
-     (->> (range ta (+ tb eps) eps)
-          (pmap curve)
+   (let [delta 0.0000075]
+     (->> (range ta (+ tb delta) delta)
+          (map curve)
           (partition 2 1)
           (map #(apply utils/distance %))
           (reduce +)))))
-
-;; https://pomax.github.io/bezierinfo/legendre-gauss.html
-(def gaussian-quadrature-n-8
-  [{:w 0.3626837833783620 :x -0.1834346424956498}
-   {:w 0.3626837833783620 :x 0.1834346424956498}
-   {:w 0.3137066458778873 :x -0.5255324099163290}
-   {:w 0.3137066458778873 :x 0.5255324099163290}
-   {:w 0.2223810344533745 :x -0.7966664774136267}
-   {:w 0.2223810344533745 :x 0.7966664774136267}
-   {:w 0.1012285362903763 :x -0.9602898564975363}
-   {:w 0.1012285362903763 :x 0.9602898564975363}])
-
-;; https://pomax.github.io/bezierinfo/#arclength
-(defn arc-length-exact
-  [curve]
-  (let [lut gaussian-quadrature-n-8
-        z 1
-        z-frac (/ z 2)
-        f (fn [t] (Math/sqrt (reduce + (map #(* % %) (curve t)))))
-        len (fn [{:keys [w x]}]
-              (* w (f (+ z-frac (* z-frac x)))))]
-    (reduce + (map len lut))))
 
 (defn regular-polygon-pts
   [r n]

@@ -1,8 +1,7 @@
 (ns svg-clj.utils
   (:require [clojure.string :as str]
             [same :refer [zeroish?]]
-            #?(:clj
-               [clojure.data.xml :as xml])
+            [clojure.data.xml :as xml]
             #?(:cljs
                [cljs.reader :refer [read-string]])))
 
