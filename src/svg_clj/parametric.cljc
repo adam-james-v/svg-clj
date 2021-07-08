@@ -1,6 +1,5 @@
 (ns svg-clj.parametric
-  (:require [clojure.string :as str]
-            [svg-clj.utils :as utils]))
+  (:require [svg-clj.utils :as utils]))
 
 (defn arc-length
   ([curve] (arc-length curve 0 1))
@@ -72,7 +71,7 @@
         u (utils/normalize u1)
         w (utils/normalize w1)
         v (utils/cross* w u)
-        [bx by] [(utils/dot* u1 u) 0]
+        [bx _] [(utils/dot* u1 u) 0]
         [cx cy] [(utils/dot* u2 u) (utils/dot* u2 v)]
         h (/ (+ (Math/pow (- cx (/ bx 2)) 2) 
                 (Math/pow cy 2)
@@ -191,7 +190,7 @@
   (let [eps 0.000001
         l (arc-length curve)
         guess (/ d l)
-        itr (fn [[t-prev t-guess]]
+        itr (fn [[#_t-prev _ t-guess]]
               (let [d-guess (arc-length curve t-guess)]
                 [t-guess (+ t-guess (/ (- d d-guess) l))]))]
     (->> (iterate itr [0 guess])
@@ -268,91 +267,6 @@
     (fn [t]
       [(/ (half-bezier xs t) (dn t)) 
        (/ (half-bezier ys t) (dn t))])))
-
-(defn- domain
-  [degree knots]
-  (let [knots (vec knots)]
-    [(get knots degree)
-     (get knots (- (count knots) 1 degree))]))
-
-(defn- remap-t
-  [degree knots t]
-  (let [[ds de] (domain degree knots)
-        sc (- de ds)]
-    (+ ds (* sc t))))
-
-(defn- section-index
-  [degree knots t]
-  (let [t (remap-t degree knots t)
-        knots (vec knots)
-        [ds de] (domain degree knots)]
-    (->>
-     (map (fn [[s0 s1]]
-            (when (<= s0 t s1) s0))
-                  (partition 2 1 (range ds (inc de))))
-     (filter some?)
-     first)))
-
-;; degree example: quadratic b-spline = degree 2, cubic degree 3
-;; order is (inc degree) and is the number of knots needed for any one section
-;; order, k, is called 'knot interval'
-;; n is number of control points. 
-;; NOTE: for b-splines, the degree and n_cpts are NOT related.
-
-
-;; current issue is index out of bounds. Seems like it's probably related to
-;; incorrect s or i value, so (get knots i...) fails in some cases. 
-(defn- b-spline-inner
-  [[pts degree knots]
-   [l v]
-   t]
-  (let [s (section-index degree knots t)
-        order (inc degree)]
-     (loop [v v
-           i s]
-      (if (> i (+ s l (- order)))
-        (let [[x y :as vi] (get v i)
-              numerator (- t (get knots i))
-              denominator (- (get knots (+ i (- l) order))
-                             (get knots i))
-              alpha (/ numerator denominator)
-              new-vi (utils/v+ (map #(* alpha %) vi)
-                               (map #(* (- 1 alpha) %) (get v (dec i))))
-              new-v (assoc v i new-vi)]
-          (recur new-vi (dec i)))
-        v))))
-
-(defn b-spline
-  [pts degree knots]
-  (let [k (count knots)
-        d degree
-        order (inc degree)
-        n (count pts)]
-    (when (= k (+ d n 1))
-      (fn [t]
-        (let [s (section-index degree knots t)]
-          (loop [v-outer pts
-                 l 1]
-            (if (<= l order)
-              (let [new-v (b-spline-inner
-                           [pts degree knots]
-                           [l v-outer]
-                           t)]
-                (recur new-v (inc l))
-                #_(loop [v v-outer
-                         i s]
-                    (if (> i (+ s l (- order)))
-                      (let [[x y :as vi] (get v i)
-                            numerator (- t (get knots i))
-                            denominator (- (get knots (+ i (- l) order))
-                                           (get knots i))
-                            alpha (/ numerator denominator)
-                            new-vi (utils/v+ (map #(* alpha %) vi)
-                                             (map #(* (- 1 alpha) %) (get v (dec i))))
-                            new-v (assoc v i new-vi)]
-                        (recur new-vi (dec i)))
-                      v)))
-              v-outer)))))))
 
 #_(def test-spline
   (let [degree 3

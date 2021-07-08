@@ -1,6 +1,5 @@
 (ns svg-clj.layout
-  (:require [clojure.string :as str]
-            [svg-clj.elements :as svg]
+  (:require [svg-clj.elements :as svg]
             [svg-clj.utils :as utils]
             [svg-clj.transforms :as tf]))
 
@@ -30,8 +29,7 @@
         n (count items)
         step (/ 1.0 n)
         xf (fn [item t]
-             (let [pt (curve t)
-                   n (utils/normal (curve (- t eps)) (curve (+ t eps)))
+             (let [n (utils/normal (curve (- t eps)) (curve (+ t eps)))
                    a (utils/angle-from-pts [0 1] [0 0] n)
                    o (map #(utils/round % 4) (utils/rotate-pt (tf/centroid item) a))]
                (-> item

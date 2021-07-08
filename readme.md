@@ -108,10 +108,10 @@ This blossom is produced with the following code:
 
 Other examples, also available in the examples directory of this project:
 
-- [basics](https://github.com/adam-james-v/svg-clj/blob/main/examples/basics.html)
-- [layout](https://github.com/adam-james-v/svg-clj/blob/main/examples/layout.html)
-- [bezier](https://github.com/adam-james-v/svg-clj/blob/main/examples/bezier.html)
-- [offset](https://github.com/adam-james-v/svg-clj/blob/main/examples/offset.html)
+- [basics](https://adam-james-v.github.io/svg-clj/examples/basics)
+- [layout](https://adam-james-v.github.io/svg-clj/examples/layout)
+- [bezier](https://adam-james-v.github.io/svg-clj/examples/bezier)
+- [offset](https://adam-james-v.github.io/svg-clj/examples/offset)
 
 ## Known Issues
 There are several features I have yet to completely fix.

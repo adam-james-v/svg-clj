@@ -19,8 +19,6 @@
   [{:keys [input cursor]}]
   (let [[rx ry deg laf sw x y] input
         b [x y]
-        #_ctr #_[(- x (* (Math/cos (utils/to-rad deg)) rx))
-             (- y (* (Math/sin (utils/to-rad deg)) rx))]
         ctr (utils/v+ cursor [rx 0])
         sa (utils/angle-from-pts cursor ctr b)
         angle (if (= 1 laf) (- 360 sa) sa)

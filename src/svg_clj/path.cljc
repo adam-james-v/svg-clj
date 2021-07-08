@@ -34,7 +34,7 @@
 (defn- command-input
   [cs]
   (let [i (str/split cs #"[A-DF-Za-df-z]")]
-    (when (not (empty? (rest i)))
+    (when (seq (rest i))
       (apply utils/s->v (rest i)))))
 
 (defn- command
@@ -63,7 +63,7 @@
 
 (defn- any-vh?
   [cmds]
-  (not (empty? (filter #{:vline :hline} (map :command cmds)))))
+  (seq (filter #{:vline :hline} (map :command cmds))))
 
 (defn- convert-vh
   [[pcmd ccmd]]
@@ -100,7 +100,7 @@
       cmds)))
 
 (defn- cmd->path-string
-  [{:keys [:command :coordsys :input] :as cmd}]
+  [{:keys [:command :coordsys :input]}]
   (let [c (if (= coordsys :abs)
             command
             (str/lower-case command))]
@@ -131,19 +131,6 @@
    :coordsys :abs
    :input (vec pt)})
 
-(defn- partial-bezier
-  ([a]
-   (-> {:command "T"
-        :coordsys :abs
-        :input (vec a)}
-       cmd->path-string))
-
-  ([a b]
-   (-> {:command "S"
-        :coordsys :abs
-        :input (concat a b)}
-       cmd->path-string)))
-
 (defn bezier
   ([a b c]
    (let [open (pt->m a)]
@@ -166,14 +153,6 @@
          vec
          cmds->path-string
          path))))
-
-(defn- partial-arc
-  [rx ry rot laf sw a]
-  (let [open (pt->m a)]
-    (-> {:command "A"
-         :coordsys :abs
-         :input (concat [rx ry rot laf sw] a)}
-        cmd->path-string)))
 
 (defn- build-arc
   [rx ry rot laf sw a b]

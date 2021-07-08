@@ -2,7 +2,6 @@
   (:require [clojure.string :as str]
             [svg-clj.utils :as utils]
             [svg-clj.elements :as svg]
-            [svg-clj.path :as path]
             [svg-clj.transforms :as tf]))
 
 (defn svg
