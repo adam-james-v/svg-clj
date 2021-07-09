@@ -14,7 +14,8 @@
    (round num *rounding*))
   ([num places]
    (if places
-     (let [d (bigdec (Math/pow 10 places))]
+     (let [d #?(:clj (bigdec (Math/pow 10 places))
+                :cljs (Math/pow 10 places))]
        (double (/ (Math/round (* num d)) d)))
      num)))
 
