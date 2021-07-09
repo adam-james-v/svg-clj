@@ -1,4 +1,5 @@
 (ns svg-clj.layout
+  "Provides functions for layout control of elements."
   (:require [svg-clj.elements :as svg]
             [svg-clj.utils :as utils]
             [svg-clj.transforms :as tf]))

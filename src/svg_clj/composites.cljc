@@ -1,12 +1,15 @@
 (ns svg-clj.composites
+  "Provides functions that combine transforms and primitive elements to make more complicated shapes.
+
+  Additionally, the SVG container function is provided here as it relies on [[svg-clj.transforms]] to allow automatic veiwBox setup."
   (:require [clojure.string :as str]
             [svg-clj.utils :as utils]
             [svg-clj.elements :as svg]
             [svg-clj.transforms :as tf]))
 
 (defn svg
-   "The svg fn wraps `content` in an SVG container element.
-   The SVG container is parameterized by width `w`, height `h`, and scale `sc`."
+   "Wraps `content` in an SVG container element whose width, height, and viewBox properties are automatically calculated when `w`, `h`, and `sc` are omitted.
+   The SVG container is optionally parameterized by width `w`, height `h`, and scale `sc`."
   ([content]
    (let [[w h] (tf/bb-dims content)
          [[x y] _ _ _] (tf/bounds content)]

@@ -1,5 +1,10 @@
 (ns svg-clj.transforms
-   (:require [clojure.string :as str]
+  "Provides functions for computing and transforming properties of the SVG elements created by the `elements`, `path`, and `composites` namespaces.
+
+  The most common transformations include translate, rotate, style, and scale which all work on every element. Other transformations include merge, split, and explode and these only work on path elements.
+
+  This namespace also provides `bounds`, and `centroid` functions which calculate the respective property for all elements provided by this library."
+  (:require [clojure.string :as str]   
              [svg-clj.utils :as utils]
              [svg-clj.elements :as svg]
              [svg-clj.path :as path]
@@ -83,7 +88,7 @@
 
 ;; this is not done yet. Text in general needs a redo.
 (defmethod centroid :text
-  [[_ props text]]
+  [[_ props _]]
   [(:x props) (:y props)])
 
 (defmethod centroid :path
@@ -94,10 +99,11 @@
 
 (declare centroid)
 (defmethod centroid :g
-  [[_ props & content]]
+  [[_ _ & content]]
   (centroid-of-pts (into #{} (map centroid content))))
 
 (defn bounds-of-pts
+  "Calculates the axis-aligned-bounding-box of `pts`."
   [pts]
   (let [xmax (apply max (map first pts))
         ymax (apply max (map second pts))
@@ -109,6 +115,7 @@
             [xmin ymax])))
 
 (defmulti bounds
+  "Calculates the axis-aligned-bounding-box of `element` or list of elements."
   (fn [element]
     (if (keyword? (first element))
       (first element)
@@ -228,7 +235,7 @@
 
 (declare bounds)
 (defmethod bounds :g
-  [[_ props & content]]
+  [[_ _ & content]]
   (bounds-of-pts (mapcat bounds content)))
 
 (defn bb-dims
@@ -356,11 +363,11 @@
   (assoc m :input (utils/v+ [x y] input)))
 
 (defmethod translate-path-command "H"
-  [{:keys [:input] :as m} [x y]]
+  [{:keys [:input] :as m} [x _]]
   (assoc m :input (utils/v+ [x] input)))
 
 (defmethod translate-path-command "V"
-  [{:keys [:input] :as m} [x y]]
+  [{:keys [:input] :as m} [_ y]]
   (assoc m :input (utils/v+ [y] input)))
 
 ;; x y x y x y because input will ahve the form:
@@ -414,6 +421,8 @@
        (into [k props])))
 
 (defn rotate-element-by-transform
+  "Rotate an element by using the SVG transform property.
+  This function is used to transform elements that cannot 'bake' the transform into their other geometric properties. For example, the ellipse and circle elements have only center and radius properties which cannot affect orientation."
   [[k props content] deg]
   (let [xf (get-props props)
         new-xf (-> xf
@@ -624,7 +633,7 @@
 ;; turns it into an ellipse. This impl WILL change the shape to ellipse if non-uniform scaling is applied.
 
 (defmethod scale :circle
-  [[k props] [sx sy]]
+  [[_ props] [sx sy]]
   (let [circle? (= sx sy)
         r (:r props)
         new-props (if circle?
@@ -812,7 +821,12 @@
           :else
           (path/path (path/cmds->path-string cmds)))))))
 
-(defn- clean-m-cmds
+
+;; doesn't always work. Check xf-cmds logic to see if it is incorrectly discarding some paths. For example, my ob-babashka example project I noticed that two beziers are not merging correctly (one is dropped entirely) but they seem to work when I don't use xf-cmnds but jsut cmds directly
+
+;; FIXME: clean-m-cmds used to clear the issue of a single path element with only an M command, but impl doesn't work yet.
+
+#_(defn- clean-m-cmds
   "Remove cmdb if it is an M command with the same position as the last input of cmda."
   [[cmda cmdb]]
   (let [[pa pb] (map (comp (partial take-last 2) :input) [cmda cmdb])
@@ -822,7 +836,6 @@
       (and (= pa pb) (= "M" cb)) [cmda]
       :else [cmda cmdb])))
 
-;; doesn't always work. Check xf-cmds logic to see if it is incorrectly discarding some paths. For example, my ob-babashka example project I noticed that two beziers are not merging correctly (one is dropped entirely) but they seem to work when I don't use xf-cmnds but jsut cmds directly
 (defn merge-paths
   "Merges a list of path elements together, keeping props from last path in the list."
   [& paths]
@@ -834,6 +847,7 @@
     [:path (assoc props :d (path/cmds->path-string cmds))]))
 
 (defn split-path
+  "Splits a single path element containing multiple disjoint paths into a group of paths containing only one path."
   [[k props]]
   (let [ps (-> (:d props)
                (str/split #"(?=M)")
@@ -841,7 +855,10 @@
     (map #(assoc-in [k props] [1 :d] %) ps)))
 
 (defn explode-path
-  [[k {:keys [d]}] & {:keys [break-polys?]}]
+  "Breaks a path element into its constituent curves.
+  Optional arg `break-polys?` is `false` by default, which treats sequences of line segments as polylines.
+  Setting `break-polys?` to `true` treats sequences of line segments as individual elements."
+  [[_ {:keys [d]}] & {:keys [break-polys?]}]
   (let [break-fn (if break-polys?
                    (partial partition 1)
                    (partial partition-by :command))]
@@ -862,7 +879,7 @@
     csa))
 
 (defn path->elements
-  [[k {:keys [d]}] & {:keys [break-polys?]}]
+  [[_ {:keys [d]}] & {:keys [break-polys?]}]
   (let [break-fn (fn [s]
                    (let [sf (if break-polys?
                               (partial partition 1)
@@ -888,37 +905,37 @@
   (map element->path elems))
 
 (defmethod element->path :circle
-  [[k {:keys [cx cy r] :as props}]]
+  [[_ {:keys [cx cy r] :as props}]]
   (-> (path/circle r)
       (translate [cx cy])
       (style (dissoc props :cx :cy :r))))
 
 (defmethod element->path :ellipse
-  [[k {:keys [cx cy rx ry] :as props}]]
+  [[_ {:keys [cx cy rx ry] :as props}]]
   (-> (path/ellipse rx ry)
       (translate [cx cy])
       (style (dissoc props :cx :cy :rx :ry))))
 
 (defmethod element->path :rect
-  [[k {:keys [width height x y] :as props}]]
+  [[_ {:keys [width height x y] :as props}]]
   (let [ctr (utils/v+ [x y] [(/ width 2.0) (/ height 2.0)])]
     (-> (path/rect width height)
         (translate ctr)
         (style (dissoc props :width :height :x :y)))))
 
 (defmethod element->path :line
-  [[k {:keys [x1 y1 x2 y2] :as props}]]
+  [[_ {:keys [x1 y1 x2 y2] :as props}]]
   (-> (path/line [x1 y1] [x2 y2])
       (style (dissoc props :x1 :y1 :x2 :y2))))
 
 (defmethod element->path :polyline
-  [[k {:keys [points] :as props}]]
+  [[_ {:keys [points] :as props}]]
   (let [pts (partition 2 (utils/s->v points))]
   (-> (path/polyline pts)
       (style (dissoc props :points)))))
 
 (defmethod element->path :polygon
-  [[k {:keys [points] :as props}]]
+  [[_ {:keys [points] :as props}]]
   (let [pts (partition 2 (utils/s->v points))]
   (-> (path/polygon pts)
       (style (dissoc props :points)))))
@@ -928,7 +945,7 @@
   elem) 
 
 (defmethod element->path :g
-  [[k props & elems]]
+  [[_ props & elems]]
   (-> (svg/g (map element->path elems))
       (style props)))
 
@@ -979,7 +996,7 @@
       :list)))
 
 (defmethod offset :default
-  [[k props :as elem]]
+  [[k _ :as elem]]
   (println (str "Offset not implemented for " k "."))
   elem)
 

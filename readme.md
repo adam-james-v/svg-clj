@@ -120,6 +120,7 @@ There are several features I have yet to completely fix.
 - Bounds and Centroid calculations can give incorrect results with paths containing arcs or bezier curves
 - text elements have only basic support (translate, rotate, style work). Other transforms have buggy workarounds for the fact that text element dimensions are not known until rasterization
 - offset works for all elements except paths, which is a WIP feature
+- arc implementation is still buggy, particularly when rotating.
 
 ## Using svg-clj in your project
 

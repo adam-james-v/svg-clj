@@ -1,4 +1,5 @@
 (ns svg-clj.parametric
+  "Provides functions that generate lists of points or return parametric curve functions, intended for use with layout functionality."
   (:require [svg-clj.utils :as utils]))
 
 (defn arc-length

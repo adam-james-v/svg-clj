@@ -1,9 +1,22 @@
 (ns svg-clj.utils
   (:require [clojure.string :as str]
-            [same :refer [zeroish?]]
             [clojure.data.xml :as xml]
+            [clojure.walk :refer [postwalk]]
+            [same :refer [zeroish?]]
             #?(:cljs
                [cljs.reader :refer [read-string]])))
+
+(def ^:dynamic *rounding* nil)
+
+(defn round
+  "Rounds a non-integer number `num` to `places` decimal places."
+  ([num]
+   (round num *rounding*))
+  ([num places]
+   (if places
+     (let [d (bigdec (Math/pow 10 places))]
+       (double (/ (Math/round (* num d)) d)))
+     num)))
 
 ;; vector arithmetic helpers
 (def v+ (partial mapv +))
@@ -13,25 +26,20 @@
 ;; simple calcs
 (defn to-deg
   [rad]
-  (* rad (/ 180 Math/PI)))
+  (round (* rad (/ 180 Math/PI))))
 
 (defn to-rad
   [deg]
-  (* deg (/ Math/PI 180)))
-
-(defn round
-  [num places]
-  (let [d (Math/pow 10 places)]
-    (/ (Math/round (* num d)) d)))
+  (round (* deg (/ Math/PI 180))))
 
 (defn average
   [& numbers]
   (let [n (count numbers)]
-    (/ (apply + numbers) n)))
+    (round (/ (apply + numbers) n))))
  
 ;; some string transformation tools
 (defn v->s
-  "Turns the vector `v` into a string formatted for use in SVG attributes."
+  "Turns the vector `v` into a string with commas separating the values."
   [v]
   (str/join "," v))
 
@@ -56,6 +64,9 @@
     [key val]))
 
 (defn xf-map->str
+  "Turn transform maps from an element's properties into a string properly formatted for use inline in an svg element tag.
+
+  Consider this an internal tool."
   [m]
   (str/join "\n" (map xf-kv->str m)))
 
@@ -71,20 +82,23 @@
     {}))
 
 (defn distance
-  "compute distance between two points"
+  "Computes the distance between two points `a` and `b`."
   [a b]
   (let [v (v- b a)
         v2 (reduce + (v* v v))]
-    (Math/sqrt v2)))
+    (round (Math/sqrt v2))))
 
 (defn rotate-pt
-  [[x y] deg]
-  (let [c (Math/cos (to-rad deg))
+  "Rotates 2d point `pt` around the origin by `deg` in the counter-clockwise direction."
+  [pt deg]
+  (let [[x y] pt
+        c (Math/cos (to-rad deg))
         s (Math/sin (to-rad deg))]
-    [(- (* x c) (* y s))
-     (+ (* x s) (* y c))]))
+    [(round (- (* x c) (* y s)))
+     (round (+ (* x s) (* y c)))]))
 
 (defn rotate-pt-around-center
+  "Rotates point `pt` around `center` by `deg` in the counter-clockwise direction."
   [pt deg center]
   (-> pt
       (v+ (map - center))
@@ -92,12 +106,12 @@
       (v+ center)))
 
 (defn dot*
-  "calculates the dot product of two vectors"
+  "Calculates the dot product of two vectors."
   [a b]
   (reduce + (map * a b)))
 
 (defn cross*
-  "calculates cross product of two 3d-vectors"
+  "Calculates cross product of two 3d-vectors."
   [a b]
   (let [[a1 a2 a3] a
         [b1 b2 b3] b
@@ -107,13 +121,13 @@
     [i j k]))
 
 (defn normalize
-  "find the unit vector of a given vector"
+  "Calculates the unit vector of a given vector. Vector here is used in the mathematical sense."
   [v]
   (let [m (Math/sqrt (reduce + (v* v v)))]
     (mapv / v (repeat m))))
 
 (defn normal
-  "Find normal vector of plane given 3 points. Find normal vector of line given two (2D) points."
+  "Calculates the normal vector of plane given 3 points or calculates the normal vector of a line given two (2D) points."
   ([a b]
    (let [[x1 y1] a
          [x2 y2] b
@@ -127,6 +141,7 @@
 
 ;; https://math.stackexchange.com/questions/361412/finding-the-angle-between-three-points
 (defn- check-quadrants
+  "Using `p2` as the 'origin', return a string indicating positive, negative, or aligned to an axis for p1 p2."
   [p1 p2 p3]
   (let [v1 (v- p1 p2)
         v2 (v- p3 p2)
@@ -142,6 +157,7 @@
     (apply str (map qf [v1 v2]))))
 
 (defn angle-from-pts
+  "Calculates the angle between the lines p1-p2 and p3-p2."
   [p1 p2 p3]
   (let [v1 (v- p1 p2)
         v2 (v- p3 p2)
@@ -158,7 +174,6 @@
   (- (* (first a) (second b))
      (* (second a) (first b))))
 
-
 ;; this fn name doesn't make sense? It inverts y, which is not
 ;; the same as giving a perpendicular line
 ;; maybe call it 'invert-y' or 'vertical-flip'
@@ -167,21 +182,22 @@
   [(- y) x])
 
 (defn line-intersection
-  [[a b] [c d]]
-  (let [[ax ay] a
-        [bx by] b
-        [cx cy] c
-        [dx dy] d
+  [[pt-a pt-b] [pt-c pt-d]]
+  (let [[ax ay] pt-a
+        [bx by] pt-b
+        [cx cy] pt-c
+        [dx dy] pt-d
         xdiff [(- ax bx) (- cx dx)]
         ydiff [(- ay by) (- cy dy)]
         div (determinant xdiff ydiff)]
     (when (not (zeroish? (Math/abs div)))
-      (let [d [(determinant a b) (determinant c d)]
-            x (/ (determinant d xdiff) div)
-            y (/ (determinant d ydiff) div)]
+      (let [dets [(determinant pt-a pt-b) (determinant pt-c pt-d)]
+            x (/ (determinant dets xdiff) div)
+            y (/ (determinant dets ydiff) div)]
         [x y]))))
 
-(defn xml->hiccup [xml]
+(defn xml->hiccup
+  [xml]
   (if-let [t (:tag xml)]
     (let [elt [t]
           elt (if-let [attrs (:attrs xml)]

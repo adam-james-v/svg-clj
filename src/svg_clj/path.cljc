@@ -1,10 +1,31 @@
 (ns svg-clj.path
+  "Provides functions for generating and manipulating SVG path elements.
+
+  Every element provided in [[svg-clj.elements]] has an equivalent function in this namespace that emits path elements with a properly formatted `:d` property.
+
+  The path element has a small Domain Specific Language to create compound shapes and curves. This includes the following commands:
+
+  M = moveto
+  L = lineto
+  H = horizontal lineto
+  V = vertical lineto
+  C = curveto
+  S = smooth curveto
+  Q = quadratic Bézier curve
+  T = smooth quadratic Bézier curveto
+  A = elliptical Arc
+  Z = closepath
+
+  This namespace handles paths by decomposing them into sequences of 'command' maps, which are considered an internal representation; users are not expected to construct paths using commands."
   (:require [clojure.string :as str]
             [svg-clj.utils :as utils]))
 
 (defn path
   "Wraps a path string `d` in a hiccup-style data structure.
-  The path string is minimally evaluated and is otherwise untouched. Users should consider the function `polygon-path` for constructing paths from points. More complex paths can be built by combining paths with the function `merge-paths`"
+
+  The path string is assumed to already be a valid path string. Users should use path generating functions provided in this namespace for constructing paths in the same manor as the other renderable SVG elements.
+
+  More complex paths can be built by combining paths with the function `merge-paths`"
   [d]
   [:path {:d d :fill-rule "evenodd"}])
 
@@ -18,9 +39,9 @@
       (#(filter (complement empty?) %))))
 
 (defn- relative?
-  "True if the path command string `cs` has a relative coordinate command.
-  Relative coordinate commands are lowercase.
-  Absolute coordinate commands are uppercase."
+  "Returns true if the path command string `cs` has a relative coordinate command.
+  Relative coordinate commands are lowercase in the `d` property string.
+  Absolute coordinate commands are uppercase in the `d` property string."
   [cs]
   (let [csx (first (str/split cs #"[a-z]"))]
     (not (= cs csx))))
@@ -89,6 +110,8 @@
                (map second)))))
 
 (defn vh->l
+  "Converts any v (vertical) or h (horizontal) commands into l (line) commands.
+  This is necessary to allow rotation of a path element, because rotating an axis-aligned line will move it off the axis, making it unrepresentable with v or h commands, as they do not encode the x or y position values respectively."
   [cmds]
   (let [iters (iterate convert-first-vh-cmd cmds)]
     (if (any-vh? cmds)
@@ -107,6 +130,7 @@
     (str c (str/join " " input))))
 
 (defn cmds->path-string
+  "Generates a valid string for the path element `:d` property from a list of command maps `cmds`."
   [cmds]
   (let [start (first cmds)
         cmds (if (= "M" (:command start))
@@ -132,6 +156,8 @@
    :input (vec pt)})
 
 (defn bezier
+  "Emits a path element with a bezier curve defined by the control points `a`, `b`, `c`, and sometimes `d`.
+   Quadratic curves use 3 control points, and cubic curves use 4 control points."
   ([a b c]
    (let [open (pt->m a)]
      (-> {:command "Q"
@@ -167,14 +193,16 @@
         path)))
 
 (defn arc
-  [a ctr deg]
-  (let [r (utils/distance a ctr)
+  "Emits a path element with an arc starting at `pt-a` and ending at a point rotated by degrees, `deg`, around `ctr` in the counter-clockwise direction."
+  [pt-a ctr deg]
+  (let [r (utils/distance pt-a ctr)
         angle 0
-        b (utils/rotate-pt-around-center a deg ctr)
+        b (utils/rotate-pt-around-center pt-a deg ctr)
         laf (if (<= deg 180) 0 1)]
-     (build-arc r r angle laf 1 a b)))
+     (build-arc r r angle laf 1 pt-a b)))
 
 (defn circle
+  "Emits a circle using two arcs in a path element with radius `r` centered at the origin."
   [r]
   (let [open (pt->m [r 0])
         close {:command "Z"
@@ -192,6 +220,7 @@
         path)))
 
 (defn ellipse
+  "Emits an ellipse element with x-axis radius `rx` and y-axis radius `ry` centered at the origin."
   [rx ry]
   (let [open (pt->m [rx 0])
         close {:command "Z"
@@ -209,12 +238,15 @@
         path)))
 
 (defn line
-  [a b]
-  (-> [(pt->m a) (pt->l b)]
+  "Emits a line using a path element starting at 2d point `pt-a` and ending at 2d point `pt-b`."
+  [pt-a pt-b]
+  (-> [(pt->m pt-a) (pt->l pt-b)]
       cmds->path-string
       path))
 
 (defn polygon
+  "Emits a polygon using a path element with 2d points from vector or list `pts`.
+  Polygons use a closed path."
   [pts]
   (let [open (pt->m (first pts))
         close {:command "Z"
@@ -228,6 +260,8 @@
         path)))
 
 (defn polyline
+  "Emits a polyline using a path element with 2d points from vector or list `pts`.
+  Polylines use an open path."
   [pts]
   (let [open (pt->m (first pts))]
     (-> (map pt->l (rest pts))
@@ -237,6 +271,7 @@
         path)))
 
 (defn rect
+  "Emits a rectangle using a path element of width `w` and height `h` centered at the origin."
   [w h]
   (let [w2 (/ w 2.0)
         h2 (/ h 2.0)]
