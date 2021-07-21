@@ -117,6 +117,9 @@ clojure -M:js
 
 svg-clj is a library for creating SVGs in Clojure/Clojurescript. This is done using functions which emit hiccup data structures. Since hiccup is quite common and well-known in the Clojure ecosystem, it is rather simple to use svg-clj alongside other libraries that emit and/or expect hiccup-style data structures.
 
+You can try things out in the browser here:
+[svg-clj-interactive](https://adam-james-v.github.io/svg-clj-interactive/index.html)
+
 Here is an example using most of svg-clj's features:
 
 ![An SVG Image of a stylized flower blossom.](https://github.com/adam-james-v/svg-clj/blob/main/examples/blossom.svg "Blossom")
