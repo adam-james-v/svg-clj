@@ -43,7 +43,7 @@
   Relative coordinate commands are lowercase in the `d` property string.
   Absolute coordinate commands are uppercase in the `d` property string."
   [cs]
-  (let [csx (first (str/split cs #"[a-z]"))]
+  (let [csx (first (str/split cs #"[a-df-z]"))]
     (not (= cs csx))))
 
 (defn- coord-sys-key
