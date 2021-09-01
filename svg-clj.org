@@ -42,6 +42,18 @@
 #+end_src
 
 ** release.edn
+For now, to make a release to clojars, do the following:
+
+1. rm pom.xml from project root dir
+2. git tag (currently 0.0.3-SNAPSHOT)
+   - you can only re-use snapshot tags... so if you're making tiny changes, do it on snapshots. Then, when you feel it's appropriate, push a proper update by incrementing the Major.Minor.Patch (whichever makes sense).
+3. clj -M:release will push to clojars
+
+NOTE TO SELF: This seems like a good thing to wrap in a bb.edn task to make things a bit cleaner and clearer.
+
+As well, be sure to write a note about where the deploy token secret is configured. And be careful not to show taht on stream. If you do, you must immediately revoke the token.
+
+
 #+begin_src clojure :tangle ./release.edn
 {:group-id "io.github.adam-james-v"
  :artifact-id "svg-clj"
