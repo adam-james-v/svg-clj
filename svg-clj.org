@@ -33,11 +33,7 @@
 
   :release
   {:extra-deps {applied-science/deps-library {:mvn/version "0.4.0"}}
-   :main-opts ["-m" "applied-science.deps-library"]}
-  
-  :js
-  {:extra-deps {thheller/shadow-cljs {:mvn/version "2.14.6"}}
-   :main-opts ["-m" "shadow.cljs.devtools.cli" "compile" "jslib"]}}}
+   :main-opts ["-m" "applied-science.deps-library"]}}}
 
 #+end_src
 
@@ -60,43 +56,13 @@ As well, be sure to write a note about where the deploy token secret is configur
  :scm-url "https://github.com/adam-james-v/svg-clj"}
 #+end_src
 
-** shadow-cljs.edn
-#+begin_src clojure :tangle ./shadow-cljs.edn
-{:deps {:aliases [:js]}
- :source-paths ["src"]
- :builds
- {:jslib
-  {:target :npm-module
-   :output-dir "public/js"
-   :entries [svg-clj.utils
-             svg-clj.elements
-             svg-clj.path
-             svg-clj.transforms
-             svg-clj.composites
-             svg-clj.parametric
-             svg-clj.layout]}}
- #_{:jslib
-  {:target :browser
-   :output-dir "public/js"
-   :modules
-   {:utils    {:entries [svg-clj.utils]}
-    :elements {:entries [svg-clj.elements]
-               :depends-on #{:utils}}}}}}
-#+end_src
-
 ** build-cmds
 *** build-library-jar
 #+begin_src shell
 clojure -X:jar :jar svg-clj.jar
 #+end_src
 
-*** build-library-js
-#+begin_src shell
-clojure -M:js
-#+end_src
-
 ** bb.edn
-
 #+begin_src clojure :tangle ./bb.edn
 {:tasks
  {:requires ([babashka.fs :as fs]
@@ -393,13 +359,6 @@ Proper documentation is, naturally, a key element in bringing this project from 
 #+END_SRC
 
 * admin
-** todo
-Some tasks that need to be done on this project.
-
-*** TODO fix/test scale tranform on all elements
-*** TODO fix/test offset for paths
-*** TODO fix/test bounds calculations for paths
-
 ** roadmap
 Some features that are planned for implementation.
 
@@ -517,6 +476,7 @@ strictly speaking, translate and rotate are not operating on streams of data, bu
 So, to keep the mental model the same, I have designed my transform fns to always take the element being transformed as the first arg. I find threading to be a very readable and intuitive way to 'build up' transforms on some basic element. You can see this approach throughout my various examples.
 
 * utils
+** maths-and-transforms
 #+begin_src clojure :tangle ./src/svg_clj/utils.cljc
 (ns svg-clj.utils
   (:require [clojure.string :as str]
@@ -720,15 +680,50 @@ So, to keep the mental model the same, I have designed my transform fns to alway
 #+end_src
 
 ** xml->hiccup
+The xml->hiccup function causes some issues down the line when it comes to properly displaying SVGs. It works fine if no namespaces are used in the SVG's definition, but will potentially break if they do exist. This becomes an issue when importing from third party sources, such as Inkscape.
+
+It is considered in scope to be able to handle this appropriately, as many users are likely to use externally produced SVGs.
+
+This is necessary for better import behaviour with the Forge library as well.
+
+NOTES on possible solutions:
+
+attributes from the xml parse may look like this:
+
+~[:svg {:xmlns.http%3A%2F%2Fwww.w3.org%2F2000%2Fxmlns%2F/inkscape "http://www.inkscape.org/namespaces/inkscape"}]~
+
+But that renders into html (from hiccup.core) as:
+
+~<svg inkscape=\"http://www.inkscape.org/namespaces/inkscape\"></svg>~
+
+Note the lack of xmlns: prefix. It should look like:
+
+~<svg xmlns:inkscape=\"http://www.inkscape.org/namespaces/inkscape\"></svg>~
+
+What does create the proper attr is:
+
+~[:svg {:xmlns:inkscape "http://www.inkscape.org/namespaces/inkscape"}]~
+
+So I need to figure out how to get the proper output either by changing the xml parse-str options, changing the xml parser used (SAXParser ... whatever) and/or changing the hiccup settings. I could also see if it works to emit xml from clojure.data.xml without using hiccup at all.
+
+The following snippet does create an XML string where the namespace prefixes are preserved in the attributes. But the emitted XML doesn't work in a browser unless there is ~xmlns="http://www.w3.org/2000/svg"~ in the svg tag's attributes.
+
+#+begin_src clojure
+(-> svg-hiccup
+    xml/sexps-as-fragment
+    xml/emit-str)
+#+end_src
+
+
 #+begin_src clojure :tangle ./src/svg_clj/utils.cljc
 (defn xml->hiccup
   [xml]
   (if-let [t (:tag xml)]
-    (let [elt [t]
-          elt (if-let [attrs (:attrs xml)]
-                (conj elt attrs)
-                elt)]
-      (into elt (map xml->hiccup (:content xml))))
+    (let [elem [t]
+          elem (if-let [attrs (:attrs xml)]
+                (conj elem attrs)
+                elem)]
+      (into elem (map xml->hiccup (remove string? (:content xml)))))
     xml))
 
 (defn svg-str->elements

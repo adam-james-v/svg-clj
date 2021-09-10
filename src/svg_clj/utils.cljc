@@ -200,11 +200,11 @@
 (defn xml->hiccup
   [xml]
   (if-let [t (:tag xml)]
-    (let [elt [t]
-          elt (if-let [attrs (:attrs xml)]
-                (conj elt attrs)
-                elt)]
-      (into elt (map xml->hiccup (:content xml))))
+    (let [elem [t]
+          elem (if-let [attrs (:attrs xml)]
+                (conj elem attrs)
+                elem)]
+      (into elem (map xml->hiccup (remove string? (:content xml)))))
     xml))
 
 (defn svg-str->elements
