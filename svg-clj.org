@@ -716,12 +716,36 @@ The following snippet does create an XML string where the namespace prefixes are
 
 
 #+begin_src clojure :tangle ./src/svg_clj/utils.cljc
+(defn str->number
+  [s]
+  (let [n (try (read-string s)
+               (catch Exception e s))]
+    (if (number? n) n s)))
+
+(def numerical-attrs
+  #{;; circle, ellipse
+    :cx :cy :r :rx :ry
+    ;; image, rect
+    :width :height :x :y
+    ;; line
+    :x1 :y1 :x2 :y2})
+
+(defn cast-numerical-attrs
+  [attrs]
+  (apply merge
+         (map
+          (fn [[k v]]
+            (if (numerical-attrs k)
+              {k (str->number v)}
+              {k v}))
+          attrs)))
+
 (defn xml->hiccup
   [xml]
   (if-let [t (:tag xml)]
     (let [elem [t]
           elem (if-let [attrs (:attrs xml)]
-                (conj elem attrs)
+                (conj elem (cast-numerical-attrs attrs))
                 elem)]
       (into elem (map xml->hiccup (remove string? (:content xml)))))
     xml))
