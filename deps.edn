@@ -1,6 +1,5 @@
 {:deps 
  {org.clojure/clojure    {:mvn/version "1.10.3"}
-  org.clojure/clojurescript {:mvn/version "1.10.866"}
   org.clojure/data.xml   {:mvn/version "0.2.0-alpha6"}
   same/ish               {:mvn/version "0.1.4"}
   hiccup/hiccup          {:mvn/version "2.0.0-alpha2"}}

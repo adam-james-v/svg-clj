@@ -12,7 +12,6 @@
 #+begin_src clojure :tangle ./deps.edn
 {:deps 
  {org.clojure/clojure    {:mvn/version "1.10.3"}
-  org.clojure/clojurescript {:mvn/version "1.10.866"}
   org.clojure/data.xml   {:mvn/version "0.2.0-alpha6"}
   same/ish               {:mvn/version "0.1.4"}
   hiccup/hiccup          {:mvn/version "2.0.0-alpha2"}}
@@ -740,10 +739,22 @@ The following snippet does create an XML string where the namespace prefixes are
               {k v}))
           attrs)))
 
+(defn- fix-ns-tag
+  [t]
+  (let [namespace (namespace t)
+        name (name t)]
+    (if namespace
+      (-> namespace
+          (str/split #"\.")
+          first
+          (str ":" name)
+          keyword)
+      t)))
+
 (defn xml->hiccup
   [xml]
   (if-let [t (:tag xml)]
-    (let [elem [t]
+    (let [elem [(fix-ns-tag t)]
           elem (if-let [attrs (:attrs xml)]
                 (conj elem (cast-numerical-attrs attrs))
                 elem)]
@@ -937,6 +948,57 @@ This path function is usable by the user but provides no path generation assista
   [:path {:d d :fill-rule "evenodd"}])
 #+end_src
 
+** converting-vh
+Given a list of commands, go until you find a V or H with a NON V NON H command preceding it.
+Use the previous command to get the missing X or Y value
+Create an equivalent L command using the recovered coord. and the V or H coord.
+Recreate the sequence having swapped the V or H with the new L command.
+Repeat this process over the whole sequence.
+If the entire sequence has NO V or H, done.
+
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/path.cljc
+(defn- any-vh?
+  [cmds]
+  (seq (filter #{"H" "V"} (map :command cmds))))
+
+(defn- convert-vh
+  [[pcmd ccmd]]
+  (if (and (not (any-vh? [pcmd])) ;;prev. cmd must NOT be VH
+           (any-vh? [ccmd])) ;; curr. cmd must be VH
+    (let [[px py] (take-last 2 (:input pcmd))
+          vh (:command ccmd)
+          xinput (cond (= vh "H") [(first (:input ccmd)) py]
+                       (= vh "V") [px (first (:input ccmd))])
+          ncmd (-> ccmd
+                   (assoc :command :line)
+                   (assoc :input xinput))]
+      [pcmd ncmd])
+    [pcmd ccmd]))
+
+(defn- convert-first-vh-cmd
+  [cmds]
+  (let [icmd (first cmds)]
+    (cons icmd 
+          (->> cmds
+               (partition 2 1)
+               (map convert-vh)
+               (map second)))))
+
+(defn vh->l
+  "Converts any v (vertical) or h (horizontal) commands into l (line) commands.
+  This is necessary to allow rotation of a path element, because rotating an axis-aligned line will move it off the axis, making it unrepresentable with v or h commands, as they do not encode the x or y position values respectively."
+  [cmds]
+  (let [iters (iterate convert-first-vh-cmd cmds)]
+    (if (any-vh? cmds)
+      (->> iters
+           (partition 2 1)
+           (take-while (fn [[a b]] (not= a b)))
+           last
+           last)
+      cmds)))
+
+#+END_SRC
+
 ** commands
 Path strings are a sequence of commands. These commands can be thought of as moving a pen along the canvas to draw shapes/lines according to the command's inputs.
 
@@ -996,58 +1058,9 @@ I'm going to make a few functions to split paths into commands and put them in a
                  :coordsys :abs
                  :input [0 0]}])
        (partition 2 1)
-       (map merge-cursor)))
+       (map merge-cursor)
+       vh->l))
 
-#+END_SRC
-
-** converting-vh
-Given a list of commands, go until you find a V or H with a NON V NON H command preceding it.
-Use the previous command to get the missing X or Y value
-Create an equivalent L command using the recovered coord. and the V or H coord.
-Recreate the sequence having swapped the V or H with the new L command.
-Repeat this process over the whole sequence.
-If the entire sequence has NO V or H, done.
-
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/path.cljc
-(defn- any-vh?
-  [cmds]
-  (seq (filter #{:vline :hline} (map :command cmds))))
-
-(defn- convert-vh
-  [[pcmd ccmd]]
-  (if (and (not (any-vh? [pcmd])) ;;prev. cmd must NOT be VH
-           (any-vh? [ccmd])) ;; curr. cmd must be VH
-    (let [[px py] (take-last 2 (:input pcmd))
-          vh (:command ccmd)
-          xinput (cond (= vh :hline) [(first (:input ccmd)) py]
-                       (= vh :vline) [px (first (:input ccmd))])
-          ncmd (-> ccmd
-                   (assoc :command :line)
-                   (assoc :input xinput))]
-      [pcmd ncmd])
-    [pcmd ccmd]))
-
-(defn- convert-first-vh-cmd
-  [cmds]
-  (let [icmd (first cmds)]
-    (cons icmd 
-          (->> cmds
-               (partition 2 1)
-               (map convert-vh)
-               (map second)))))
-
-(defn vh->l
-  "Converts any v (vertical) or h (horizontal) commands into l (line) commands.
-  This is necessary to allow rotation of a path element, because rotating an axis-aligned line will move it off the axis, making it unrepresentable with v or h commands, as they do not encode the x or y position values respectively."
-  [cmds]
-  (let [iters (iterate convert-first-vh-cmd cmds)]
-    (if (any-vh? cmds)
-      (->> iters
-           (partition 2 1)
-           (take-while (fn [[a b]] (not= a b)))
-           last
-           last)
-      cmds)))
 #+END_SRC
 
 ** build-path-strings

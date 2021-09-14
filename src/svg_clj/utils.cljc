@@ -221,10 +221,22 @@
               {k v}))
           attrs)))
 
+(defn- fix-ns-tag
+  [t]
+  (let [namespace (namespace t)
+        name (name t)]
+    (if namespace
+      (-> namespace
+          (str/split #"\.")
+          first
+          (str ":" name)
+          keyword)
+      t)))
+
 (defn xml->hiccup
   [xml]
   (if-let [t (:tag xml)]
-    (let [elem [t]
+    (let [elem [(fix-ns-tag t)]
           elem (if-let [attrs (:attrs xml)]
                 (conj elem (cast-numerical-attrs attrs))
                 elem)]

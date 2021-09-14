@@ -29,6 +29,46 @@
   [d]
   [:path {:d d :fill-rule "evenodd"}])
 
+(defn- any-vh?
+  [cmds]
+  (seq (filter #{"H" "V"} (map :command cmds))))
+
+(defn- convert-vh
+  [[pcmd ccmd]]
+  (if (and (not (any-vh? [pcmd])) ;;prev. cmd must NOT be VH
+           (any-vh? [ccmd])) ;; curr. cmd must be VH
+    (let [[px py] (take-last 2 (:input pcmd))
+          vh (:command ccmd)
+          xinput (cond (= vh "H") [(first (:input ccmd)) py]
+                       (= vh "V") [px (first (:input ccmd))])
+          ncmd (-> ccmd
+                   (assoc :command :line)
+                   (assoc :input xinput))]
+      [pcmd ncmd])
+    [pcmd ccmd]))
+
+(defn- convert-first-vh-cmd
+  [cmds]
+  (let [icmd (first cmds)]
+    (cons icmd 
+          (->> cmds
+               (partition 2 1)
+               (map convert-vh)
+               (map second)))))
+
+(defn vh->l
+  "Converts any v (vertical) or h (horizontal) commands into l (line) commands.
+  This is necessary to allow rotation of a path element, because rotating an axis-aligned line will move it off the axis, making it unrepresentable with v or h commands, as they do not encode the x or y position values respectively."
+  [cmds]
+  (let [iters (iterate convert-first-vh-cmd cmds)]
+    (if (any-vh? cmds)
+      (->> iters
+           (partition 2 1)
+           (take-while (fn [[a b]] (not= a b)))
+           last
+           last)
+      cmds)))
+
 (defn- path-command-strings
   "Split the path string `ps` into a vector of path command strings."
   [ps]
@@ -80,47 +120,8 @@
                  :coordsys :abs
                  :input [0 0]}])
        (partition 2 1)
-       (map merge-cursor)))
-
-(defn- any-vh?
-  [cmds]
-  (seq (filter #{:vline :hline} (map :command cmds))))
-
-(defn- convert-vh
-  [[pcmd ccmd]]
-  (if (and (not (any-vh? [pcmd])) ;;prev. cmd must NOT be VH
-           (any-vh? [ccmd])) ;; curr. cmd must be VH
-    (let [[px py] (take-last 2 (:input pcmd))
-          vh (:command ccmd)
-          xinput (cond (= vh :hline) [(first (:input ccmd)) py]
-                       (= vh :vline) [px (first (:input ccmd))])
-          ncmd (-> ccmd
-                   (assoc :command :line)
-                   (assoc :input xinput))]
-      [pcmd ncmd])
-    [pcmd ccmd]))
-
-(defn- convert-first-vh-cmd
-  [cmds]
-  (let [icmd (first cmds)]
-    (cons icmd 
-          (->> cmds
-               (partition 2 1)
-               (map convert-vh)
-               (map second)))))
-
-(defn vh->l
-  "Converts any v (vertical) or h (horizontal) commands into l (line) commands.
-  This is necessary to allow rotation of a path element, because rotating an axis-aligned line will move it off the axis, making it unrepresentable with v or h commands, as they do not encode the x or y position values respectively."
-  [cmds]
-  (let [iters (iterate convert-first-vh-cmd cmds)]
-    (if (any-vh? cmds)
-      (->> iters
-           (partition 2 1)
-           (take-while (fn [[a b]] (not= a b)))
-           last
-           last)
-      cmds)))
+       (map merge-cursor)
+       vh->l))
 
 (defn- cmd->path-string
   [{:keys [:command :coordsys :input]}]
