@@ -784,6 +784,15 @@ The following snippet does create an XML string where the namespace prefixes are
 
 #+END_SRC
 
+** element-keys
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/elements.cljc
+(def svg-element-keys #{:circle :ellipse
+                        :line :rect
+                        :polygon :polyline
+                        :image :text :g})
+
+#+END_SRC
+
 ** shapes
 A shape is a hiccup data structure that represents one of the valild SVG elements.
 
@@ -892,6 +901,7 @@ In particular, you cannot know the exact width and height of a text element with
     (into [:g {}] (first content))
     ;; content is a single element OR a list of elements
     (into [:g {}] (filter (complement nil?) content))))
+
 #+end_src
 
 * path
@@ -1287,7 +1297,7 @@ This leads to challenges with groups. Groups must have their centroid calculated
   This namespace also provides `bounds`, and `centroid` functions which calculate the respective property for all elements provided by this library."
   (:require [clojure.string :as str]   
              [svg-clj.utils :as utils]
-             [svg-clj.elements :as svg]
+             [svg-clj.elements :as el]
              [svg-clj.path :as path]
              [svg-clj.parametric :as p]
             #?(:cljs
@@ -2191,29 +2201,29 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
           ;; line
           (and (= (count cmds) 2)
                (empty? (remove #{"L"} cs)))
-          (apply svg/line (map :input cmds))
+          (apply el/line (map :input cmds))
 
           ;; polyline
           (and (> (count cmds) 2)
                (empty? (remove #{"L"} cs)))
-          (svg/polyline (map :input cmds))
+          (el/polyline (map :input cmds))
 
           ;; polygon
           (and (> (count cmds) 2)
                (empty? (remove #{"L" "Z"} cs)))
-          (svg/polygon (map :input cmds))
+          (el/polygon (map :input cmds))
 
           ;; Quadratic or Cubic Bezier Curve(s)
           (or (empty? (remove #{"Q"} cs))
               (empty? (remove #{"C"} cs)))
           (let [pts (mapcat bezier-cmd-pts (rest cmds))]
-            (svg/polyline pts))
+            (el/polyline pts))
 
           ;; Quadratic or Cubic Bezier Curve(s) closed path
           (or (empty? (remove #{"Q" "Z"} cs))
               (empty? (remove #{"C" "Z"} cs)))
           (let [pts (mapcat bezier-cmd-pts (drop-last (rest cmds)))]
-            (svg/polygon pts))
+            (el/polygon pts))
           
           :else
           (path/path (path/cmds->path-string cmds)))))))
@@ -2223,7 +2233,7 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
 
 ;; FIXME: clean-m-cmds used to clear the issue of a single path element with only an M command, but impl doesn't work yet.
 
-#_(defn- clean-m-cmds
+(defn- clean-m-cmds
   "Remove cmdb if it is an M command with the same position as the last input of cmda."
   [[cmda cmdb]]
   (let [[pa pb] (map (comp (partial take-last 2) :input) [cmda cmdb])
@@ -2238,10 +2248,10 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
   [& paths]
   (let [[_ props] (last paths)
         cmds (mapcat #(path/path-string->commands (get-in % [1 :d])) paths)
-        #_#_xf-cmds (conj 
+        xf-cmds (conj 
                  (remove nil? (mapcat clean-m-cmds (partition 2 1 (rest cmds))))
                  (first cmds))]
-    [:path (assoc props :d (path/cmds->path-string cmds))]))
+    [:path (assoc props :d (path/cmds->path-string xf-cmds))]))
 
 (defn split-path
   "Splits a single path element containing multiple disjoint paths into a group of paths containing only one path."
@@ -2267,29 +2277,39 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
          (filter some?)
          (map path/path))))
 
-(defn- combine-z
-  "Merge command-sequence B into CSA only when CSB is a Z command."
-  [[csa csb]]
-  (if (and (= 1 (count csb))
-           (= "Z" (:command (first csb))))
-    (concat csa csb)
-    csa))
+(defn- get-subpaths
+  [cmds]
+  (->> cmds
+       (partition-by  #((complement #{"M"}) (:command %)))
+       (partition 2)
+       (map #(apply concat %))))
+
+(defn- subpath->elements
+  [cmds]
+  (let [split-path (partition-by :command cmds)
+        cmd-check (into #{} (map #(:command (first %)) split-path))]
+    (if (or (= cmd-check #{"M" "L" "Z"})
+            (= cmd-check #{"M" "L"}))
+      (cmds->elements cmds)
+      (let [subpath (->> cmds
+                         (remove #(#{"M" "Z"} (:command %)))
+                         (partition-by :command)
+                         (map cmds->elements)
+                         (remove nil?))]
+        (el/g
+         subpath
+         (when (= "Z" (:command (last cmds)))
+           (apply el/line
+                  (map #(take-last 2 (:input %)) [(first cmds)
+                                                  (last (drop-last cmds))]))))))))
 
 (defn path->elements
-  [[_ {:keys [d]}] & {:keys [break-polys?]}]
-  (let [break-fn (fn [s]
-                   (let [sf (if break-polys?
-                              (partial partition 1)
-                              (partial partition-by :command))]
-                     (->> (sf s)
-                          (partition-all 2 1)
-                          (map combine-z))))]
-    (->> d
-         path/path-string->commands
-         path/vh->l
-         break-fn
-         (map cmds->elements)
-         (filter some?))))
+  [[_ {:keys [d]}]]
+  (->> d
+       path/path-string->commands
+       get-subpaths
+       (map subpath->elements)
+       (remove nil?)))
 
 (defmulti element->path
   (fn [element]
@@ -2328,14 +2348,14 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
 (defmethod element->path :polyline
   [[_ {:keys [points] :as props}]]
   (let [pts (partition 2 (utils/s->v points))]
-  (-> (path/polyline pts)
-      (style (dissoc props :points)))))
+    (-> (path/polyline pts)
+        (style (dissoc props :points)))))
 
 (defmethod element->path :polygon
   [[_ {:keys [points] :as props}]]
   (let [pts (partition 2 (utils/s->v points))]
-  (-> (path/polygon pts)
-      (style (dissoc props :points)))))
+    (-> (path/polygon pts)
+        (style (dissoc props :points)))))
 
 (defmethod element->path :path
   [elem]
@@ -2343,7 +2363,7 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
 
 (defmethod element->path :g
   [[_ props & elems]]
-  (-> (svg/g (map element->path elems))
+  (-> (el/g (map element->path elems))
       (style props)))
 
 (defn elements->path
@@ -2585,15 +2605,15 @@ A 'arrow builder' function that lets you give a curve, a start-shape, and end-sh
 (defn arrow
   ([a b]
    (let [tip-pts [ [0 0] [5 0] [5 5] ]
-         tip-shape (svg/polygon tip-pts)]
+         tip-shape (el/polygon tip-pts)]
      (arrow a b tip-shape)))
 
   ([a b tip-shape]
    (let [[mx my] (tf/centroid tip-shape)
          r (utils/to-deg (apply #(Math/atan2 %1 %2) (utils/v- b a)))]
      (->
-      (svg/g
-       (svg/line a b)
+      (el/g
+       (el/line a b)
        (-> tip-shape
            (tf/translate [(- mx) (- my)])
            (tf/rotate (- 315 r))
@@ -3071,7 +3091,7 @@ Distribute has a few options:
                     (map #(+ (/ (dir (tf/bb-dims %1)) 2)
                              (/ (dir (tf/bb-dims %2)) 2) gap)
                          items (rest items)))]
-    (svg/g
+    (el/g
      (conj 
       (map
        #(tf/translate %1 (if (= axis-key :x) 
@@ -3081,7 +3101,7 @@ Distribute has a few options:
 
 (defn distribute-on-pts
   [items pts]
-  (svg/g (map #(-> %1 (tf/translate %2)) items pts)))
+  (el/g (map #(-> %1 (tf/translate %2)) items pts)))
 
 (defn distribute-on-curve
   [items curve]
@@ -3105,7 +3125,7 @@ Pattern and distribute are so similar, I wonder if I should remove one of them? 
 #+begin_src clojure :tangle ./src/svg_clj/layout.cljc
 (defn pattern-on-pts
   [item pts]
-  (svg/g (map #(-> item (tf/translate %)) pts)))
+  (el/g (map #(-> item (tf/translate %)) pts)))
 
 (defn pattern-on-curve
   [item curve n]
@@ -3893,4 +3913,67 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
 ;; emitted SVG data works with Reagent as well.
 
 (tools/save-svg blossom "examples/blossom.svg")
+#+end_src
+
+* scratch
+Play around with code here.
+
+#+begin_src clojure
+(ns svg-clj.scratch
+  (:require [clojure.string :as str]
+            [hiccup.core :refer [html]]
+            [svg-clj.utils :as utils]
+            [svg-clj.path :as path]
+            [svg-clj.transforms :as tf]
+            [svg-clj.elements :as el]
+            [svg-clj.composites :refer [svg]]
+            [svg-clj.tools :as tools :refer [show cider-show]]))
+
+(def sk-url "/Users/adam/dev/forge/sk.svg")
+(def sk (slurp sk-url))
+(def sk-elems (tools/load-svg sk-url))
+(def polygon-with-curves
+  (->> sk-elems
+       (drop 2) last
+       (drop 2) last))
+
+(tools/cider-show polygon-with-curves)
+
+(defn rand-fill
+  [elem]
+  (-> elem
+      (tf/style {:fill (str "rgb("
+                            (rand-int 255) ","
+                            (rand-int 255) ","
+                            (rand-int 255) ")")})))
+
+(defn rand-stroke
+  [elem]
+  (-> elem
+      (tf/style {:stroke (str "rgb("
+                            (rand-int 255) ","
+                            (rand-int 255) ","
+                            (rand-int 255) ")")})))
+
+(def poly-elems
+  (->> polygon-with-curves
+       tf/path->elements
+       (map rand-stroke)
+       (map #(tf/style % {:fill "none"}))))
+
+(tools/cider-show poly-elems)
+
+(def path-elems (map tf/element->path poly-elems))
+
+(tools/cider-show path-elems)
+
+(def path-elem (tf/elements->path poly-elems))
+
+(tools/cider-show path-elem)
+
+(def closed-path-elem (tf/merge-paths path-elem [:path {:d "Z"}]))
+
+(def merged-poly
+  (apply tf/merge-paths path-elems))
+
 #+end_src

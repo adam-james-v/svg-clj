@@ -8,6 +8,11 @@
   (:require [clojure.string :as str]
             [svg-clj.utils :as utils]))
 
+(def svg-element-keys #{:circle :ellipse
+                        :line :rect
+                        :polygon :polyline
+                        :image :text :g})
+
 (defn circle
   "Emits a circle element with radius `r` centered at the origin."
   [r]

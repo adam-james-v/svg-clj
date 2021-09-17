@@ -6,7 +6,7 @@
   This namespace also provides `bounds`, and `centroid` functions which calculate the respective property for all elements provided by this library."
   (:require [clojure.string :as str]   
              [svg-clj.utils :as utils]
-             [svg-clj.elements :as svg]
+             [svg-clj.elements :as el]
              [svg-clj.path :as path]
              [svg-clj.parametric :as p]
             #?(:cljs
@@ -794,29 +794,29 @@
           ;; line
           (and (= (count cmds) 2)
                (empty? (remove #{"L"} cs)))
-          (apply svg/line (map :input cmds))
+          (apply el/line (map :input cmds))
 
           ;; polyline
           (and (> (count cmds) 2)
                (empty? (remove #{"L"} cs)))
-          (svg/polyline (map :input cmds))
+          (el/polyline (map :input cmds))
 
           ;; polygon
           (and (> (count cmds) 2)
                (empty? (remove #{"L" "Z"} cs)))
-          (svg/polygon (map :input cmds))
+          (el/polygon (map :input cmds))
 
           ;; Quadratic or Cubic Bezier Curve(s)
           (or (empty? (remove #{"Q"} cs))
               (empty? (remove #{"C"} cs)))
           (let [pts (mapcat bezier-cmd-pts (rest cmds))]
-            (svg/polyline pts))
+            (el/polyline pts))
 
           ;; Quadratic or Cubic Bezier Curve(s) closed path
           (or (empty? (remove #{"Q" "Z"} cs))
               (empty? (remove #{"C" "Z"} cs)))
           (let [pts (mapcat bezier-cmd-pts (drop-last (rest cmds)))]
-            (svg/polygon pts))
+            (el/polygon pts))
           
           :else
           (path/path (path/cmds->path-string cmds)))))))
@@ -826,7 +826,7 @@
 
 ;; FIXME: clean-m-cmds used to clear the issue of a single path element with only an M command, but impl doesn't work yet.
 
-#_(defn- clean-m-cmds
+(defn- clean-m-cmds
   "Remove cmdb if it is an M command with the same position as the last input of cmda."
   [[cmda cmdb]]
   (let [[pa pb] (map (comp (partial take-last 2) :input) [cmda cmdb])
@@ -841,10 +841,10 @@
   [& paths]
   (let [[_ props] (last paths)
         cmds (mapcat #(path/path-string->commands (get-in % [1 :d])) paths)
-        #_#_xf-cmds (conj 
+        xf-cmds (conj 
                  (remove nil? (mapcat clean-m-cmds (partition 2 1 (rest cmds))))
                  (first cmds))]
-    [:path (assoc props :d (path/cmds->path-string cmds))]))
+    [:path (assoc props :d (path/cmds->path-string xf-cmds))]))
 
 (defn split-path
   "Splits a single path element containing multiple disjoint paths into a group of paths containing only one path."
@@ -870,29 +870,39 @@
          (filter some?)
          (map path/path))))
 
-(defn- combine-z
-  "Merge command-sequence B into CSA only when CSB is a Z command."
-  [[csa csb]]
-  (if (and (= 1 (count csb))
-           (= "Z" (:command (first csb))))
-    (concat csa csb)
-    csa))
+(defn- get-subpaths
+  [cmds]
+  (->> cmds
+       (partition-by  #((complement #{"M"}) (:command %)))
+       (partition 2)
+       (map #(apply concat %))))
+
+(defn- subpath->elements
+  [cmds]
+  (let [split-path (partition-by :command cmds)
+        cmd-check (into #{} (map #(:command (first %)) split-path))]
+    (if (or (= cmd-check #{"M" "L" "Z"})
+            (= cmd-check #{"M" "L"}))
+      (cmds->elements cmds)
+      (let [subpath (->> cmds
+                         (remove #(#{"M" "Z"} (:command %)))
+                         (partition-by :command)
+                         (map cmds->elements)
+                         (remove nil?))]
+        (el/g
+         subpath
+         (when (= "Z" (:command (last cmds)))
+           (apply el/line
+                  (map #(take-last 2 (:input %)) [(first cmds)
+                                                  (last (drop-last cmds))]))))))))
 
 (defn path->elements
-  [[_ {:keys [d]}] & {:keys [break-polys?]}]
-  (let [break-fn (fn [s]
-                   (let [sf (if break-polys?
-                              (partial partition 1)
-                              (partial partition-by :command))]
-                     (->> (sf s)
-                          (partition-all 2 1)
-                          (map combine-z))))]
-    (->> d
-         path/path-string->commands
-         path/vh->l
-         break-fn
-         (map cmds->elements)
-         (filter some?))))
+  [[_ {:keys [d]}]]
+  (->> d
+       path/path-string->commands
+       get-subpaths
+       (map subpath->elements)
+       (remove nil?)))
 
 (defmulti element->path
   (fn [element]
@@ -931,14 +941,14 @@
 (defmethod element->path :polyline
   [[_ {:keys [points] :as props}]]
   (let [pts (partition 2 (utils/s->v points))]
-  (-> (path/polyline pts)
-      (style (dissoc props :points)))))
+    (-> (path/polyline pts)
+        (style (dissoc props :points)))))
 
 (defmethod element->path :polygon
   [[_ {:keys [points] :as props}]]
   (let [pts (partition 2 (utils/s->v points))]
-  (-> (path/polygon pts)
-      (style (dissoc props :points)))))
+    (-> (path/polygon pts)
+        (style (dissoc props :points)))))
 
 (defmethod element->path :path
   [elem]
@@ -946,7 +956,7 @@
 
 (defmethod element->path :g
   [[_ props & elems]]
-  (-> (svg/g (map element->path elems))
+  (-> (el/g (map element->path elems))
       (style props)))
 
 (defn elements->path

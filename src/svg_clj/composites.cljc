@@ -32,15 +32,15 @@
 (defn arrow
   ([a b]
    (let [tip-pts [ [0 0] [5 0] [5 5] ]
-         tip-shape (svg/polygon tip-pts)]
+         tip-shape (el/polygon tip-pts)]
      (arrow a b tip-shape)))
 
   ([a b tip-shape]
    (let [[mx my] (tf/centroid tip-shape)
          r (utils/to-deg (apply #(Math/atan2 %1 %2) (utils/v- b a)))]
      (->
-      (svg/g
-       (svg/line a b)
+      (el/g
+       (el/line a b)
        (-> tip-shape
            (tf/translate [(- mx) (- my)])
            (tf/rotate (- 315 r))

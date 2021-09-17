@@ -12,7 +12,7 @@
                     (map #(+ (/ (dir (tf/bb-dims %1)) 2)
                              (/ (dir (tf/bb-dims %2)) 2) gap)
                          items (rest items)))]
-    (svg/g
+    (el/g
      (conj 
       (map
        #(tf/translate %1 (if (= axis-key :x) 
@@ -22,7 +22,7 @@
 
 (defn distribute-on-pts
   [items pts]
-  (svg/g (map #(-> %1 (tf/translate %2)) items pts)))
+  (el/g (map #(-> %1 (tf/translate %2)) items pts)))
 
 (defn distribute-on-curve
   [items curve]
@@ -40,7 +40,7 @@
 
 (defn pattern-on-pts
   [item pts]
-  (svg/g (map #(-> item (tf/translate %)) pts)))
+  (el/g (map #(-> item (tf/translate %)) pts)))
 
 (defn pattern-on-curve
   [item curve n]
