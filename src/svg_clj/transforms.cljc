@@ -93,7 +93,7 @@
 
 (defmethod centroid :path
   [[_ props]]
-  (let [cmds (path/path-string->commands (:d props))
+  (let [cmds (path/path-str->cmds (:d props))
         pts (mapcat command->pts cmds)]
     (centroid-of-pts (vec (into #{} pts)))))
 
@@ -229,7 +229,7 @@
 
 (defmethod bounds :path
   [[_ props]]
-  (let [cmds (path/path-string->commands (:d props))
+  (let [cmds (path/path-str->cmds (:d props))
         pts (mapcat command->pts cmds)]
     (bounds-of-pts pts)))
 
@@ -408,7 +408,7 @@
 
 (defmethod translate :path
   [[k props] [x y]]
-  (let [cmds (path/path-string->commands (:d props))
+  (let [cmds (path/path-str->cmds (:d props))
         xcmds (map #(translate-path-command % [x y]) cmds)]
     [k (assoc props :d (path/cmds->path-string xcmds))]))
 
@@ -589,7 +589,7 @@
 (defmethod rotate :path
   [[k props] deg]
   (let [ctr (centroid [k props])
-        cmds (path/path-string->commands (:d props))
+        cmds (path/path-str->cmds (:d props))
         xcmds (map #(rotate-path-command % ctr deg) cmds)]
     [k (assoc props :d (path/cmds->path-string xcmds))]))
 
@@ -763,9 +763,33 @@
 (defmethod scale :path
   [[k props] [sx sy]]
   (let [ctr (centroid [k props])
-        cmds (path/path-string->commands (:d props))
+        cmds (path/path-str->cmds (:d props))
         xcmds (map #(scale-path-command ctr % [sx sy]) cmds)]
     [k (assoc props :d (path/cmds->path-string xcmds))]))
+
+(defn split-path
+  "Splits a single path element containing multiple disjoint paths into a group of paths containing only one path."
+  [[k props]]
+  (let [ps (-> (:d props)
+               (str/split #"(?=M)")
+               (->> (map str/trim)))]
+    (map #(assoc-in [k props] [1 :d] %) ps)))
+
+(defn explode-path
+  "Breaks a path element into its constituent curves.
+  Optional arg `break-polys?` is `false` by default, which treats sequences of line segments as polylines.
+  Setting `break-polys?` to `true` treats sequences of line segments as individual elements."
+  [[_ {:keys [d]}] & {:keys [break-polys?]}]
+  (let [break-fn (if break-polys?
+                   (partial partition 1)
+                   (partial partition-by :command))]
+    (->> d
+         path/path-str->cmds
+         path/vh->l
+         break-fn
+         (map path/cmds->path-string)
+         (filter some?)
+         (map path/path))))
 
 (defn- bezier-cmd-pts
   [{:keys [input cursor]}]
@@ -821,11 +845,6 @@
           :else
           (path/path (path/cmds->path-string cmds)))))))
 
-
-;; doesn't always work. Check xf-cmds logic to see if it is incorrectly discarding some paths. For example, my ob-babashka example project I noticed that two beziers are not merging correctly (one is dropped entirely) but they seem to work when I don't use xf-cmnds but jsut cmds directly
-
-;; FIXME: clean-m-cmds used to clear the issue of a single path element with only an M command, but impl doesn't work yet.
-
 (defn- clean-m-cmds
   "Remove cmdb if it is an M command with the same position as the last input of cmda."
   [[cmda cmdb]]
@@ -840,35 +859,12 @@
   "Merges a list of path elements together, keeping props from last path in the list."
   [& paths]
   (let [[_ props] (last paths)
-        cmds (mapcat #(path/path-string->commands (get-in % [1 :d])) paths)
-        xf-cmds (conj 
-                 (remove nil? (mapcat clean-m-cmds (partition 2 1 (rest cmds))))
-                 (first cmds))]
+        cmds (mapcat #(path/path-str->cmds (get-in % [1 :d])) paths)
+        xf-cmds
+        (conj 
+         (remove nil? (mapcat clean-m-cmds (partition 2 1 (rest cmds))))
+         (first cmds))]
     [:path (assoc props :d (path/cmds->path-string xf-cmds))]))
-
-(defn split-path
-  "Splits a single path element containing multiple disjoint paths into a group of paths containing only one path."
-  [[k props]]
-  (let [ps (-> (:d props)
-               (str/split #"(?=M)")
-               (->> (map str/trim)))]
-    (map #(assoc-in [k props] [1 :d] %) ps)))
-
-(defn explode-path
-  "Breaks a path element into its constituent curves.
-  Optional arg `break-polys?` is `false` by default, which treats sequences of line segments as polylines.
-  Setting `break-polys?` to `true` treats sequences of line segments as individual elements."
-  [[_ {:keys [d]}] & {:keys [break-polys?]}]
-  (let [break-fn (if break-polys?
-                   (partial partition 1)
-                   (partial partition-by :command))]
-    (->> d
-         path/path-string->commands
-         path/vh->l
-         break-fn
-         (map path/cmds->path-string)
-         (filter some?)
-         (map path/path))))
 
 (defn- get-subpaths
   [cmds]
@@ -889,17 +885,18 @@
                          (partition-by :command)
                          (map cmds->elements)
                          (remove nil?))]
-        (el/g
-         subpath
-         (when (= "Z" (:command (last cmds)))
-           (apply el/line
-                  (map #(take-last 2 (:input %)) [(first cmds)
-                                                  (last (drop-last cmds))]))))))))
+        (apply el/g
+         (conj
+          (vec subpath)
+          (when (= "Z" (:command (last cmds)))
+            (let [[s e] (map #(take-last 2 (:input %))
+                             [(first cmds) (last (drop-last cmds))])]
+              (el/line s e)))))))))
 
 (defn path->elements
   [[_ {:keys [d]}]]
   (->> d
-       path/path-string->commands
+       path/path-str->cmds
        get-subpaths
        (map subpath->elements)
        (remove nil?)))
@@ -952,12 +949,26 @@
 
 (defmethod element->path :path
   [elem]
-  elem) 
+  elem)
+
+(defn- needs-closing?
+  [path]
+  (let [cmds (path/path-str->cmds (get-in path [1 :d]))
+        start (->> cmds first :input (take-last 2))
+        end (->> cmds last :input (take-last 2))]
+    (= start end)))
 
 (defmethod element->path :g
   [[_ props & elems]]
-  (-> (el/g (map element->path elems))
-      (style props)))
+  (let [p (apply merge-paths (map element->path elems))]
+    (if (needs-closing? p)
+      (->> elems
+           drop-last
+           (map element->path)
+           (apply merge-paths)
+           (#(style % props)))
+      (-> p
+          (style props)))))
 
 (defn elements->path
   [elems]

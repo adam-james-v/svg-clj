@@ -4,7 +4,7 @@
   Additionally, the SVG container function is provided here as it relies on [[svg-clj.transforms]] to allow automatic veiwBox setup."
   (:require [clojure.string :as str]
             [svg-clj.utils :as utils]
-            [svg-clj.elements :as svg]
+            [svg-clj.elements :as el]
             [svg-clj.transforms :as tf]))
 
 (defn svg

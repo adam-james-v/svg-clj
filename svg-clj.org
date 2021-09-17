@@ -1017,7 +1017,7 @@ The order of these commands must be maintained, otherwise the shape will be draw
 I'm going to make a few functions to split paths into commands and put them in a clojure map.
 
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/path.cljc
-(defn- path-command-strings
+(defn- path-cmd-strs
   "Split the path string `ps` into a vector of path command strings."
   [ps]
   (-> ps
@@ -1040,30 +1040,30 @@ I'm going to make a few functions to split paths into commands and put them in a
   [cs]
   (if (relative? cs) :rel :abs))
 
-(defn- command-input
+(defn- cmd-input
   [cs]
   (let [i (str/split cs #"[A-DF-Za-df-z]")]
     (when (seq (rest i))
       (apply utils/s->v (rest i)))))
 
-(defn- command
+(defn- cmd-str->cmd
   "Transforms a command string `cs` into a map."
   [cs]
   {:command  (str/upper-case (re-find #"[A-DF-Za-df-z]" cs))
    :coordsys (coord-sys-key cs)
-   :input (command-input cs)})
+   :input (cmd-input cs)})
 
 (defn- merge-cursor
   [[pcmd ccmd]]
   (let [cursor (vec (take-last 2 (:input pcmd)))]
     (assoc ccmd :cursor cursor)))
 
-(defn path-string->commands
+(defn path-str->cmds
   "Turns path string `ps` into a list of its command maps."
   [ps]
   (->> ps
-       path-command-strings
-       (map command)
+       path-cmd-strs
+       (map cmd-str->cmd)
        (concat [{:command "M"
                  :coordsys :abs
                  :input [0 0]}])
@@ -1412,7 +1412,7 @@ Ideas to keep in mind:
 #+begin_src clojure :tangle ./src/svg_clj/transforms.cljc
 (defmethod centroid :path
   [[_ props]]
-  (let [cmds (path/path-string->commands (:d props))
+  (let [cmds (path/path-str->cmds (:d props))
         pts (mapcat command->pts cmds)]
     (centroid-of-pts (vec (into #{} pts)))))
 #+end_src
@@ -1568,7 +1568,7 @@ This is a suggestion from maacl72
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
 (defmethod bounds :path
   [[_ props]]
-  (let [cmds (path/path-string->commands (:d props))
+  (let [cmds (path/path-str->cmds (:d props))
         pts (mapcat command->pts cmds)]
     (bounds-of-pts pts)))
 
@@ -1764,7 +1764,7 @@ To do this, I have a second multimethod to handle different commands that can sh
 
 (defmethod translate :path
   [[k props] [x y]]
-  (let [cmds (path/path-string->commands (:d props))
+  (let [cmds (path/path-str->cmds (:d props))
         xcmds (map #(translate-path-command % [x y]) cmds)]
     [k (assoc props :d (path/cmds->path-string xcmds))]))
 
@@ -1966,7 +1966,7 @@ To do this, I have a second multimethod to handle different commands that can sh
 (defmethod rotate :path
   [[k props] deg]
   (let [ctr (centroid [k props])
-        cmds (path/path-string->commands (:d props))
+        cmds (path/path-str->cmds (:d props))
         xcmds (map #(rotate-path-command % ctr deg) cmds)]
     [k (assoc props :d (path/cmds->path-string xcmds))]))
 
@@ -2166,13 +2166,44 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
 (defmethod scale :path
   [[k props] [sx sy]]
   (let [ctr (centroid [k props])
-        cmds (path/path-string->commands (:d props))
+        cmds (path/path-str->cmds (:d props))
         xcmds (map #(scale-path-command ctr % [sx sy]) cmds)]
     [k (assoc props :d (path/cmds->path-string xcmds))]))
 
 #+END_SRC
 
 ** path-manipulations
+Path manipulations might be better in the path namespace.
+
+*** split-explode
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
+(defn split-path
+  "Splits a single path element containing multiple disjoint paths into a group of paths containing only one path."
+  [[k props]]
+  (let [ps (-> (:d props)
+               (str/split #"(?=M)")
+               (->> (map str/trim)))]
+    (map #(assoc-in [k props] [1 :d] %) ps)))
+
+(defn explode-path
+  "Breaks a path element into its constituent curves.
+  Optional arg `break-polys?` is `false` by default, which treats sequences of line segments as polylines.
+  Setting `break-polys?` to `true` treats sequences of line segments as individual elements."
+  [[_ {:keys [d]}] & {:keys [break-polys?]}]
+  (let [break-fn (if break-polys?
+                   (partial partition 1)
+                   (partial partition-by :command))]
+    (->> d
+         path/path-str->cmds
+         path/vh->l
+         break-fn
+         (map path/cmds->path-string)
+         (filter some?)
+         (map path/path))))
+
+#+END_SRC
+
+*** cmds->elements
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
 (defn- bezier-cmd-pts
   [{:keys [input cursor]}]
@@ -2228,11 +2259,10 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
           :else
           (path/path (path/cmds->path-string cmds)))))))
 
+#+END_SRC
 
-;; doesn't always work. Check xf-cmds logic to see if it is incorrectly discarding some paths. For example, my ob-babashka example project I noticed that two beziers are not merging correctly (one is dropped entirely) but they seem to work when I don't use xf-cmnds but jsut cmds directly
-
-;; FIXME: clean-m-cmds used to clear the issue of a single path element with only an M command, but impl doesn't work yet.
-
+*** merge-paths
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
 (defn- clean-m-cmds
   "Remove cmdb if it is an M command with the same position as the last input of cmda."
   [[cmda cmdb]]
@@ -2247,36 +2277,17 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
   "Merges a list of path elements together, keeping props from last path in the list."
   [& paths]
   (let [[_ props] (last paths)
-        cmds (mapcat #(path/path-string->commands (get-in % [1 :d])) paths)
-        xf-cmds (conj 
-                 (remove nil? (mapcat clean-m-cmds (partition 2 1 (rest cmds))))
-                 (first cmds))]
+        cmds (mapcat #(path/path-str->cmds (get-in % [1 :d])) paths)
+        xf-cmds
+        (conj 
+         (remove nil? (mapcat clean-m-cmds (partition 2 1 (rest cmds))))
+         (first cmds))]
     [:path (assoc props :d (path/cmds->path-string xf-cmds))]))
 
-(defn split-path
-  "Splits a single path element containing multiple disjoint paths into a group of paths containing only one path."
-  [[k props]]
-  (let [ps (-> (:d props)
-               (str/split #"(?=M)")
-               (->> (map str/trim)))]
-    (map #(assoc-in [k props] [1 :d] %) ps)))
+#+END_SRC
 
-(defn explode-path
-  "Breaks a path element into its constituent curves.
-  Optional arg `break-polys?` is `false` by default, which treats sequences of line segments as polylines.
-  Setting `break-polys?` to `true` treats sequences of line segments as individual elements."
-  [[_ {:keys [d]}] & {:keys [break-polys?]}]
-  (let [break-fn (if break-polys?
-                   (partial partition 1)
-                   (partial partition-by :command))]
-    (->> d
-         path/path-string->commands
-         path/vh->l
-         break-fn
-         (map path/cmds->path-string)
-         (filter some?)
-         (map path/path))))
-
+*** path->elements
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
 (defn- get-subpaths
   [cmds]
   (->> cmds
@@ -2296,21 +2307,26 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
                          (partition-by :command)
                          (map cmds->elements)
                          (remove nil?))]
-        (el/g
-         subpath
-         (when (= "Z" (:command (last cmds)))
-           (apply el/line
-                  (map #(take-last 2 (:input %)) [(first cmds)
-                                                  (last (drop-last cmds))]))))))))
+        (apply el/g
+         (conj
+          (vec subpath)
+          (when (= "Z" (:command (last cmds)))
+            (let [[s e] (map #(take-last 2 (:input %))
+                             [(first cmds) (last (drop-last cmds))])]
+              (el/line s e)))))))))
 
 (defn path->elements
   [[_ {:keys [d]}]]
   (->> d
-       path/path-string->commands
+       path/path-str->cmds
        get-subpaths
        (map subpath->elements)
        (remove nil?)))
 
+#+END_SRC
+
+*** element->path
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
 (defmulti element->path
   (fn [element]
     (if (keyword? (first element))
@@ -2359,17 +2375,45 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
 
 (defmethod element->path :path
   [elem]
-  elem) 
+  elem)
+
+#+END_SRC
+
+*** element->path groups
+Element to path for groups will map element->path on all elements within the group and then merge those paths into a single path.
+
+This is done to properly 'group' connected sub-paths, and handle the case where different elements are 'chained' together to form a closed path. The check for a closed path assumes that if the first point and last point are equal, then the group of elements was originally meant to be closed, and so will close it.
+
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
+(defn- needs-closing?
+  [path]
+  (let [cmds (path/path-str->cmds (get-in path [1 :d]))
+        start (->> cmds first :input (take-last 2))
+        end (->> cmds last :input (take-last 2))]
+    (= start end)))
 
 (defmethod element->path :g
   [[_ props & elems]]
-  (-> (el/g (map element->path elems))
-      (style props)))
+  (let [p (apply merge-paths (map element->path elems))]
+    (if (needs-closing? p)
+      (->> elems
+           drop-last
+           (map element->path)
+           (apply merge-paths)
+           (#(style % props)))
+      (-> p
+          (style props)))))
 
 (defn elements->path
   [elems]
   (apply merge-paths (map element->path elems)))
 
+#+END_SRC
+
+*** decurve
+Turns any bezier or arc commands into approximated versions using straight segments.
+
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
 (defn decurve
   [path]
   (->> (path->elements path)
@@ -2548,7 +2592,7 @@ First, I have to split up the bezier. To split a bezier curve, you have to creat
 #_(defmethod offset :path
   [[k props] d]
   [k props])
-  #_(let [cmds (path/path-string->commands (:d props))
+  #_(let [cmds (path/path-str->cmds (:d props))
         xcmds (map #(offset-path-command % d) cmds)]
     [k (assoc props :d (path/cmds->path-string xcmds))]))
 
@@ -2565,7 +2609,7 @@ Composites are drawing elements that are not represented in the base SVG element
   Additionally, the SVG container function is provided here as it relies on [[svg-clj.transforms]] to allow automatic veiwBox setup."
   (:require [clojure.string :as str]
             [svg-clj.utils :as utils]
-            [svg-clj.elements :as svg]
+            [svg-clj.elements :as el]
             [svg-clj.transforms :as tf]))
 
 #+END_SRC

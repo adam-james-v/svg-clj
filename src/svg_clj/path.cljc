@@ -69,7 +69,7 @@
            last)
       cmds)))
 
-(defn- path-command-strings
+(defn- path-cmd-strs
   "Split the path string `ps` into a vector of path command strings."
   [ps]
   (-> ps
@@ -92,30 +92,30 @@
   [cs]
   (if (relative? cs) :rel :abs))
 
-(defn- command-input
+(defn- cmd-input
   [cs]
   (let [i (str/split cs #"[A-DF-Za-df-z]")]
     (when (seq (rest i))
       (apply utils/s->v (rest i)))))
 
-(defn- command
+(defn- cmd-str->cmd
   "Transforms a command string `cs` into a map."
   [cs]
   {:command  (str/upper-case (re-find #"[A-DF-Za-df-z]" cs))
    :coordsys (coord-sys-key cs)
-   :input (command-input cs)})
+   :input (cmd-input cs)})
 
 (defn- merge-cursor
   [[pcmd ccmd]]
   (let [cursor (vec (take-last 2 (:input pcmd)))]
     (assoc ccmd :cursor cursor)))
 
-(defn path-string->commands
+(defn path-str->cmds
   "Turns path string `ps` into a list of its command maps."
   [ps]
   (->> ps
-       path-command-strings
-       (map command)
+       path-cmd-strs
+       (map cmd-str->cmd)
        (concat [{:command "M"
                  :coordsys :abs
                  :input [0 0]}])
