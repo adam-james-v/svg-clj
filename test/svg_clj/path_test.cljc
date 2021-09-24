@@ -90,5 +90,3 @@
   (let [a (repeat 10 (el/rect 10 20))]
     (is (= (tf/rotate a 45)
            (map #(tf/rotate % 45) a)))))
-
-

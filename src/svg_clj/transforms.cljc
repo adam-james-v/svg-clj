@@ -12,35 +12,9 @@
             #?(:cljs
                [cljs.reader :refer [read-string]])))
 
-(defmulti command->pts :command)
-
-(defmethod command->pts :default
-  [{:keys [input]}]
-  (mapv vec (partition 2 input)))
-
-;; this is not implemented correctly yet.
-;; just a 'stub' returning the end point of the arc
-(defmethod command->pts "A"
-  [{:keys [input cursor]}]
-  (let [[rx ry deg laf sw x y] input
-        b [x y]
-        ctr (utils/v+ cursor [rx 0])
-        sa (utils/angle-from-pts cursor ctr b)
-        angle (if (= 1 laf) (- 360 sa) sa)
-        mids (mapv #(utils/rotate-pt-around-center cursor % ctr) (rest (range 0 angle 90)))]
-    (conj mids b)))
-
 (defn style
-  [[k props & content] style-map]
-  (into [k (merge props style-map)] content))
-
-(defn centroid-of-pts
-  "Calculates the arithmetic mean position of the given `pts`."
-  [pts]
-  (let [ndim (count (first (sort-by count pts)))
-        splits (for [axis (range 0 ndim)]
-                 (map #(nth % axis) pts))]
-    (mapv #(apply utils/average %) splits)))
+  [elem style-map]
+  (utils/style elem style-map))
 
 (defmulti centroid
   (fn [element]
@@ -50,7 +24,7 @@
 
 (defmethod centroid :list
   [elems]
-  (centroid-of-pts (into #{} (map centroid elems))))
+  (utils/centroid-of-pts (into #{} (map centroid elems))))
 
 (defmethod centroid :circle
   [[_ props]]
@@ -64,17 +38,17 @@
   [[_ props]]
   (let [a (mapv #(get props %) [:x1 :y1])
         b (mapv #(get props %) [:x2 :y2])]
-    (centroid-of-pts [a b])))
+    (utils/centroid-of-pts [a b])))
 
 (defmethod centroid :polygon
   [[_ props]]
   (let [pts (mapv utils/s->v (str/split (:points props) #" "))]
-    (centroid-of-pts pts)))
+    (utils/centroid-of-pts pts)))
 
 (defmethod centroid :polyline
   [[_ props]]
   (let [pts (mapv utils/s->v (str/split (:points props) #" "))]
-    (centroid-of-pts pts)))
+    (utils/centroid-of-pts pts)))
 
 (defmethod centroid :rect
   [[_ props]]
@@ -92,27 +66,13 @@
   [(:x props) (:y props)])
 
 (defmethod centroid :path
-  [[_ props]]
-  (let [cmds (path/path-str->cmds (:d props))
-        pts (mapcat command->pts cmds)]
-    (centroid-of-pts (vec (into #{} pts)))))
+  [elem]
+  (path/centroid elem))
 
 (declare centroid)
 (defmethod centroid :g
   [[_ _ & content]]
-  (centroid-of-pts (into #{} (map centroid content))))
-
-(defn bounds-of-pts
-  "Calculates the axis-aligned-bounding-box of `pts`."
-  [pts]
-  (let [xmax (apply max (map first pts))
-        ymax (apply max (map second pts))
-        xmin (apply min (map first pts))
-        ymin (apply min (map second pts))]
-    (vector [xmin ymin]
-            [xmax ymin]
-            [xmax ymax]
-            [xmin ymax])))
+  (utils/centroid-of-pts (into #{} (map centroid content))))
 
 (defmulti bounds
   "Calculates the axis-aligned-bounding-box of `element` or list of elements."
@@ -127,7 +87,7 @@
 
 (defmethod bounds :list
   [elems]
-  (bounds-of-pts (mapcat bounds elems)))
+  (utils/bounds-of-pts (mapcat bounds elems)))
 
 (defmethod bounds :circle
   [[_ props]]
@@ -137,7 +97,7 @@
                              [0 r]
                              [(- r) 0]
                              [0 (- r)]])]
-    (bounds-of-pts pts)))
+    (utils/bounds-of-pts pts)))
 
 (defmethod bounds :ellipse
   [[_ props]]
@@ -152,30 +112,30 @@
                                    [0 ry] 
                                    [(- rx) 0]
                                    [0 (- ry)]])
-        bb (bounds-of-pts pts)
+        bb (utils/bounds-of-pts pts)
         obb (mapv #(utils/rotate-pt-around-center % deg [mx my]) bb)
         xpts (mapv #(utils/rotate-pt-around-center % deg [mx my]) pts)
-        small-bb (bounds-of-pts xpts)
-        large-bb (bounds-of-pts obb)]
+        small-bb (utils/bounds-of-pts xpts)
+        large-bb (utils/bounds-of-pts obb)]
     ;; not accurate, but good enough for now
     ;; take the bb to be the average between the small and large
-    (bounds-of-pts (mapv #(centroid-of-pts [%1 %2]) small-bb large-bb))))
+    (utils/bounds-of-pts (mapv #(utils/centroid-of-pts [%1 %2]) small-bb large-bb))))
 
 (defmethod bounds :line
   [[_ props]]
   (let [a (mapv #(get props %) [:x1 :y1])
         b (mapv #(get props %) [:x2 :y2])]
-    (bounds-of-pts [a b])))
+    (utils/bounds-of-pts [a b])))
 
 (defmethod bounds :polygon
   [[_ props]]
   (let [pts (mapv utils/s->v (str/split (:points props) #" "))]
-    (bounds-of-pts pts)))
+    (utils/bounds-of-pts pts)))
 
 (defmethod bounds :polyline
   [[_ props]]
   (let [pts (mapv utils/s->v (str/split (:points props) #" "))]
-    (bounds-of-pts pts)))
+    (utils/bounds-of-pts pts)))
 
 (defmethod bounds :rect
   [[_ props]]
@@ -192,7 +152,7 @@
              [(+ x w) (+ y h)]
              [x (+ y h)]]
         xpts (mapv #(utils/rotate-pt-around-center % deg [mx my]) pts)]
-    (bounds-of-pts xpts)))
+    (utils/bounds-of-pts xpts)))
 
 (defmethod bounds :image
   [[_ props]]
@@ -209,9 +169,10 @@
              [(+ x w) (+ y h)]
              [x (+ y h)]]
         xpts (mapv #(utils/rotate-pt-around-center % deg [mx my]) pts)]
-    (bounds-of-pts xpts)))
+    (utils/bounds-of-pts xpts)))
 
 ;; this is not done yet. Text in general needs a redo.
+;; Austin is a headless browser that may help with .getBBox???
 (defmethod bounds :text
   [[_ {:keys [x y font-size ] :as props} text]]
   (let [xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
@@ -225,18 +186,16 @@
              [(+ x hw) (+ y hh)]
              [(- x hw) (+ y hh)] ]
         xpts (mapv #(utils/rotate-pt-around-center % deg [x y]) pts)]
-    (bounds-of-pts xpts)))
+    (utils/bounds-of-pts xpts)))
 
 (defmethod bounds :path
-  [[_ props]]
-  (let [cmds (path/path-str->cmds (:d props))
-        pts (mapcat command->pts cmds)]
-    (bounds-of-pts pts)))
+  [elem]
+  (path/bounds elem))
 
 (declare bounds)
 (defmethod bounds :g
   [[_ _ & content]]
-  (bounds-of-pts (mapcat bounds content)))
+  (utils/bounds-of-pts (mapcat bounds content)))
 
 (defn bb-dims
    "The svg fn wraps `content` in an SVG container element.
@@ -350,67 +309,9 @@
                       (update :y + y))]
     [k new-props text]))
 
-(defmulti translate-path-command
-  (fn [cmd _]
-    (:command cmd)))
-
-(defmethod translate-path-command "M"
-  [{:keys [:input] :as m} [x y]]
-  (assoc m :input (utils/v+ [x y] input)))
-
-(defmethod translate-path-command "L"
-  [{:keys [:input] :as m} [x y]]
-  (assoc m :input (utils/v+ [x y] input)))
-
-(defmethod translate-path-command "H"
-  [{:keys [:input] :as m} [x _]]
-  (assoc m :input (utils/v+ [x] input)))
-
-(defmethod translate-path-command "V"
-  [{:keys [:input] :as m} [_ y]]
-  (assoc m :input (utils/v+ [y] input)))
-
-;; x y x y x y because input will ahve the form:
-;; [x1 y1 x2 y2 x y] (first two pairs are control points)
-(defmethod translate-path-command "C"
-  [{:keys [:input] :as m} [x y]]
-  (assoc m :input (utils/v+ [x y x y x y] input)))
-
-;; similar approach to above, but one control point is implicit
-(defmethod translate-path-command "S"
-  [{:keys [:input] :as m} [x y]]
-  (assoc m :input (utils/v+ [x y x y] input)))
-
-(defmethod translate-path-command "Q"
-  [{:keys [:input] :as m} [x y]]
-  (assoc m :input (utils/v+ [x y x y] input)))
-
-(defmethod translate-path-command "T"
-  [{:keys [:input] :as m} [x y]]
-  (assoc m :input (utils/v+ [x y] input)))
-
-;; [rx ry xrot laf swf x y]
-;; rx, ry do not change
-;; xrot also no change
-;; large arc flag and swf again no change
-(defmethod translate-path-command "A"
-  [{:keys [:input] :as m} [x y]]
-  (let [[rx ry xrot laf swf ox oy] input]
-    (assoc m :input [rx ry xrot laf swf (+ x ox) (+ y oy)])))
-
-(defmethod translate-path-command "Z"
-  [cmd _]
-  cmd)
-
-(defmethod translate-path-command :default
-  [cmd a]
-  [cmd a])
-
 (defmethod translate :path
-  [[k props] [x y]]
-  (let [cmds (path/path-str->cmds (:d props))
-        xcmds (map #(translate-path-command % [x y]) cmds)]
-    [k (assoc props :d (path/cmds->path-string xcmds))]))
+  [elem [x y]]
+  (path/translate elem [x y]))
 
 #_(declare translate)
 (defmethod translate :g
@@ -452,9 +353,9 @@
   [[k props] deg]
   (let [pts [[(:x1 props) (:y1 props)] [(:x2 props) (:y2 props)]]
         [[x1 y1] [x2 y2]]  (->> pts
-                                (map #(utils/v- % (centroid-of-pts pts)))
+                                (map #(utils/v- % (utils/centroid-of-pts pts)))
                                 (map #(utils/rotate-pt % deg))
-                                (map #(utils/v+ % (centroid-of-pts pts))))
+                                (map #(utils/v+ % (utils/centroid-of-pts pts))))
         new-props (assoc props :x1 x1 :y1 y1 :x2 x2 :y2 y2)]
     [k new-props]))
 
@@ -508,98 +409,17 @@
   [[k props text] deg]
   (rotate-element-by-transform [k props text] deg))
 
-(defmulti rotate-path-command
-  (fn [cmd _ _]
-    (:command cmd)))
-
-(defmethod rotate-path-command "M"
-  [{:keys [:input] :as m} ctr deg]
-  (let [xpt (-> input
-                (utils/v- ctr)
-                (utils/rotate-pt deg)
-                (utils/v+ ctr))]
-    (assoc m :input xpt)))
-
-(defmethod rotate-path-command "L"
-  [{:keys [:input] :as m} ctr deg]
-  (let [xpt (-> input
-                (utils/v- ctr)
-                (utils/rotate-pt deg)
-                (utils/v+ ctr))]
-    (assoc m :input xpt)))
-
-(defmethod rotate-path-command "C"
-  [{:keys [:input] :as m} ctr deg]
-  (let [xinput (->> input
-                    (partition 2)
-                    (map vec)
-                    (map #(utils/v- % ctr))
-                    (map #(utils/rotate-pt % deg))
-                    (map #(utils/v+ % ctr))
-                    (apply concat))]
-    (assoc m :input xinput)))
-
-(defmethod rotate-path-command "S"
-  [{:keys [:input] :as m} ctr deg]
-  (let [xinput (->> input
-                    (partition 2)
-                    (map vec)
-                    (map #(utils/v- % ctr))
-                    (map #(utils/rotate-pt % deg))
-                    (map #(utils/v+ % ctr))
-                    (apply concat))]
-    (assoc m :input xinput)))
-
-(defmethod rotate-path-command "Q"
-  [{:keys [:input] :as m} ctr deg]
-  (let [xinput (->> input
-                    (partition 2)
-                    (map vec)
-                    (map #(utils/v- % ctr))
-                    (map #(utils/rotate-pt % deg))
-                    (map #(utils/v+ % ctr))
-                    (apply concat))]
-    (assoc m :input xinput)))
-
-(defmethod rotate-path-command "T"
-  [{:keys [:input] :as m} ctr deg]
-  (let [xpt (-> input
-                (utils/v- ctr)
-                (utils/rotate-pt deg)
-                (utils/v+ ctr))]
-    (assoc m :input xpt)))
-
-;; [rx ry xrot laf swf x y]
-;; rx, ry do not change
-;; xrot also no change
-;; large arc flag and swf again no change
-(defmethod rotate-path-command "A"
-  [{:keys [:input] :as m} ctr deg]
-  (let [[rx ry xrot laf swf ox oy] input
-        [nx ny] (-> [ox oy]
-                    (utils/v- ctr)
-                    (utils/rotate-pt deg)
-                    (utils/v+ ctr))]
-    (assoc m :input [rx ry (+ xrot deg) laf swf nx ny])))
-
-(defmethod rotate-path-command "Z"
-  [cmd _ _]
-  cmd)
-
 (defmethod rotate :path
-  [[k props] deg]
-  (let [ctr (centroid [k props])
-        cmds (path/path-str->cmds (:d props))
-        xcmds (map #(rotate-path-command % ctr deg) cmds)]
-    [k (assoc props :d (path/cmds->path-string xcmds))]))
+  [elem deg]
+  (path/rotate elem deg))
 
 (defmethod rotate :g
   [[k props & content] deg]
-  (let [[gcx gcy] (centroid-of-pts (bounds (into [k props] content)))
+  (let [[gcx gcy] (utils/centroid-of-pts (bounds (into [k props] content)))
         xfcontent (for [child content]
                     (let [ch (translate child [(- gcx) (- gcy)])
                           ctr (if (= :g (first ch))
-                                (centroid-of-pts (bounds ch))
+                                (utils/centroid-of-pts (bounds ch))
                                 (centroid ch))
                           xfm (-> ctr
                                   (utils/rotate-pt deg)
@@ -766,219 +586,6 @@
         cmds (path/path-str->cmds (:d props))
         xcmds (map #(scale-path-command ctr % [sx sy]) cmds)]
     [k (assoc props :d (path/cmds->path-string xcmds))]))
-
-(defn split-path
-  "Splits a single path element containing multiple disjoint paths into a group of paths containing only one path."
-  [[k props]]
-  (let [ps (-> (:d props)
-               (str/split #"(?=M)")
-               (->> (map str/trim)))]
-    (map #(assoc-in [k props] [1 :d] %) ps)))
-
-(defn explode-path
-  "Breaks a path element into its constituent curves.
-  Optional arg `break-polys?` is `false` by default, which treats sequences of line segments as polylines.
-  Setting `break-polys?` to `true` treats sequences of line segments as individual elements."
-  [[_ {:keys [d]}] & {:keys [break-polys?]}]
-  (let [break-fn (if break-polys?
-                   (partial partition 1)
-                   (partial partition-by :command))]
-    (->> d
-         path/path-str->cmds
-         path/vh->l
-         break-fn
-         (map path/cmds->path-string)
-         (filter some?)
-         (map path/path))))
-
-(defn- bezier-cmd-pts
-  [{:keys [input cursor]}]
-  (let [control-pts (partition 2 (concat cursor input))
-        c (p/bezier control-pts)]
-    (map c (range 0 1.05 0.05))))
-
-(defn- cmds->elements
-  [cmds]
-  (let [start (first cmds)
-        cmds (if (= "M" (:command start))
-               cmds
-               (let [new-start {:command "M"
-                                :coordsys :abs
-                                :input (:cursor start)
-                                :cursor [0 0]}]
-                 (concat [new-start] cmds)))]
-    (when (> (count cmds) 1)
-      (let [cs (map :command (rest cmds))]
-        (cond
-          ;; empty
-          (and (= (count cmds) 2)
-               (empty? (remove #{"Z"} cs)))
-          nil
-
-          ;; line
-          (and (= (count cmds) 2)
-               (empty? (remove #{"L"} cs)))
-          (apply el/line (map :input cmds))
-
-          ;; polyline
-          (and (> (count cmds) 2)
-               (empty? (remove #{"L"} cs)))
-          (el/polyline (map :input cmds))
-
-          ;; polygon
-          (and (> (count cmds) 2)
-               (empty? (remove #{"L" "Z"} cs)))
-          (el/polygon (map :input cmds))
-
-          ;; Quadratic or Cubic Bezier Curve(s)
-          (or (empty? (remove #{"Q"} cs))
-              (empty? (remove #{"C"} cs)))
-          (let [pts (mapcat bezier-cmd-pts (rest cmds))]
-            (el/polyline pts))
-
-          ;; Quadratic or Cubic Bezier Curve(s) closed path
-          (or (empty? (remove #{"Q" "Z"} cs))
-              (empty? (remove #{"C" "Z"} cs)))
-          (let [pts (mapcat bezier-cmd-pts (drop-last (rest cmds)))]
-            (el/polygon pts))
-          
-          :else
-          (path/path (path/cmds->path-string cmds)))))))
-
-(defn- clean-m-cmds
-  "Remove cmdb if it is an M command with the same position as the last input of cmda."
-  [[cmda cmdb]]
-  (let [[pa pb] (map (comp (partial take-last 2) :input) [cmda cmdb])
-        [ca cb] (map :command [cmda cmdb])]
-    (cond
-      (= "M" ca) [] ;; discard M in first position always
-      (and (= pa pb) (= "M" cb)) [cmda]
-      :else [cmda cmdb])))
-
-(defn merge-paths
-  "Merges a list of path elements together, keeping props from last path in the list."
-  [& paths]
-  (let [[_ props] (last paths)
-        cmds (mapcat #(path/path-str->cmds (get-in % [1 :d])) paths)
-        xf-cmds
-        (conj 
-         (remove nil? (mapcat clean-m-cmds (partition 2 1 (rest cmds))))
-         (first cmds))]
-    [:path (assoc props :d (path/cmds->path-string xf-cmds))]))
-
-(defn- get-subpaths
-  [cmds]
-  (->> cmds
-       (partition-by  #((complement #{"M"}) (:command %)))
-       (partition 2)
-       (map #(apply concat %))))
-
-(defn- subpath->elements
-  [cmds]
-  (let [split-path (partition-by :command cmds)
-        cmd-check (into #{} (map #(:command (first %)) split-path))]
-    (if (or (= cmd-check #{"M" "L" "Z"})
-            (= cmd-check #{"M" "L"}))
-      (cmds->elements cmds)
-      (let [subpath (->> cmds
-                         (remove #(#{"M" "Z"} (:command %)))
-                         (partition-by :command)
-                         (map cmds->elements)
-                         (remove nil?))]
-        (apply el/g
-         (conj
-          (vec subpath)
-          (when (= "Z" (:command (last cmds)))
-            (let [[s e] (map #(take-last 2 (:input %))
-                             [(first cmds) (last (drop-last cmds))])]
-              (el/line s e)))))))))
-
-(defn path->elements
-  [[_ {:keys [d]}]]
-  (->> d
-       path/path-str->cmds
-       get-subpaths
-       (map subpath->elements)
-       (remove nil?)))
-
-(defmulti element->path
-  (fn [element]
-    (if (keyword? (first element))
-      (first element)
-      :list)))
-
-(defmethod element->path :list
-  [elems]
-  (map element->path elems))
-
-(defmethod element->path :circle
-  [[_ {:keys [cx cy r] :as props}]]
-  (-> (path/circle r)
-      (translate [cx cy])
-      (style (dissoc props :cx :cy :r))))
-
-(defmethod element->path :ellipse
-  [[_ {:keys [cx cy rx ry] :as props}]]
-  (-> (path/ellipse rx ry)
-      (translate [cx cy])
-      (style (dissoc props :cx :cy :rx :ry))))
-
-(defmethod element->path :rect
-  [[_ {:keys [width height x y] :as props}]]
-  (let [ctr (utils/v+ [x y] [(/ width 2.0) (/ height 2.0)])]
-    (-> (path/rect width height)
-        (translate ctr)
-        (style (dissoc props :width :height :x :y)))))
-
-(defmethod element->path :line
-  [[_ {:keys [x1 y1 x2 y2] :as props}]]
-  (-> (path/line [x1 y1] [x2 y2])
-      (style (dissoc props :x1 :y1 :x2 :y2))))
-
-(defmethod element->path :polyline
-  [[_ {:keys [points] :as props}]]
-  (let [pts (partition 2 (utils/s->v points))]
-    (-> (path/polyline pts)
-        (style (dissoc props :points)))))
-
-(defmethod element->path :polygon
-  [[_ {:keys [points] :as props}]]
-  (let [pts (partition 2 (utils/s->v points))]
-    (-> (path/polygon pts)
-        (style (dissoc props :points)))))
-
-(defmethod element->path :path
-  [elem]
-  elem)
-
-(defn- needs-closing?
-  [path]
-  (let [cmds (path/path-str->cmds (get-in path [1 :d]))
-        start (->> cmds first :input (take-last 2))
-        end (->> cmds last :input (take-last 2))]
-    (= start end)))
-
-(defmethod element->path :g
-  [[_ props & elems]]
-  (let [p (apply merge-paths (map element->path elems))]
-    (if (needs-closing? p)
-      (->> elems
-           drop-last
-           (map element->path)
-           (apply merge-paths)
-           (#(style % props)))
-      (-> p
-          (style props)))))
-
-(defn elements->path
-  [elems]
-  (apply merge-paths (map element->path elems)))
-
-(defn decurve
-  [path]
-  (->> (path->elements path)
-       (map element->path)
-       (apply merge-paths)))
 
 (defn- offset-edge
   [[a b] d]

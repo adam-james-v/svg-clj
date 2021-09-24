@@ -158,17 +158,35 @@
     (apply str (map qf [v1 v2]))))
 
 (defn angle-from-pts
-  "Calculates the angle between the lines p1-p2 and p3-p2."
+  "Calculates the angle starting at line p3p2 going to line p1p2.
+Put another way, the angle is measured following the 'right hand rule' around p2."
   [p1 p2 p3]
   (let [v1 (v- p1 p2)
         v2 (v- p3 p2)
+        [v1nx v1ny] (normalize v1)
+        [v2nx v2ny] (normalize v2)
         l1 (distance p1 p2)
         l2 (distance p3 p2)
         n (dot* v1 v2)
-        d (* l1 l2)
-        q (if (#{"nnnn" "npnp" "_pnn" "_pnp" "_pn_"} (check-quadrants p1 p2 p3)) 1 -1)]
-    (when (not (zeroish? (float d)))
-      (* q (to-deg (Math/acos (/ n d)))))))
+        d (* l1 l2)]
+    (when-not (zeroish? (float d))
+      (let [a (to-deg (Math/acos (/ n d)))
+            quadrants (check-quadrants p1 p2 p3)]
+        (cond
+          ;; within same quadrant or one away
+          (#{"p_p_" "p_pp" "p_np" "ppp_" "pppn"} quadrants) a 
+          (#{"_p_p" "_pnp" "_pnn" "np_p" "npnn"} quadrants) a
+          (#{"n_n_" "n_nn" "n_pn" "nnn_" "nnpn"} quadrants) a
+          (#{"_n_n" "_npn" "_npp" "pn_n" "pnpp"} quadrants) a
+
+          ;; same quadrant, checking if V2 is
+          (and (= "pppp" quadrants) (> v2nx v1nx)) a
+          (and (= "npnp" quadrants) (> v2nx v1nx)) a
+          (and (= "nnnn" quadrants) (< v2nx v1nx)) a
+          (and (= "pnpn" quadrants) (< v2nx v1nx)) a
+          
+          :else
+          (+ (- 180 a) 180))))))
 
 (defn determinant
   [a b]
@@ -196,6 +214,30 @@
             x (/ (determinant dets xdiff) div)
             y (/ (determinant dets ydiff) div)]
         [x y]))))
+
+(defn style
+  [[k props & content] style-map]
+  (into [k (merge props style-map)] content))
+
+(defn centroid-of-pts
+  "Calculates the arithmetic mean position of the given `pts`."
+  [pts]
+  (let [ndim (count (first (sort-by count pts)))
+        splits (for [axis (range 0 ndim)]
+                 (map #(nth % axis) pts))]
+    (mapv #(apply average %) splits)))
+
+(defn bounds-of-pts
+  "Calculates the axis-aligned-bounding-box of `pts`."
+  [pts]
+  (let [xmax (apply max (map first pts))
+        ymax (apply max (map second pts))
+        xmin (apply min (map first pts))
+        ymin (apply min (map second pts))]
+    (vector [xmin ymin]
+            [xmax ymin]
+            [xmax ymax]
+            [xmin ymax])))
 
 (defn str->number
   [s]

@@ -18,7 +18,9 @@
 
   This namespace handles paths by decomposing them into sequences of 'command' maps, which are considered an internal representation; users are not expected to construct paths using commands."
   (:require [clojure.string :as str]
-            [svg-clj.utils :as utils]))
+            [svg-clj.utils :as utils]
+            [svg-clj.elements :as el]
+            [svg-clj.parametric :as p]))
 
 (defn path
   "Wraps a path string `d` in a hiccup-style data structure.
@@ -278,3 +280,393 @@
         h2 (/ h 2.0)]
     (polygon [ [(- w2) (- h2)] [w2 (- h2)] 
                [w2 h2]          [(- w2) h2] ])))
+
+(defmulti cmd->pts :command)
+
+(defmethod cmd->pts :default
+  [{:keys [input]}]
+  (mapv vec (partition 2 input)))
+
+;; this is not implemented correctly yet.
+;; just a 'stub' returning the end point of the arc
+(defmethod cmd->pts "A"
+  [{:keys [input cursor]}]
+  (let [[rx ry deg laf sw x y] input
+        b [x y]
+        ctr (utils/v+ cursor [rx 0])
+        sa (utils/angle-from-pts cursor ctr b)
+        angle (if (= 1 laf) (- 360 sa) sa)
+        mids (mapv #(utils/rotate-pt-around-center cursor % ctr) (rest (range 0 angle 90)))]
+    (conj mids b)))
+
+(defn centroid
+  [[_ props]]
+  (let [cmds (path-str->cmds (:d props))
+        pts (mapcat cmd->pts cmds)]
+    (utils/centroid-of-pts (vec (into #{} pts)))))
+
+(defn bounds
+  [[_ props]]
+  (let [cmds (path-str->cmds (:d props))
+        pts (mapcat cmd->pts cmds)]
+    (utils/bounds-of-pts pts)))
+
+(defmulti translate-path-command
+  (fn [cmd _]
+    (:command cmd)))
+
+(defmethod translate-path-command "M"
+  [{:keys [:input] :as m} [x y]]
+  (assoc m :input (utils/v+ [x y] input)))
+
+(defmethod translate-path-command "L"
+  [{:keys [:input] :as m} [x y]]
+  (assoc m :input (utils/v+ [x y] input)))
+
+(defmethod translate-path-command "H"
+  [{:keys [:input] :as m} [x _]]
+  (assoc m :input (utils/v+ [x] input)))
+
+(defmethod translate-path-command "V"
+  [{:keys [:input] :as m} [_ y]]
+  (assoc m :input (utils/v+ [y] input)))
+
+;; x y x y x y because input will ahve the form:
+;; [x1 y1 x2 y2 x y] (first two pairs are control points)
+(defmethod translate-path-command "C"
+  [{:keys [:input] :as m} [x y]]
+  (assoc m :input (utils/v+ [x y x y x y] input)))
+
+;; similar approach to above, but one control point is implicit
+(defmethod translate-path-command "S"
+  [{:keys [:input] :as m} [x y]]
+  (assoc m :input (utils/v+ [x y x y] input)))
+
+(defmethod translate-path-command "Q"
+  [{:keys [:input] :as m} [x y]]
+  (assoc m :input (utils/v+ [x y x y] input)))
+
+(defmethod translate-path-command "T"
+  [{:keys [:input] :as m} [x y]]
+  (assoc m :input (utils/v+ [x y] input)))
+
+;; [rx ry xrot laf swf x y]
+;; rx, ry do not change
+;; xrot also no change
+;; large arc flag and swf again no change
+(defmethod translate-path-command "A"
+  [{:keys [:input] :as m} [x y]]
+  (let [[rx ry xrot laf swf ox oy] input]
+    (assoc m :input [rx ry xrot laf swf (+ x ox) (+ y oy)])))
+
+(defmethod translate-path-command "Z"
+  [cmd _]
+  cmd)
+
+(defmethod translate-path-command :default
+  [cmd a]
+  [cmd a])
+
+(defn translate
+  [[k props] [x y]]
+  (let [cmds (path-str->cmds (:d props))
+        xcmds (map #(translate-path-command % [x y]) cmds)]
+    [k (assoc props :d (cmds->path-string xcmds))]))
+
+(defmulti rotate-path-command
+  (fn [cmd _ _]
+    (:command cmd)))
+
+(defmethod rotate-path-command "M"
+  [{:keys [:input] :as m} ctr deg]
+  (let [xpt (-> input
+                (utils/v- ctr)
+                (utils/rotate-pt deg)
+                (utils/v+ ctr))]
+    (assoc m :input xpt)))
+
+(defmethod rotate-path-command "L"
+  [{:keys [:input] :as m} ctr deg]
+  (let [xpt (-> input
+                (utils/v- ctr)
+                (utils/rotate-pt deg)
+                (utils/v+ ctr))]
+    (assoc m :input xpt)))
+
+(defmethod rotate-path-command "C"
+  [{:keys [:input] :as m} ctr deg]
+  (let [xinput (->> input
+                    (partition 2)
+                    (map vec)
+                    (map #(utils/v- % ctr))
+                    (map #(utils/rotate-pt % deg))
+                    (map #(utils/v+ % ctr))
+                    (apply concat))]
+    (assoc m :input xinput)))
+
+(defmethod rotate-path-command "S"
+  [{:keys [:input] :as m} ctr deg]
+  (let [xinput (->> input
+                    (partition 2)
+                    (map vec)
+                    (map #(utils/v- % ctr))
+                    (map #(utils/rotate-pt % deg))
+                    (map #(utils/v+ % ctr))
+                    (apply concat))]
+    (assoc m :input xinput)))
+
+(defmethod rotate-path-command "Q"
+  [{:keys [:input] :as m} ctr deg]
+  (let [xinput (->> input
+                    (partition 2)
+                    (map vec)
+                    (map #(utils/v- % ctr))
+                    (map #(utils/rotate-pt % deg))
+                    (map #(utils/v+ % ctr))
+                    (apply concat))]
+    (assoc m :input xinput)))
+
+(defmethod rotate-path-command "T"
+  [{:keys [:input] :as m} ctr deg]
+  (let [xpt (-> input
+                (utils/v- ctr)
+                (utils/rotate-pt deg)
+                (utils/v+ ctr))]
+    (assoc m :input xpt)))
+
+;; [rx ry xrot laf swf x y]
+;; rx, ry do not change
+;; xrot also no change
+;; large arc flag and swf again no change
+(defmethod rotate-path-command "A"
+  [{:keys [:input] :as m} ctr deg]
+  (let [[rx ry xrot laf swf ox oy] input
+        [nx ny] (-> [ox oy]
+                    (utils/v- ctr)
+                    (utils/rotate-pt deg)
+                    (utils/v+ ctr))]
+    (assoc m :input [rx ry (+ xrot deg) laf swf nx ny])))
+
+(defmethod rotate-path-command "Z"
+  [cmd _ _]
+  cmd)
+
+(defn rotate
+  [[k props] deg]
+  (let [ctr (centroid [k props])
+        cmds (path-str->cmds (:d props))
+        xcmds (map #(rotate-path-command % ctr deg) cmds)]
+    [k (assoc props :d (cmds->path-string xcmds))]))
+
+(defn split-path
+  "Splits a single path element containing multiple disjoint paths into a group of paths containing only one path."
+  [[k props]]
+  (let [ps (-> (:d props)
+               (str/split #"(?=M)")
+               (->> (map str/trim)))]
+    (map #(assoc-in [k props] [1 :d] %) ps)))
+
+(defn explode-path
+  "Breaks a path element into its constituent curves.
+  Optional arg `break-polys?` is `false` by default, which treats sequences of line segments as polylines.
+  Setting `break-polys?` to `true` treats sequences of line segments as individual elements."
+  [[_ {:keys [d]}] & {:keys [break-polys?]}]
+  (let [break-fn (if break-polys?
+                   (partial partition 1)
+                   (partial partition-by :command))]
+    (->> d
+         path-str->cmds
+         vh->l
+         break-fn
+         (map cmds->path-string)
+         (filter some?)
+         (map path))))
+
+(defn- bezier-cmd-pts
+  [{:keys [input cursor]}]
+  (let [control-pts (partition 2 (concat cursor input))
+        c (p/bezier control-pts)]
+    (map c (range 0 1.05 0.05))))
+
+(defn- cmds->elements
+  [cmds]
+  (let [start (first cmds)
+        cmds (if (= "M" (:command start))
+               cmds
+               (let [new-start {:command "M"
+                                :coordsys :abs
+                                :input (:cursor start)
+                                :cursor [0 0]}]
+                 (concat [new-start] cmds)))]
+    (when (> (count cmds) 1)
+      (let [cs (map :command (rest cmds))]
+        (cond
+          ;; empty
+          (and (= (count cmds) 2)
+               (empty? (remove #{"Z"} cs)))
+          nil
+
+          ;; line
+          (and (= (count cmds) 2)
+               (empty? (remove #{"L"} cs)))
+          (apply el/line (map :input cmds))
+
+          ;; polyline
+          (and (> (count cmds) 2)
+               (empty? (remove #{"L"} cs)))
+          (el/polyline (map :input cmds))
+
+          ;; polygon
+          (and (> (count cmds) 2)
+               (empty? (remove #{"L" "Z"} cs)))
+          (el/polygon (map :input cmds))
+
+          ;; Quadratic or Cubic Bezier Curve(s)
+          (or (empty? (remove #{"Q"} cs))
+              (empty? (remove #{"C"} cs)))
+          (let [pts (mapcat bezier-cmd-pts (rest cmds))]
+            (el/polyline pts))
+
+          ;; Quadratic or Cubic Bezier Curve(s) closed path
+          (or (empty? (remove #{"Q" "Z"} cs))
+              (empty? (remove #{"C" "Z"} cs)))
+          (let [pts (mapcat bezier-cmd-pts (drop-last (rest cmds)))]
+            (el/polygon pts))
+          
+          :else
+          (path (cmds->path-string cmds)))))))
+
+(defn- clean-m-cmds
+  "Remove cmdb if it is an M command with the same position as the last input of cmda."
+  [[cmda cmdb]]
+  (let [[pa pb] (map (comp (partial take-last 2) :input) [cmda cmdb])
+        [ca cb] (map :command [cmda cmdb])]
+    (cond
+      (= "M" ca) [] ;; discard M in first position always
+      (and (= pa pb) (= "M" cb)) [cmda]
+      :else [cmda cmdb])))
+
+(defn merge-paths
+  "Merges a list of path elements together, keeping props from last path in the list."
+  [& paths]
+  (let [[_ props] (last paths)
+        cmds (mapcat #(path-str->cmds (get-in % [1 :d])) paths)
+        xf-cmds
+        (conj 
+         (remove nil? (mapcat clean-m-cmds (partition 2 1 (rest cmds))))
+         (first cmds))]
+    [:path (assoc props :d (cmds->path-string xf-cmds))]))
+
+(defn- get-subpaths
+  [cmds]
+  (->> cmds
+       (partition-by  #((complement #{"M"}) (:command %)))
+       (partition 2)
+       (map #(apply concat %))))
+
+(defn- subpath->elements
+  [cmds]
+  (let [split-path (partition-by :command cmds)
+        cmd-check (into #{} (map #(:command (first %)) split-path))]
+    (if (or (= cmd-check #{"M" "L" "Z"})
+            (= cmd-check #{"M" "L"}))
+      (cmds->elements cmds)
+      (let [subpath (->> cmds
+                         (remove #(#{"M" "Z"} (:command %)))
+                         (partition-by :command)
+                         (map cmds->elements)
+                         (remove nil?))]
+        (apply el/g
+         (conj
+          (vec subpath)
+          (when (= "Z" (:command (last cmds)))
+            (let [[s e] (map #(take-last 2 (:input %))
+                             [(first cmds) (last (drop-last cmds))])]
+              (el/line s e)))))))))
+
+(defn path->elements
+  [[_ {:keys [d]}]]
+  (->> d
+       path-str->cmds
+       get-subpaths
+       (map subpath->elements)
+       (remove nil?)))
+
+(defmulti element->path
+  (fn [element]
+    (if (keyword? (first element))
+      (first element)
+      :list)))
+
+(defmethod element->path :list
+  [elems]
+  (map element->path elems))
+
+(defmethod element->path :circle
+  [[_ {:keys [cx cy r] :as props}]]
+  (-> (circle r)
+      (translate [cx cy])
+      (utils/style (dissoc props :cx :cy :r))))
+
+(defmethod element->path :ellipse
+  [[_ {:keys [cx cy rx ry] :as props}]]
+  (-> (ellipse rx ry)
+      (translate [cx cy])
+      (utils/style (dissoc props :cx :cy :rx :ry))))
+
+(defmethod element->path :rect
+  [[_ {:keys [width height x y] :as props}]]
+  (let [ctr (utils/v+ [x y] [(/ width 2.0) (/ height 2.0)])]
+    (-> (rect width height)
+        (translate ctr)
+        (utils/style (dissoc props :width :height :x :y)))))
+
+(defmethod element->path :line
+  [[_ {:keys [x1 y1 x2 y2] :as props}]]
+  (-> (line [x1 y1] [x2 y2])
+      (utils/style (dissoc props :x1 :y1 :x2 :y2))))
+
+(defmethod element->path :polyline
+  [[_ {:keys [points] :as props}]]
+  (let [pts (partition 2 (utils/s->v points))]
+    (-> (polyline pts)
+        (utils/style (dissoc props :points)))))
+
+(defmethod element->path :polygon
+  [[_ {:keys [points] :as props}]]
+  (let [pts (partition 2 (utils/s->v points))]
+    (-> (polygon pts)
+        (utils/style (dissoc props :points)))))
+
+(defmethod element->path :path
+  [elem]
+  elem)
+
+(defn- needs-closing?
+  [path]
+  (let [cmds (path-str->cmds (get-in path [1 :d]))
+        start (->> cmds first :input (take-last 2))
+        end (->> cmds last :input (take-last 2))]
+    (= start end)))
+
+(defmethod element->path :g
+  [[_ props & elems]]
+  (let [p (apply merge-paths (map element->path elems))]
+    (if (needs-closing? p)
+      (->> elems
+           drop-last
+           (map element->path)
+           (apply merge-paths)
+           (#(utils/style % props)))
+      (-> p
+          (utils/style props)))))
+
+(defn elements->path
+  [elems]
+  (apply merge-paths (map element->path elems)))
+
+(defn decurve
+  [path]
+  (->> (path->elements path)
+       (map element->path)
+       (apply merge-paths)))
