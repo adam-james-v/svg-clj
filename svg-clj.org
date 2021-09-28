@@ -737,6 +737,11 @@ Centroid of a list of points is used in a few places. Having it here keeps it ac
             [xmax ymax]
             [xmin ymax])))
 
+(defn bb-dims
+  [pts]
+  (let [[[xmin ymin] _ [xmax ymax] _] (bounds-of-pts element)]
+    [(- xmax xmin) (- ymax ymin)]))
+
 #+end_src
 
 ** xml->hiccup
@@ -2041,8 +2046,6 @@ Style transforms allow the user to change any attributes of svg elements that af
   (utils/bounds-of-pts (mapcat bounds content)))
 
 (defn bb-dims
-   "The svg fn wraps `content` in an SVG container element.
-   The SVG container is parameterized by width `w`, height `h`, and scale `sc`."
   [element]
   (let [[[xmin ymin] _ [xmax ymax] _] (bounds element)]
     [(- xmax xmin) (- ymax ymin)]))
@@ -3203,8 +3206,7 @@ Distribute has a few options:
 (defn distribute-on-curve
   [items curve]
   (let [eps 0.00001
-        n (count items)
-        step (/ 1.0 n)
+        n (if (> (count items) 1) (dec (count items)) 1)
         xf (fn [item t]
              (let [n (utils/normal (curve (- t eps)) (curve (+ t eps)))
                    a (utils/angle-from-pts [0 1] [0 0] n)
@@ -3212,7 +3214,7 @@ Distribute has a few options:
                (-> item
                    (tf/rotate a)
                    (tf/translate (utils/v- (curve t) o (tf/centroid item))))))]
-    (map xf items (range 0.0 (+ 1.0 step) step))))
+    (map #(xf %1 (float (/ %2 n))) items (range 0 (inc n)))))
 
 #+end_src
 

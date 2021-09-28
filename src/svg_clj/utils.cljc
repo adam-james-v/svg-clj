@@ -239,6 +239,11 @@ Put another way, the angle is measured following the 'right hand rule' around p2
             [xmax ymax]
             [xmin ymax])))
 
+(defn bb-dims
+  [pts]
+  (let [[[xmin ymin] _ [xmax ymax] _] (bounds-of-pts element)]
+    [(- xmax xmin) (- ymax ymin)]))
+
 (defn str->number
   [s]
   (let [n (try (read-string s)
