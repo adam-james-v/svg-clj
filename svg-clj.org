@@ -490,6 +490,9 @@ So, to keep the mental model the same, I have designed my transform fns to alway
 #+begin_src clojure :tangle ./src/svg_clj/utils.cljc
 (def ^:dynamic *rounding* nil)
 
+(def abs #?(:clj #(Math/abs %)  :cljs js/Math.abs))
+(def pow #?(:clj #(Math/pow %1 %2) :cljs js/Math.pow))
+
 (defn round
   "Rounds a non-integer number `num` to `places` decimal places."
   ([num]
@@ -691,7 +694,7 @@ Put another way, the angle is measured following the 'right hand rule' around p2
         xdiff [(- ax bx) (- cx dx)]
         ydiff [(- ay by) (- cy dy)]
         div (determinant xdiff ydiff)]
-    (when (not (zeroish? (Math/abs div)))
+    (when (not (zeroish? (abs div)))
       (let [dets [(determinant pt-a pt-b) (determinant pt-c pt-d)]
             x (/ (determinant dets xdiff) div)
             y (/ (determinant dets ydiff) div)]
@@ -739,7 +742,7 @@ Centroid of a list of points is used in a few places. Having it here keeps it ac
 
 (defn bb-dims
   [pts]
-  (let [[[xmin ymin] _ [xmax ymax] _] (bounds-of-pts element)]
+  (let [[[xmin ymin] _ [xmax ymax] _] (bounds-of-pts pts)]
     [(- xmax xmin) (- ymax ymin)]))
 
 #+end_src
@@ -1829,10 +1832,10 @@ This leads to challenges with groups. Groups must have their centroid calculated
 
   This namespace also provides `bounds`, and `centroid` functions which calculate the respective property for all elements provided by this library."
   (:require [clojure.string :as str]   
-             [svg-clj.utils :as utils]
-             [svg-clj.elements :as el]
-             [svg-clj.path :as path]
-             [svg-clj.parametric :as p]
+            [svg-clj.utils :as utils]
+            [svg-clj.elements :as el]
+            [svg-clj.path :as path]
+            [svg-clj.parametric :as p]
             #?(:cljs
                [cljs.reader :refer [read-string]])))
 
@@ -3205,10 +3208,13 @@ Distribute has a few options:
 
 (defn distribute-on-curve
   [items curve]
-  (let [eps 0.00001
+  (let [eps 0.000001
         n (if (> (count items) 1) (dec (count items)) 1)
         xf (fn [item t]
-             (let [n (utils/normal (curve (- t eps)) (curve (+ t eps)))
+             (let [t (cond (<= (- 1 eps) t) (- 1 eps)
+                           (> eps t) eps
+                           :else t)
+                   n (utils/normal (curve (- t eps)) (curve (+ t eps)))
                    a (utils/angle-from-pts [0 1] [0 0] n)
                    o (map #(utils/round % 4) (utils/rotate-pt (tf/centroid item) a))]
                (-> item
@@ -3239,8 +3245,10 @@ Pattern and distribute are so similar, I wonder if I should remove one of them? 
 (ns svg-clj.tools
   (:require [clojure.java.browse]
             [clojure.java.io]
+            [clojure.zip :as zip]
             [hiccup.core :refer [html]]
             [svg-clj.composites :refer [svg]]
+            [svg-clj.elements :as el]
             [svg-clj.utils :as utils]))
 
 #+end_src
@@ -3259,6 +3267,39 @@ Pattern and distribute are so similar, I wonder if I should remove one of them? 
   (-> fname
       slurp
       utils/svg-str->elements))
+
+(defn- get-nodes
+  "Returns a list of nodes from `zipper` that return `true` from the `matcher` predicate fn.
+  The `matcher` fn expects a zipper location, `loc`, and returns `true` (or some value) or `false` (or nil)."
+  [zipper matcher]
+  (loop [loc zipper
+         acc []]
+    (if (zip/end? loc)
+      acc
+      (if (matcher loc)
+        (recur (zip/next loc) (conj acc (zip/node loc)))
+        (recur (zip/next loc) acc)))))
+
+(defn- elem-node?
+  [loc key-set]
+  (let [node (zip/node loc)]
+    (if (keyword? (first node))
+      (not (nil? (key-set (first node)))))))
+
+(defn hiccup-zip
+  [tree]
+  (let [branch? #(and (seqable? %) (not (map? %)) (not (string? %)))
+        children (fn [x]
+                   (let [c (remove map? (rest x))]
+                     (when-not (empty? c) c)))
+        make-node (fn [_ c] (when-not (empty? c) (vec c)))]
+    (zip/zipper branch? children make-node tree)))
+  
+(defn get-elems
+  ([tree] (get-elems tree el/svg-element-keys))
+  ([tree key-set]
+   (let [zipper (hiccup-zip tree)]
+    (apply list (get-nodes zipper #(elem-node? % key-set))))))
 
 #+end_src
 
@@ -4162,51 +4203,8 @@ Play around with code here.
             [svg-clj.composites :refer [svg]]
             [svg-clj.tools :as tools :refer [show cider-show]]))
 
-(def sk-url "/Users/adam/dev/forge/sk.svg")
-(def sk (slurp sk-url))
+(def sk (slurp "/Users/adam/dev/forge/sk.svg"))
 (def sk-elems (tools/load-svg sk-url))
-(def polygon-with-curves
-  (->> sk-elems
-       (drop 2) last
-       (drop 2) last))
-
-(tools/cider-show polygon-with-curves)
-
-(defn rand-fill
-  [elem]
-  (-> elem
-      (tf/style {:fill (str "rgb("
-                            (rand-int 255) ","
-                            (rand-int 255) ","
-                            (rand-int 255) ")")})))
-
-(defn rand-stroke
-  [elem]
-  (-> elem
-      (tf/style {:stroke (str "rgb("
-                            (rand-int 255) ","
-                            (rand-int 255) ","
-                            (rand-int 255) ")")})))
-
-(def poly-elems
-  (->> polygon-with-curves
-       tf/path->elements
-       (map rand-stroke)
-       (map #(tf/style % {:fill "none"}))))
-
-(tools/cider-show poly-elems)
-
-(def path-elems (map tf/element->path poly-elems))
-
-(tools/cider-show path-elems)
-
-(def path-elem (tf/elements->path poly-elems))
-
-(tools/cider-show path-elem)
-
-(def closed-path-elem (tf/merge-paths path-elem [:path {:d "Z"}]))
-
-(def merged-poly
-  (apply tf/merge-paths path-elems))
+(tools/cider-show sk-elems)
 
 #+end_src

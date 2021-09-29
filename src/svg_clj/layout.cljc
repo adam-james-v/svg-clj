@@ -26,10 +26,13 @@
 
 (defn distribute-on-curve
   [items curve]
-  (let [eps 0.00001
+  (let [eps 0.000001
         n (if (> (count items) 1) (dec (count items)) 1)
         xf (fn [item t]
-             (let [n (utils/normal (curve (- t eps)) (curve (+ t eps)))
+             (let [t (cond (<= (- 1 eps) t) (- 1 eps)
+                           (> eps t) eps
+                           :else t)
+                   n (utils/normal (curve (- t eps)) (curve (+ t eps)))
                    a (utils/angle-from-pts [0 1] [0 0] n)
                    o (map #(utils/round % 4) (utils/rotate-pt (tf/centroid item) a))]
                (-> item

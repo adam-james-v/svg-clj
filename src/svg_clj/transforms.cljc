@@ -5,10 +5,10 @@
 
   This namespace also provides `bounds`, and `centroid` functions which calculate the respective property for all elements provided by this library."
   (:require [clojure.string :as str]   
-             [svg-clj.utils :as utils]
-             [svg-clj.elements :as el]
-             [svg-clj.path :as path]
-             [svg-clj.parametric :as p]
+            [svg-clj.utils :as utils]
+            [svg-clj.elements :as el]
+            [svg-clj.path :as path]
+            [svg-clj.parametric :as p]
             #?(:cljs
                [cljs.reader :refer [read-string]])))
 

@@ -8,6 +8,9 @@
 
 (def ^:dynamic *rounding* nil)
 
+(def abs #?(:clj #(Math/abs %)  :cljs js/Math.abs))
+(def pow #?(:clj #(Math/pow %1 %2) :cljs js/Math.pow))
+
 (defn round
   "Rounds a non-integer number `num` to `places` decimal places."
   ([num]
@@ -209,7 +212,7 @@ Put another way, the angle is measured following the 'right hand rule' around p2
         xdiff [(- ax bx) (- cx dx)]
         ydiff [(- ay by) (- cy dy)]
         div (determinant xdiff ydiff)]
-    (when (not (zeroish? (Math/abs div)))
+    (when (not (zeroish? (abs div)))
       (let [dets [(determinant pt-a pt-b) (determinant pt-c pt-d)]
             x (/ (determinant dets xdiff) div)
             y (/ (determinant dets ydiff) div)]
@@ -241,7 +244,7 @@ Put another way, the angle is measured following the 'right hand rule' around p2
 
 (defn bb-dims
   [pts]
-  (let [[[xmin ymin] _ [xmax ymax] _] (bounds-of-pts element)]
+  (let [[[xmin ymin] _ [xmax ymax] _] (bounds-of-pts pts)]
     [(- xmax xmin) (- ymax ymin)]))
 
 (defn str->number
