@@ -24,11 +24,12 @@ Use this function to load the SVG without throwing away any nodes, for example, 
 (defn load-svg-elems
   "Loads the SVG `fname`, parses the XML into hiccup, and returns a sequence of the SVG elements in the file.
 Use this function to pull elements from an SVG that can be used directly with the other functions in this library."
-  [fname]
-  (-> fname
-      slurp
-      utils/svg-str->hiccup
-      utils/get-elems))
+  ([fname] (load-svg-elems fname el/svg-element-keys))
+  ([fname key-set]
+   (-> fname
+       slurp
+       utils/svg-str->hiccup
+       (utils/get-elems key-set))))
 
 (defn cider-show
   [svg-data]

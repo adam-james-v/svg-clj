@@ -183,7 +183,10 @@ Put another way, the angle is measured following the 'right hand rule' around p2
           (#{"n_n_" "n_nn" "n_pn" "nnn_" "nnpn"} quadrants) a
           (#{"_n_n" "_npn" "_npp" "pn_n" "pnpp"} quadrants) a
 
-          ;; same quadrant, checking if V2 is
+          ;; 90 degrees away on axes
+          (#{"p__p" "_pn_" "n__n" "_np_"} quadrants) a
+
+          ;; same quadrant, checking if V2 is before or after V1
           (and (= "pppp" quadrants) (> v2nx v1nx)) a
           (and (= "npnp" quadrants) (> v2nx v1nx)) a
           (and (= "nnnn" quadrants) (< v2nx v1nx)) a
@@ -266,13 +269,15 @@ Put another way, the angle is measured following the 'right hand rule' around p2
   "Casts certain attribute values to numbers if they are strings.
 Attributes to be cast are defined in `numerical-attrs` and include `:cx`, `:cy`, `:width`, etc."
   [attrs]
-  (apply merge
-         (map
-          (fn [[k v]]
-            (if (numerical-attrs k)
-              {k (str->number v)}
-              {k v}))
-          attrs)))
+  (if (empty? attrs)
+    {}
+    (apply merge
+           (map
+            (fn [[k v]]
+              (if (numerical-attrs k)
+                {k (str->number v)}
+                {k v}))
+            attrs))))
 
 (defn- fix-ns-tag
   [t]
@@ -290,9 +295,7 @@ Attributes to be cast are defined in `numerical-attrs` and include `:cx`, `:cy`,
   [xml]
   (if-let [t (:tag xml)]
     (let [elem [(fix-ns-tag t)]
-          elem (if-let [attrs (:attrs xml)]
-                (conj elem (cast-numerical-attrs attrs))
-                elem)]
+          elem (conj elem (cast-numerical-attrs (:attrs xml)))]
       (into elem (map xml->hiccup (remove string? (:content xml)))))
     xml))
 
@@ -332,7 +335,7 @@ Attributes to be cast are defined in `numerical-attrs` and include `:cx`, `:cy`,
 
 (def svg-element-keys #{:circle :ellipse
                         :line :rect
-                        :polygon :polyline
+                        :polygon :polyline :path
                         :image :text :g})
 
 (defn get-elems

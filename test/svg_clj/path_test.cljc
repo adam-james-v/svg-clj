@@ -3,7 +3,7 @@
    [svg-clj.elements :as el]
    [svg-clj.path :as path]
    [svg-clj.transforms :as tf]
-   [clojure.test :refer [deftest is]]))
+   [clojure.test :as test :refer [deftest is]]))
 
 (def test-circle (path/circle 5))
 (def test-ellipse (path/ellipse 5 10))

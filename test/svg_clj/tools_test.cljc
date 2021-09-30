@@ -5,8 +5,16 @@
             [svg-clj.transforms :as tf]
             [svg-clj.elements :as el]
             [svg-clj.composites :refer [svg]]
-            [svg-clj.tools :as tools]))
+            [svg-clj.tools :as tools]
+            [clojure.test :as test :refer [deftest is]]))
 
-(def sk (slurp "examples/load-svg-test.svg"))
-(def loaded-sk (tools/load-svg sk-url))
-(def sk-elems (tools/get-elems loaded-sk))
+(def loaded-sk (tools/load-svg "examples/load-svg-test.svg"))
+(def sk-elems (tools/load-svg-elems "examples/load-svg-test.svg"))
+(def circle-elems (tools/load-svg-elems "examples/load-svg-test.svg" #{:circle}))
+
+(deftest basic-loading-test
+  (is (= :svg (first loaded-sk)))
+  (is (= :g (first (first sk-elems))))
+  (is (= 10 (count sk-elems)))
+  (is (= 2 (count circle-elems)))
+  (is (= #{:circle} (set (map first circle-elems)))))
