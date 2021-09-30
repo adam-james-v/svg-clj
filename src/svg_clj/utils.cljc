@@ -2,6 +2,7 @@
   (:require [clojure.string :as str]
             [clojure.data.xml :as xml]
             [clojure.walk :refer [postwalk]]
+            [clojure.zip :as zip]
             [same :refer [zeroish?]]
             #?(:cljs
                [cljs.reader :refer [read-string]])))
@@ -262,6 +263,8 @@ Put another way, the angle is measured following the 'right hand rule' around p2
     :x1 :y1 :x2 :y2})
 
 (defn cast-numerical-attrs
+  "Casts certain attribute values to numbers if they are strings.
+Attributes to be cast are defined in `numerical-attrs` and include `:cx`, `:cy`, `:width`, etc."
   [attrs]
   (apply merge
          (map
@@ -293,8 +296,59 @@ Put another way, the angle is measured following the 'right hand rule' around p2
       (into elem (map xml->hiccup (remove string? (:content xml)))))
     xml))
 
-(defn svg-str->elements
+(defn svg-str->hiccup
+  "Parses an SVG string into a Hiccup data structure, keeping all nodes."
   [svg-str]
   (-> svg-str
       (xml/parse-str :namespace-aware false)
       xml->hiccup))
+
+(defn- get-nodes
+  "Returns a list of nodes from `zipper` that return `true` from the `matcher` predicate fn.
+  The `matcher` fn expects a zipper location, `loc`, and returns `true` (or some value) or `false` (or nil)."
+  [zipper matcher]
+  (loop [loc zipper
+         acc []]
+    (if (zip/end? loc)
+      acc
+      (if (matcher loc)
+        (recur (zip/next loc) (conj acc (zip/node loc)))
+        (recur (zip/next loc) acc)))))
+
+(defn- elem-node?
+  [loc key-set]
+  (let [node (zip/node loc)]
+    (if (keyword? (first node))
+      (not (nil? (key-set (first node)))))))
+
+(defn- hiccup-zip
+  [tree]
+  (let [branch? #(and (seqable? %) (not (map? %)) (not (string? %)))
+        children (fn [x]
+                   (let [c (remove map? (rest x))]
+                     (when-not (empty? c) c)))
+        make-node (fn [_ c] (when-not (empty? c) (vec c)))]
+    (zip/zipper branch? children make-node tree)))
+
+(def svg-element-keys #{:circle :ellipse
+                        :line :rect
+                        :polygon :polyline
+                        :image :text :g})
+
+(defn get-elems
+  "Get SVG elements from `tree`, a Hiccup data structure.
+Optionally, pass in a set of keys  as `key-set` to use when matching nodes from the tree."
+  ([tree] (get-elems tree svg-element-keys))
+  ([tree key-set]
+   (let [zipper (hiccup-zip tree)]
+    (apply list (get-nodes zipper #(elem-node? % key-set))))))
+
+(defn svg-str->elems
+  "Parses an SVG string into a sequence of SVG elements compatible with this library.
+Elements are "
+  ([svg-str] (svg-str->elems svg-str svg-element-keys))
+  ([svg-str key-set]
+   (-> svg-str
+       (xml/parse-str :namespace-aware false)
+       xml->hiccup
+       (get-elems key-set))))

@@ -481,9 +481,11 @@ So, to keep the mental model the same, I have designed my transform fns to alway
   (:require [clojure.string :as str]
             [clojure.data.xml :as xml]
             [clojure.walk :refer [postwalk]]
+            [clojure.zip :as zip]
             [same :refer [zeroish?]]
             #?(:cljs
                [cljs.reader :refer [read-string]])))
+
 #+end_src
 
 ** maths-and-transforms
@@ -799,6 +801,8 @@ The following snippet does create an XML string where the namespace prefixes are
     :x1 :y1 :x2 :y2})
 
 (defn cast-numerical-attrs
+  "Casts certain attribute values to numbers if they are strings.
+Attributes to be cast are defined in `numerical-attrs` and include `:cx`, `:cy`, `:width`, etc."
   [attrs]
   (apply merge
          (map
@@ -830,11 +834,66 @@ The following snippet does create an XML string where the namespace prefixes are
       (into elem (map xml->hiccup (remove string? (:content xml)))))
     xml))
 
-(defn svg-str->elements
+(defn svg-str->hiccup
+  "Parses an SVG string into a Hiccup data structure, keeping all nodes."
   [svg-str]
   (-> svg-str
       (xml/parse-str :namespace-aware false)
       xml->hiccup))
+
+#+end_src
+
+** get-elems
+#+begin_src clojure :tangle ./src/svg_clj/utils.cljc
+(defn- get-nodes
+  "Returns a list of nodes from `zipper` that return `true` from the `matcher` predicate fn.
+  The `matcher` fn expects a zipper location, `loc`, and returns `true` (or some value) or `false` (or nil)."
+  [zipper matcher]
+  (loop [loc zipper
+         acc []]
+    (if (zip/end? loc)
+      acc
+      (if (matcher loc)
+        (recur (zip/next loc) (conj acc (zip/node loc)))
+        (recur (zip/next loc) acc)))))
+
+(defn- elem-node?
+  [loc key-set]
+  (let [node (zip/node loc)]
+    (if (keyword? (first node))
+      (not (nil? (key-set (first node)))))))
+
+(defn- hiccup-zip
+  [tree]
+  (let [branch? #(and (seqable? %) (not (map? %)) (not (string? %)))
+        children (fn [x]
+                   (let [c (remove map? (rest x))]
+                     (when-not (empty? c) c)))
+        make-node (fn [_ c] (when-not (empty? c) (vec c)))]
+    (zip/zipper branch? children make-node tree)))
+
+(def svg-element-keys #{:circle :ellipse
+                        :line :rect
+                        :polygon :polyline
+                        :image :text :g})
+
+(defn get-elems
+  "Get SVG elements from `tree`, a Hiccup data structure.
+Optionally, pass in a set of keys  as `key-set` to use when matching nodes from the tree."
+  ([tree] (get-elems tree svg-element-keys))
+  ([tree key-set]
+   (let [zipper (hiccup-zip tree)]
+    (apply list (get-nodes zipper #(elem-node? % key-set))))))
+
+(defn svg-str->elems
+  "Parses an SVG string into a sequence of SVG elements compatible with this library.
+Elements are "
+  ([svg-str] (svg-str->elems svg-str svg-element-keys))
+  ([svg-str key-set]
+   (-> svg-str
+       (xml/parse-str :namespace-aware false)
+       xml->hiccup
+       (get-elems key-set))))
 
 #+end_src
 
@@ -3245,7 +3304,6 @@ Pattern and distribute are so similar, I wonder if I should remove one of them? 
 (ns svg-clj.tools
   (:require [clojure.java.browse]
             [clojure.java.io]
-            [clojure.zip :as zip]
             [hiccup.core :refer [html]]
             [svg-clj.composites :refer [svg]]
             [svg-clj.elements :as el]
@@ -3263,43 +3321,21 @@ Pattern and distribute are so similar, I wonder if I should remove one of them? 
     (spit fname (html data))))
 
 (defn load-svg
+  "Loads the SVG `fname` and parses the XML into a hiccup data structure, keeping all elements.
+Use this function to load the SVG without throwing away any nodes, for example, if you want to keep meta and def tags."
   [fname]
   (-> fname
       slurp
-      utils/svg-str->elements))
+      utils/svg-str->hiccup))
 
-(defn- get-nodes
-  "Returns a list of nodes from `zipper` that return `true` from the `matcher` predicate fn.
-  The `matcher` fn expects a zipper location, `loc`, and returns `true` (or some value) or `false` (or nil)."
-  [zipper matcher]
-  (loop [loc zipper
-         acc []]
-    (if (zip/end? loc)
-      acc
-      (if (matcher loc)
-        (recur (zip/next loc) (conj acc (zip/node loc)))
-        (recur (zip/next loc) acc)))))
-
-(defn- elem-node?
-  [loc key-set]
-  (let [node (zip/node loc)]
-    (if (keyword? (first node))
-      (not (nil? (key-set (first node)))))))
-
-(defn hiccup-zip
-  [tree]
-  (let [branch? #(and (seqable? %) (not (map? %)) (not (string? %)))
-        children (fn [x]
-                   (let [c (remove map? (rest x))]
-                     (when-not (empty? c) c)))
-        make-node (fn [_ c] (when-not (empty? c) (vec c)))]
-    (zip/zipper branch? children make-node tree)))
-  
-(defn get-elems
-  ([tree] (get-elems tree el/svg-element-keys))
-  ([tree key-set]
-   (let [zipper (hiccup-zip tree)]
-    (apply list (get-nodes zipper #(elem-node? % key-set))))))
+(defn load-svg-elems
+  "Loads the SVG `fname`, parses the XML into hiccup, and returns a sequence of the SVG elements in the file.
+Use this function to pull elements from an SVG that can be used directly with the other functions in this library."
+  [fname]
+  (-> fname
+      slurp
+      utils/svg-str->hiccup
+      utils/get-elems))
 
 #+end_src
 
@@ -3336,15 +3372,19 @@ clj -M:test
   (:require [svg-clj.utils :as utils]
             [svg-clj.parametric :as p]
             [svg-clj.transforms :as tf]
-            [clojure.test :refer [deftest is]]))
+            [clojure.test :as test :refer [deftest is]]))
 
+#+END_SRC
+
+*** angle
+#+BEGIN_SRC clojure :tangle ./test/svg_clj/utils_test.cljc
 (deftest angle-from-pts
   (let [angles (map
                 #(utils/angle-from-pts [10 0] [0 0] %)
                 (p/regular-polygon-pts 10 20))
         sorted-angles (sort angles)]
     (is (= angles sorted-angles))))
-        
+
 #+END_SRC
 
 *** shapes
@@ -3467,6 +3507,31 @@ clj -M:test
            (map #(tf/rotate % 45) a)))))
 
 #+end_src
+
+*** cast-numerical-attrs
+#+begin_src clojure :tangle ./test/svg_clj/elements_test.cljc
+(deftest cast-numerical-attrs-test
+  (let [attrs {:cx "10" :cy "20" :width "200" :height "200px"}
+        {:keys [cx cy width height] :as res} (utils/cast-numerical-attrs attrs)]
+    (is (= cx 10))
+    (is (= cy 20))
+    (is (= width 200))
+    (is (= height "200px"))))
+ 
+#+end_src
+
+*** svg-str->elems
+#+begin_src clojure :tangle ./test/svg_clj/elements_test.cljc
+(deftest basic-string-to-elements
+  (let [s "<rect width=\"10\" height=\"40\" x=\"50\" y=\"60\" />"
+        res (utils/svg-str->elems s)
+        [k props] (first res)]
+    (is (= 1 (count res)))
+    (is (= k :rect))
+    (is (= (set (keys props)) #{:width :height :x :y}))))
+
+#+end_src
+
 ** elements
 *** ns
 #+BEGIN_SRC clojure :tangle ./test/svg_clj/elements_test.cljc
@@ -3705,6 +3770,28 @@ clj -M:test
            (map #(tf/rotate % 45) a)))))
 
 #+end_src
+
+** tools
+*** ns
+#+BEGIN_SRC clojure :tangle ./test/svg_clj/tools_test.cljc
+(ns svg-clj.tools-test
+  (:require [clojure.string :as str]
+            [svg-clj.utils :as utils]
+            [svg-clj.path :as path]
+            [svg-clj.transforms :as tf]
+            [svg-clj.elements :as el]
+            [svg-clj.composites :refer [svg]]
+            [svg-clj.tools :as tools]))
+
+#+END_SRC
+
+*** loading
+#+BEGIN_SRC clojure :tangle ./test/svg_clj/tools_test.cljc
+(def sk (slurp "examples/load-svg-test.svg"))
+(def loaded-sk (tools/load-svg sk-url))
+(def sk-elems (tools/get-elems loaded-sk))
+
+#+END_SRC
 
 * examples
 This is a WIP file for a more complex drawing to be used in tests. This will use all transforms, all shapes, etc.

@@ -2,7 +2,7 @@
   (:require [svg-clj.utils :as utils]
             [svg-clj.parametric :as p]
             [svg-clj.transforms :as tf]
-            [clojure.test :refer [deftest is]]))
+            [clojure.test :as test :refer [deftest is]]))
 
 (deftest angle-from-pts
   (let [angles (map

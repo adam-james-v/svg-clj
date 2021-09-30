@@ -109,6 +109,22 @@
     (is (= (tf/rotate a 45)
            (map #(tf/rotate % 45) a)))))
 
+(deftest cast-numerical-attrs-test
+  (let [attrs {:cx "10" :cy "20" :width "200" :height "200px"}
+        {:keys [cx cy width height] :as res} (utils/cast-numerical-attrs attrs)]
+    (is (= cx 10))
+    (is (= cy 20))
+    (is (= width 200))
+    (is (= height "200px"))))
+
+(deftest basic-string-to-elements
+  (let [s "<rect width=\"10\" height=\"40\" x=\"50\" y=\"60\" />"
+        res (utils/svg-str->elems s)
+        [k props] (first res)]
+    (is (= 1 (count res)))
+    (is (= k :rect))
+    (is (= (set (keys props)) #{:width :height :x :y}))))
+
 (ns svg-clj.elements-test
   (:require [svg-clj.utils :as utils]
             [svg-clj.elements :as el]
