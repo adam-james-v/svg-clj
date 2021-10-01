@@ -238,7 +238,13 @@
     (-> [open
          {:command "A"
           :coordsys :abs
+          :input [rx ry 0 1 0 0 ry]}
+         {:command "A"
+          :coordsys :abs
           :input [rx ry 0 1 0 (- rx) 0]}
+         {:command "A"
+          :coordsys :abs
+          :input [rx ry 0 1 0 0 (- ry)]}
          {:command "A"
           :coordsys :abs
           :input [rx ry 0 1 0 rx 0]}
