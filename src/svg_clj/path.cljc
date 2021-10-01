@@ -309,7 +309,7 @@
         sa (utils/angle-from-pts cursor ctr b)
         angle (if (= 1 laf) (- 360 sa) sa)
         mids (mapv #(utils/rotate-pt-around-center cursor % ctr) (rest (range 0 angle 90)))]
-    (conj mids b)))
+    [cursor b] #_(conj mids b)))
 
 (defn centroid
   [[_ props]]
