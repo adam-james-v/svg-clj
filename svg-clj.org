@@ -1284,7 +1284,6 @@ Convert S curve 'shortcut' commands to their full C command. Run this after rel-
 
 #+END_SRC
 
-
 ** commands
 Path strings are a sequence of commands. These commands can be thought of as moving a pen along the canvas to draw shapes/lines according to the command's inputs.
 
@@ -3759,21 +3758,34 @@ clj -M:test
                   test-rect])
 
 (deftest basic-shapes-test
-  (is (= test-circle [:path {:d "M5 0 A5 5 0 1 0 -5 0 A5 5 0 1 0 5 0 Z", :fill-rule "evenodd"}]))
-  (is (= test-ellipse [:path {:d "M5 0 A5 10 0 1 0 -5 0 A5 10 0 1 0 5 0 Z", :fill-rule "evenodd"}]))
+  (is (= test-circle [:path {:d "M5 0 A5 5 0 1 0 0 5 A5 5 0 1 0 -5 0 A5 5 0 1 0 0 -5 A5 5 0 1 0 5 0 Z", :fill-rule "evenodd"}]))
+  (is (= test-ellipse [:path {:d "M5 0 A5 10 0 1 0 0 10 A5 10 0 1 0 -5 0 A5 10 0 1 0 0 -10 A5 10 0 1 0 5 0 Z", :fill-rule "evenodd"}]))
   (is (= test-line [:path {:d "M0 0 L10 20", :fill-rule "evenodd"}]))
   (is (= test-polygon [:path {:d "M0 0 L10 20 L40 50 L20 10 Z", :fill-rule "evenodd"}]))
   (is (= test-polyline [:path {:d "M0 0 L10 20 L40 50 L20 10", :fill-rule "evenodd"}]))
   (is (= test-rect [:path {:d "M-30.0 -15.0 L30.0 -15.0 L30.0 15.0 L-30.0 15.0 Z", :fill-rule "evenodd"}])))
+
+#+end_src
+
+*** rel->abs
+#+begin_src clojure :tangle ./test/svg_clj/path_test.cljc
+(def a-str "M453 83l15 -9q-13 -81 -96 -81q-34 0 -51 22.5t-20 53.5q-20 -23 -30.5 -33t-39.5 -27.5t-58 -17.5q-50 0 -86 28t-36 89q0 27 11.5 47t32 32.5t41.5 20.5t49 11.5t46.5 4.5t41 1.5t24.5 0.5q3 0 3 74q0 95 -87 95q-30 0 -48 -13t-22 -31q29 0 29 -44q0 -27 -18 -38.5\nt-35 -11.5q-19 0 -34 17.5t-15 38.5q0 37 47 72q38 29 105 29q63 0 112 -39t49 -106q0 -33 -2 -92t-2 -85q0 -67 31 -66q18 0 27 13t16 44zM297 94v118q-35 -3 -64.5 -6.5t-50.5 -11t-33 -25.5t-12 -50q0 -43 21.5 -63t54.5 -20q52 0 84 58z")
+
+(def a-cmds (path/path-str->cmds a-str))
+
+(deftest basic-cmds-test
+  (is (= #{:abs} (set (map :coordsys a-cmds))))
+  (is (nil? (#{"V" "H" "S" "T"} (set (map :command a-cmds))))))
+
 #+end_src
 
 *** translate
 #+begin_src clojure :tangle ./test/svg_clj/path_test.cljc
 (deftest basic-translate-test
   (is (= (-> test-circle (tf/translate [10 10]))
-         [:path {:d "M15 10 A5 5 0 1 0 5 10 A5 5 0 1 0 15 10 Z", :fill-rule "evenodd"}]))
+         [:path {:d "M15 10 A5 5 0 1 0 10 15 A5 5 0 1 0 5 10 A5 5 0 1 0 10 5 A5 5 0 1 0 15 10 Z", :fill-rule "evenodd"}]))
   (is (= (-> test-ellipse (tf/translate [10 10]))
-         [:path {:d "M15 10 A5 10 0 1 0 5 10 A5 10 0 1 0 15 10 Z", :fill-rule "evenodd"}]))
+         [:path {:d "M15 10 A5 10 0 1 0 10 20 A5 10 0 1 0 5 10 A5 10 0 1 0 10 0 A5 10 0 1 0 15 10 Z", :fill-rule "evenodd"}]))
   (is (= (-> test-line (tf/translate [10 10]))
          [:path {:d "M10 10 L20 30", :fill-rule "evenodd"}]))
   (is (= (-> test-polygon (tf/translate [10 10]))
@@ -3794,12 +3806,14 @@ clj -M:test
 #+end_src
 
 *** rotate
+These basic tests are brittle, as I manually copied path strings from the REPL. This is kinda risky, especially considering floating point comparisons. I need a better strategy. I think soon I should incorporate some property based testing, and use Spec or Malli to help.
+
 #+begin_src clojure :tangle ./test/svg_clj/path_test.cljc
 (deftest basic-rotate-test
   (is (= (-> test-circle (tf/rotate 45))
-         [:path {:d "M4.207106781186548 0.9142135623730948 A5 5 45 1 0 -2.8639610306789285 -6.15685424949238 A5 5 45 1 0 4.207106781186548 0.9142135623730948 Z" :fill-rule "evenodd"}]))
+         [:path {:d "M3.5355339059327378 3.5355339059327373 A5 5 45 1 0 -3.5355339059327373 3.5355339059327378 A5 5 45 1 0 -3.5355339059327378 -3.5355339059327373 A5 5 45 1 0 3.5355339059327373 -3.5355339059327378 A5 5 45 1 0 3.5355339059327378 3.5355339059327373 Z" :fill-rule "evenodd"}]))
   (is (= (-> test-ellipse (tf/rotate 45))
-         [:path {:d "M4.207106781186548 0.9142135623730948 A5 10 45 1 0 -2.8639610306789285 -6.15685424949238 A5 10 45 1 0 4.207106781186548 0.9142135623730948 Z" :fill-rule "evenodd"}]))
+         [:path {:d "M3.5355339059327378 3.5355339059327373 A5 10 45 1 0 -7.071067811865475 7.0710678118654755 A5 10 45 1 0 -3.5355339059327378 -3.5355339059327373 A5 10 45 1 0 7.071067811865475 -7.0710678118654755 A5 10 45 1 0 3.5355339059327378 3.5355339059327373 Z" :fill-rule "evenodd"}]))
   (is (= (-> test-line (tf/rotate 90))
          [:path {:d "M15.0 4.999999999999999 L-5.0 15.0", :fill-rule "evenodd"}]))
   (is (= (-> test-polygon (tf/rotate 90))
@@ -3812,8 +3826,8 @@ clj -M:test
 
 (def rotated-test-g-data-structure
   [:g {}
-   [:path {:d "M21.75 18.5 A5 5 90 1 0 21.75 8.5 A5 5 90 1 0 21.75 18.5 Z", :fill-rule "evenodd"}]
-   [:path {:d "M21.75 18.5 A5 10 90 1 0 21.75 8.5 A5 10 90 1 0 21.75 18.5 Z", :fill-rule "evenodd"}]
+   [:path {:d "M22.5 17.5 A5 5 90 1 0 17.5 12.5 A5 5 90 1 0 22.5 7.5 A5 5 90 1 0 27.5 12.5 A5 5 90 1 0 22.5 17.5 Z", :fill-rule "evenodd"}]
+   [:path {:d "M22.5 17.5 A5 10 90 1 0 12.5 12.5 A5 10 90 1 0 22.5 7.5 A5 10 90 1 0 32.5 12.5 A5 10 90 1 0 22.5 17.5 Z", :fill-rule "evenodd"}]
    [:path {:d "M22.5 12.5 L2.5 22.5", :fill-rule "evenodd"}]
    [:path {:d "M22.5 12.5 L2.5000000000000004 22.5 L-27.5 52.5 L12.5 32.5 Z", :fill-rule "evenodd"}]
    [:path {:d "M22.5 12.5 L2.5000000000000004 22.5 L-27.5 52.5 L12.5 32.5", :fill-rule "evenodd"}]
