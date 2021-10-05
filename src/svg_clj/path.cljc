@@ -40,11 +40,15 @@
   (if (and (not (any-vh? [pcmd])) ;;prev. cmd must NOT be VH
            (any-vh? [ccmd])) ;; curr. cmd must be VH
     (let [[px py] (take-last 2 (:input pcmd))
-          vh (:command ccmd)
-          xinput (cond (= vh "H") [(first (:input ccmd)) py]
-                       (= vh "V") [px (first (:input ccmd))])
+          {:keys [command input coordsys]} ccmd
+          xinput (cond
+                   (and (= command "H") (= coordsys :abs)) [(first input) py]
+                   (and (= command "V") (= coordsys :abs)) [px (first input)]
+                   (and (= command "H") (= coordsys :rel)) [(+ (first input) px) py]
+                   (and (= command "V") (= coordsys :rel)) [px (+ (first input) py)])
           ncmd (-> ccmd
-                   (assoc :command :line)
+                   (assoc :command "L")
+                   (assoc :coordsys :abs)
                    (assoc :input xinput))]
       [pcmd ncmd])
     [pcmd ccmd]))
@@ -64,6 +68,127 @@
   [cmds]
   (let [iters (iterate convert-first-vh-cmd cmds)]
     (if (any-vh? cmds)
+      (->> iters
+           (partition 2 1)
+           (take-while (fn [[a b]] (not= a b)))
+           last
+           last)
+      cmds)))
+
+(defn- any-rel?
+  [cmds]
+  (seq (filter #{:rel} (map :coordsys cmds))))
+
+(defn- convert-rel
+  [[pcmd ccmd]]
+  (if (and (= :abs (:coordsys pcmd))
+           (= :rel (:coordsys ccmd)))
+    (let [{:keys [command input]} ccmd
+          abs-cursor (vec (take-last 2 (:input pcmd)))
+          xinput (if (= command "A")
+                   (vec (concat
+                         (drop-last 2 input)
+                         (utils/v+ (take-last 2 input) abs-cursor)))
+                   (vec (mapcat #(utils/v+ % abs-cursor) (partition 2 input))))
+          ncmd (-> ccmd
+                   (assoc :coordsys :abs)
+                   (assoc :input xinput)
+                   (assoc :cursor abs-cursor))]
+      [pcmd ncmd])
+    [pcmd ccmd]))
+
+(defn- convert-first-rel
+  [cmds]
+  (let [icmd (first cmds)]
+    (cons icmd 
+          (->> cmds
+               (partition 2 1)
+               (map convert-rel)
+               (map second)))))
+
+(defn rel->abs
+  "Converts any relative coordinate commands into absoulte coordinate commands."
+  [cmds]
+  (let [iters (iterate convert-first-rel cmds)]
+    (if (any-rel? cmds)
+      (->> iters
+           (partition 2 1)
+           (take-while (fn [[a b]] (not= a b)))
+           last
+           last)
+      cmds)))
+
+(defn- any-t?
+  [cmds]
+  (seq (filter #{"T"} (map :command cmds))))
+
+(defn- convert-t
+  [[pcmd ccmd]]
+  (if (and (= "Q" (:command pcmd))
+           (= "T" (:command ccmd)))
+    (let [[cpt pt] (partition 2 (:input pcmd))
+          ncpt (utils/rotate-pt-around-center cpt 180.0 pt)
+          {:keys [command input coordsys]} ccmd
+          xinput (vec (concat ncpt input))
+          ncmd (-> ccmd
+                   (assoc :command "Q")
+                   (assoc :input xinput))]
+      [pcmd ncmd])
+    [pcmd ccmd]))
+
+(defn- convert-first-t-cmd
+  [cmds]
+  (let [icmd (first cmds)]
+    (cons icmd 
+          (->> cmds
+               (partition 2 1)
+               (map convert-t)
+               (map second)))))
+
+(defn t->q
+  "Converts any T curve commands into Q curve commands."
+  [cmds]
+  (let [iters (iterate convert-first-t-cmd cmds)]
+    (if (any-t? cmds)
+      (->> iters
+           (partition 2 1)
+           (take-while (fn [[a b]] (not= a b)))
+           last
+           last)
+      cmds)))
+
+(defn- any-s?
+  [cmds]
+  (seq (filter #{"S"} (map :command cmds))))
+
+(defn- convert-s
+  [[pcmd ccmd]]
+  (if (and (= "C" (:command pcmd))
+           (= "S" (:command ccmd)))
+    (let [[_ cpt pt] (partition 2 (:input pcmd))
+          ncpt (utils/rotate-pt-around-center cpt 180.0 pt)
+          {:keys [command input coordsys]} ccmd
+          xinput (vec (concat ncpt input))
+          ncmd (-> ccmd
+                   (assoc :command "C")
+                   (assoc :input xinput))]
+      [pcmd ncmd])
+    [pcmd ccmd]))
+
+(defn- convert-first-s-cmd
+  [cmds]
+  (let [icmd (first cmds)]
+    (cons icmd 
+          (->> cmds
+               (partition 2 1)
+               (map convert-s)
+               (map second)))))
+
+(defn s->c
+  "Converts any S curve commands into C curve commands."
+  [cmds]
+  (let [iters (iterate convert-first-s-cmd cmds)]
+    (if (any-s? cmds)
       (->> iters
            (partition 2 1)
            (take-while (fn [[a b]] (not= a b)))
@@ -123,7 +248,10 @@
                  :input [0 0]}])
        (partition 2 1)
        (map merge-cursor)
-       vh->l))
+       vh->l
+       rel->abs
+       t->q
+       s->c))
 
 (defn- cmd->path-string
   [{:keys [:command :coordsys :input]}]
@@ -518,6 +646,17 @@
                (empty? (remove #{"Z"} cs)))
           nil
 
+          ;; circle or ellipse
+          (and (= (count cmds) 6)
+               (empty? (remove #{"A" "Z"} cs)))
+          (let [eps 0.00001
+                [rx ry] (take 2 (:input (second cmds)))
+                [x y] (take-last 2 (:input (second cmds)))
+                [cx cy] (utils/v* [1.0 1.0] (utils/centroid-of-pts (set (mapcat cmd->pts cmds))))]
+            (if (< (Math/abs (- rx ry)) eps)
+              [:circle {:cx cx :cy cy :r rx}]
+              [:ellipse {:cx cx :cy cy :rx rx :ry ry}]))
+
           ;; line
           (and (= (count cmds) 2)
                (empty? (remove #{"L"} cs)))
@@ -581,6 +720,7 @@
   (let [split-path (partition-by :command cmds)
         cmd-check (into #{} (map #(:command (first %)) split-path))]
     (if (or (= cmd-check #{"M" "L" "Z"})
+            (= cmd-check #{"M" "A" "Z"})
             (= cmd-check #{"M" "L"}))
       (cmds->elements cmds)
       (let [subpath (->> cmds
