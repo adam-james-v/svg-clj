@@ -251,6 +251,11 @@ Put another way, the angle is measured following the 'right hand rule' around p2
   (let [[[xmin ymin] _ [xmax ymax] _] (bounds-of-pts pts)]
     [(- xmax xmin) (- ymax ymin)]))
 
+(defn scale-pt-from-center
+  [[cx cy] [sx sy] [x y]]
+  [(+ (* (- x cx) sx) cx)
+   (+ (* (- y cy) sy) cy)])
+
 (defn str->number
   [s]
   (let [n (try (read-string s)

@@ -452,7 +452,8 @@
 
 (defmethod scale :circle
   [[_ props] [sx sy]]
-  (let [circle? (= sx sy)
+  (let [[sx sy] (map #(Math/abs %) [sx sy])
+        circle? (= sx sy)
         r (:r props)
         new-props (if circle?
                     (assoc props :r (* r sx))
@@ -465,7 +466,8 @@
 
 (defmethod scale :ellipse
   [[k props] [sx sy]]
-  (let [new-props (-> props
+  (let [[sx sy] (map #(Math/abs %) [sx sy])
+        new-props (-> props
                       (update :rx #(* sx %))
                       (update :ry #(* sy %)))]
     [k new-props]))
@@ -485,17 +487,12 @@
                       (update :y2 #(+ (* (- % cy) sy) cy)))]
     [k new-props]))
 
-(defn scale-pt-from-center
-  [[cx cy] [sx sy] [x y]]
-  [(+ (* (- x cx) sx) cx)
-   (+ (* (- y cy) sy) cy)])
-
 (defmethod scale :polygon
   [[k props] [sx sy]]
   (let [pts (mapv utils/s->v (str/split (:points props) #" "))
         ctr (centroid [k props])
         xpts (->> pts
-                  (map (partial scale-pt-from-center ctr [sx sy]))
+                  (map (partial utils/scale-pt-from-center ctr [sx sy]))
                   (map utils/v->s))]
     [k (assoc props :points (str/join " " xpts))]))
 
@@ -504,7 +501,7 @@
   (let [pts (mapv utils/s->v (str/split (:points props) #" "))
         ctr (centroid [k props])
         xpts (->> pts
-                  (map (partial scale-pt-from-center ctr [sx sy]))
+                  (map (partial utils/scale-pt-from-center ctr [sx sy]))
                   (map utils/v->s))]
     [k (assoc props :points (str/join " " xpts))]))
 
@@ -551,6 +548,10 @@
                       (update-in [:style :font-size] #(* % sx)))]
     [k new-props text]))
 
+(defmethod scale :path
+  [elem [sx sy]]
+  (path/scale elem [sx sy]))
+
 (defmethod scale :g
   [[k props & content] [sx sy]]
   (let [xf (utils/str->xf-map (:transform props))
@@ -558,32 +559,6 @@
                    (update :scale (fnil #(map * [sx sy] %) [1 1])))
         new-props (assoc props :transform (utils/xf-map->str new-xf))]
     (into [k new-props] content)))
-
-(defmulti scale-path-command
-  (fn [cmd _ _]
-    (:command cmd)))
-
-(defmethod scale-path-command :default
-  [{:keys [:input] :as m} ctr [sx sy]]
-  (let [pts (mapv vec (partition 2 input))
-        xpts (->> pts
-                  (mapcat (partial scale-pt-from-center ctr [sx sy])))]
-    (assoc m :input (vec xpts))))
-
-;; this is wrong. just a stub to get moving a bit
-(defmethod scale-path-command "A"
-  [{:keys [:input] :as m} ctr [sx sy]]
-  (let [pts [(take-last 2 input)]
-        xpts (->> pts
-                  (mapcat (partial scale-pt-from-center ctr [sx sy])))]
-    (assoc m :input (vec xpts))))
-
-(defmethod scale :path
-  [[k props] [sx sy]]
-  (let [ctr (centroid [k props])
-        cmds (path/path-str->cmds (:d props))
-        xcmds (map #(scale-path-command ctr % [sx sy]) cmds)]
-    [k (assoc props :d (path/cmds->path-string xcmds))]))
 
 (defn- offset-edge
   [[a b] d]

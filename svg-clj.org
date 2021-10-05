@@ -756,6 +756,15 @@ Centroid of a list of points is used in a few places. Having it here keeps it ac
 
 #+end_src
 
+** scale
+#+begin_src clojure :tangle ./src/svg_clj/utils.cljc
+(defn scale-pt-from-center
+  [[cx cy] [sx sy] [x y]]
+  [(+ (* (- x cx) sx) cx)
+   (+ (* (- y cy) sy) cy)])
+
+#+end_src
+
 ** xml->hiccup
 The xml->hiccup function causes some issues down the line when it comes to properly displaying SVGs. It works fine if no namespaces are used in the SVG's definition, but will potentially break if they do exist. This becomes an issue when importing from third party sources, such as Inkscape.
 
@@ -1787,6 +1796,36 @@ To do this, I have a second multimethod to handle different commands that can sh
 
 #+END_SRC
 
+*** scale
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/path.cljc
+(defmulti scale-path-command
+  (fn [cmd _ _]
+    (:command cmd)))
+
+(defmethod scale-path-command :default
+  [{:keys [:input] :as m} ctr [sx sy]]
+  (let [pts (mapv vec (partition 2 input))
+        xpts (->> pts
+                  (mapcat (partial utils/scale-pt-from-center ctr [sx sy])))]
+    (assoc m :input (vec xpts))))
+
+;; this is wrong. just a stub to get moving a bit
+(defmethod scale-path-command "A"
+  [{:keys [:input] :as m} ctr [sx sy]]
+  (let [pts [(take-last 2 input)]
+        xpts (->> pts
+                  (mapcat (partial utils/scale-pt-from-center ctr [sx sy])))]
+    (assoc m :input (vec xpts))))
+
+(defn scale
+  [[k props] [sx sy]]
+  (let [ctr (centroid [k props])
+        cmds (path-str->cmds (:d props))
+        xcmds (map #(scale-path-command % ctr [sx sy]) cmds)]
+    [k (assoc props :d (cmds->path-string xcmds))]))
+
+#+END_SRC
+
 ** path-manipulations
 Path manipulations might be better in the path namespace.
 
@@ -2550,7 +2589,7 @@ Scale implementation doesn't seem to work correctly in all cases. For example, s
 
 Scale should be 'baked into' all dimensions just like other transforms, where possible.
 
-*** scale
+*** scale-elements
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
 (defn scale-by-transform
   [[k props & content] [sx sy]]
@@ -2576,7 +2615,8 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
 
 (defmethod scale :circle
   [[_ props] [sx sy]]
-  (let [circle? (= sx sy)
+  (let [[sx sy] (map #(Math/abs %) [sx sy])
+        circle? (= sx sy)
         r (:r props)
         new-props (if circle?
                     (assoc props :r (* r sx))
@@ -2589,7 +2629,8 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
 
 (defmethod scale :ellipse
   [[k props] [sx sy]]
-  (let [new-props (-> props
+  (let [[sx sy] (map #(Math/abs %) [sx sy])
+        new-props (-> props
                       (update :rx #(* sx %))
                       (update :ry #(* sy %)))]
     [k new-props]))
@@ -2609,17 +2650,12 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
                       (update :y2 #(+ (* (- % cy) sy) cy)))]
     [k new-props]))
 
-(defn scale-pt-from-center
-  [[cx cy] [sx sy] [x y]]
-  [(+ (* (- x cx) sx) cx)
-   (+ (* (- y cy) sy) cy)])
-
 (defmethod scale :polygon
   [[k props] [sx sy]]
   (let [pts (mapv utils/s->v (str/split (:points props) #" "))
         ctr (centroid [k props])
         xpts (->> pts
-                  (map (partial scale-pt-from-center ctr [sx sy]))
+                  (map (partial utils/scale-pt-from-center ctr [sx sy]))
                   (map utils/v->s))]
     [k (assoc props :points (str/join " " xpts))]))
 
@@ -2628,7 +2664,7 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
   (let [pts (mapv utils/s->v (str/split (:points props) #" "))
         ctr (centroid [k props])
         xpts (->> pts
-                  (map (partial scale-pt-from-center ctr [sx sy]))
+                  (map (partial utils/scale-pt-from-center ctr [sx sy]))
                   (map utils/v->s))]
     [k (assoc props :points (str/join " " xpts))]))
 
@@ -2675,6 +2711,14 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
                       (update-in [:style :font-size] #(* % sx)))]
     [k new-props text]))
 
+(defmethod scale :path
+  [elem [sx sy]]
+  (path/scale elem [sx sy]))
+
+#+END_SRC
+
+*** scale-group
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
 (defmethod scale :g
   [[k props & content] [sx sy]]
   (let [xf (utils/str->xf-map (:transform props))
@@ -2682,36 +2726,6 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
                    (update :scale (fnil #(map * [sx sy] %) [1 1])))
         new-props (assoc props :transform (utils/xf-map->str new-xf))]
     (into [k new-props] content)))
-
-#+END_SRC
-
-*** scale-path
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
-(defmulti scale-path-command
-  (fn [cmd _ _]
-    (:command cmd)))
-
-(defmethod scale-path-command :default
-  [{:keys [:input] :as m} ctr [sx sy]]
-  (let [pts (mapv vec (partition 2 input))
-        xpts (->> pts
-                  (mapcat (partial scale-pt-from-center ctr [sx sy])))]
-    (assoc m :input (vec xpts))))
-
-;; this is wrong. just a stub to get moving a bit
-(defmethod scale-path-command "A"
-  [{:keys [:input] :as m} ctr [sx sy]]
-  (let [pts [(take-last 2 input)]
-        xpts (->> pts
-                  (mapcat (partial scale-pt-from-center ctr [sx sy])))]
-    (assoc m :input (vec xpts))))
-
-(defmethod scale :path
-  [[k props] [sx sy]]
-  (let [ctr (centroid [k props])
-        cmds (path/path-str->cmds (:d props))
-        xcmds (map #(scale-path-command ctr % [sx sy]) cmds)]
-    [k (assoc props :d (path/cmds->path-string xcmds))]))
 
 #+END_SRC
 

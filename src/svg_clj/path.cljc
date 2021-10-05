@@ -598,6 +598,32 @@
         xcmds (map #(rotate-path-command % ctr deg) cmds)]
     [k (assoc props :d (cmds->path-string xcmds))]))
 
+(defmulti scale-path-command
+  (fn [cmd _ _]
+    (:command cmd)))
+
+(defmethod scale-path-command :default
+  [{:keys [:input] :as m} ctr [sx sy]]
+  (let [pts (mapv vec (partition 2 input))
+        xpts (->> pts
+                  (mapcat (partial utils/scale-pt-from-center ctr [sx sy])))]
+    (assoc m :input (vec xpts))))
+
+;; this is wrong. just a stub to get moving a bit
+(defmethod scale-path-command "A"
+  [{:keys [:input] :as m} ctr [sx sy]]
+  (let [pts [(take-last 2 input)]
+        xpts (->> pts
+                  (mapcat (partial utils/scale-pt-from-center ctr [sx sy])))]
+    (assoc m :input (vec xpts))))
+
+(defn scale
+  [[k props] [sx sy]]
+  (let [ctr (centroid [k props])
+        cmds (path-str->cmds (:d props))
+        xcmds (map #(scale-path-command % ctr [sx sy]) cmds)]
+    [k (assoc props :d (cmds->path-string xcmds))]))
+
 (defn split-path
   "Splits a single path element containing multiple disjoint paths into a group of paths containing only one path."
   [[k props]]
