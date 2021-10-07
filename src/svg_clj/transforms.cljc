@@ -564,10 +564,12 @@
   [[k props & content :as elem] [sx sy]]
   (let [g-ctr (utils/centroid-of-pts (bounds elem))
         xfcontent (for [child content]
-                    (let [ch (scale child [sx sy])
-                          elem-ctr (if (= :g (first ch))
-                                     (utils/centroid-of-pts (bounds ch))
-                                     (centroid ch))
+                    (let [elem-ctr (if (= :g (first child))
+                                     (utils/centroid-of-pts (bounds child))
+                                     (centroid child))
+                          ch (-> child
+                                 (translate (utils/v* [-1 -1] elem-ctr))
+                                 (scale [sx sy]))
                           elem-v (utils/v- elem-ctr g-ctr)]
                       (-> ch (translate (utils/v* [sx sy] elem-v)))))]
     (into [k props] (filter (complement nil?) xfcontent))))

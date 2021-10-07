@@ -2747,10 +2747,12 @@ For a group scale to work as expected, two things must happen:
   [[k props & content :as elem] [sx sy]]
   (let [g-ctr (utils/centroid-of-pts (bounds elem))
         xfcontent (for [child content]
-                    (let [ch (scale child [sx sy])
-                          elem-ctr (if (= :g (first ch))
-                                     (utils/centroid-of-pts (bounds ch))
-                                     (centroid ch))
+                    (let [elem-ctr (if (= :g (first child))
+                                     (utils/centroid-of-pts (bounds child))
+                                     (centroid child))
+                          ch (-> child
+                                 (translate (utils/v* [-1 -1] elem-ctr))
+                                 (scale [sx sy]))
                           elem-v (utils/v- elem-ctr g-ctr)]
                       (-> ch (translate (utils/v* [sx sy] elem-v)))))]
     (into [k props] (filter (complement nil?) xfcontent))))
@@ -4417,17 +4419,17 @@ Play around with code here.
             [svg-clj.tools :as tools :refer [show cider-show]]))
 
 (def sk (slurp "/Users/adam/dev/forge/sk.svg"))
-(def sk-elems (tools/load-svg sk-url))
+(def sk-elems (utils/svg-str->elems sk))
 (tools/cider-show sk-elems)
 
 ;; manual test of scaling groups
-#_(let [p (-> (p/regular-polygon-pts 100 5) path/polygon (tf/translate [0 0]))]
+(let [p (-> (p/regular-polygon-pts 100 5) path/polygon (tf/translate [20 -30]))]
   (tools/cider-show
    (->
     (el/g
      (el/circle 2)
      (-> p (tf/style {:stroke "green" :fill "none"}))
      (-> p (tf/scale [1.5 1.5]) (tf/style {:stroke "blue" :fill "none"})))
-    (tf/scale [1 0.5]))))
+    (tf/scale [1.5 1.5]))))
 
 #+end_src
