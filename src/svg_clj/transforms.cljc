@@ -412,8 +412,8 @@
   (path/rotate elem deg))
 
 (defmethod rotate :g
-  [[k props & content] deg]
-  (let [[gcx gcy] (utils/centroid-of-pts (bounds (into [k props] content)))
+  [[k props & content :as elem] deg]
+  (let [[gcx gcy] (utils/centroid-of-pts (bounds elem))
         xfcontent (for [child content]
                     (let [ch (translate child [(- gcx) (- gcy)])
                           ctr (if (= :g (first ch))
@@ -552,13 +552,25 @@
   [elem [sx sy]]
   (path/scale elem [sx sy]))
 
-(defmethod scale :g
+#_(defmethod scale :g
   [[k props & content] [sx sy]]
   (let [xf (utils/str->xf-map (:transform props))
         new-xf (-> xf
                    (update :scale (fnil #(map * [sx sy] %) [1 1])))
         new-props (assoc props :transform (utils/xf-map->str new-xf))]
     (into [k new-props] content)))
+
+(defmethod scale :g
+  [[k props & content :as elem] [sx sy]]
+  (let [g-ctr (utils/centroid-of-pts (bounds elem))
+        xfcontent (for [child content]
+                    (let [ch (scale child [sx sy])
+                          elem-ctr (if (= :g (first ch))
+                                     (utils/centroid-of-pts (bounds ch))
+                                     (centroid ch))
+                          elem-v (utils/v- elem-ctr g-ctr)]
+                      (-> ch (translate (utils/v* [sx sy] elem-v)))))]
+    (into [k props] (filter (complement nil?) xfcontent))))
 
 (defn- offset-edge
   [[a b] d]

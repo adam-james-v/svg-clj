@@ -2576,8 +2576,8 @@ So,
 
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
 (defmethod rotate :g
-  [[k props & content] deg]
-  (let [[gcx gcy] (utils/centroid-of-pts (bounds (into [k props] content)))
+  [[k props & content :as elem] deg]
+  (let [[gcx gcy] (utils/centroid-of-pts (bounds elem))
         xfcontent (for [child content]
                     (let [ch (translate child [(- gcx) (- gcy)])
                           ctr (if (= :g (first ch))
@@ -2728,14 +2728,32 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
 #+END_SRC
 
 *** scale-group
+For a group scale to work as expected, two things must happen:
+
+ - scale each element of the group around its own centroid
+ - translate each element of the group by (utils/v* sc velem)
+   - velem is (utils/v- elem-ctr group-ctr)
+
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
-(defmethod scale :g
+#_(defmethod scale :g
   [[k props & content] [sx sy]]
   (let [xf (utils/str->xf-map (:transform props))
         new-xf (-> xf
                    (update :scale (fnil #(map * [sx sy] %) [1 1])))
         new-props (assoc props :transform (utils/xf-map->str new-xf))]
     (into [k new-props] content)))
+
+(defmethod scale :g
+  [[k props & content :as elem] [sx sy]]
+  (let [g-ctr (utils/centroid-of-pts (bounds elem))
+        xfcontent (for [child content]
+                    (let [ch (scale child [sx sy])
+                          elem-ctr (if (= :g (first ch))
+                                     (utils/centroid-of-pts (bounds ch))
+                                     (centroid ch))
+                          elem-v (utils/v- elem-ctr g-ctr)]
+                      (-> ch (translate (utils/v* [sx sy] elem-v)))))]
+    (into [k props] (filter (complement nil?) xfcontent))))
 
 #+END_SRC
 
@@ -4395,10 +4413,21 @@ Play around with code here.
             [svg-clj.transforms :as tf]
             [svg-clj.elements :as el]
             [svg-clj.composites :refer [svg]]
+            [svg-clj.parametric :as p]
             [svg-clj.tools :as tools :refer [show cider-show]]))
 
 (def sk (slurp "/Users/adam/dev/forge/sk.svg"))
 (def sk-elems (tools/load-svg sk-url))
 (tools/cider-show sk-elems)
+
+;; manual test of scaling groups
+#_(let [p (-> (p/regular-polygon-pts 100 5) path/polygon (tf/translate [0 0]))]
+  (tools/cider-show
+   (->
+    (el/g
+     (el/circle 2)
+     (-> p (tf/style {:stroke "green" :fill "none"}))
+     (-> p (tf/scale [1.5 1.5]) (tf/style {:stroke "blue" :fill "none"})))
+    (tf/scale [1 0.5]))))
 
 #+end_src
