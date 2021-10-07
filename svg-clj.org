@@ -2754,7 +2754,7 @@ For a group scale to work as expected, two things must happen:
                                  (translate (utils/v* [-1 -1] elem-ctr))
                                  (scale [sx sy]))
                           elem-v (utils/v- elem-ctr g-ctr)]
-                      (-> ch (translate (utils/v* [sx sy] elem-v)))))]
+                      (-> ch (translate (utils/v+ (utils/v* [sx sy] elem-v) g-ctr)))))]
     (into [k props] (filter (complement nil?) xfcontent))))
 
 #+END_SRC
@@ -4423,13 +4423,14 @@ Play around with code here.
 (tools/cider-show sk-elems)
 
 ;; manual test of scaling groups
-(let [p (-> (p/regular-polygon-pts 100 5) path/polygon (tf/translate [20 -30]))]
+(let [p (-> (p/regular-polygon-pts 100 5) path/polygon (tf/translate [150 150]))]
   (tools/cider-show
    (->
     (el/g
-     (el/circle 2)
+     (-> (el/circle 3) (tf/translate [150 150]))
      (-> p (tf/style {:stroke "green" :fill "none"}))
      (-> p (tf/scale [1.5 1.5]) (tf/style {:stroke "blue" :fill "none"})))
-    (tf/scale [1.5 1.5]))))
+    (tf/scale [2 2])
+    (svg 300 300))))
 
 #+end_src

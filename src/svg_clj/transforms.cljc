@@ -571,7 +571,7 @@
                                  (translate (utils/v* [-1 -1] elem-ctr))
                                  (scale [sx sy]))
                           elem-v (utils/v- elem-ctr g-ctr)]
-                      (-> ch (translate (utils/v* [sx sy] elem-v)))))]
+                      (-> ch (translate (utils/v+ (utils/v* [sx sy] elem-v) g-ctr)))))]
     (into [k props] (filter (complement nil?) xfcontent))))
 
 (defn- offset-edge
