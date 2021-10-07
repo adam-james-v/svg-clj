@@ -8,9 +8,9 @@
   (let [angles (map
                 #(utils/angle-from-pts [10 0] [0 0] %)
                 (p/regular-polygon-pts 10 20))
-        sorted-angles (sort angles)]
-    (is (= (map #(Math/round %) angles)
-           (map #(Math/round %) sorted-angles)))))
+        sorted-angles (reverse (sort angles))]
+    (is (= (rest (map #(Math/round %) angles)) ;; first angle is 0, rest are in decreasing order
+           (drop-last (map #(Math/round %) sorted-angles))))))
 
 (deftest angle-first-quadrant
   (let [eps 0.00001
