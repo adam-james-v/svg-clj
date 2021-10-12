@@ -33,7 +33,7 @@
                            (> eps t) eps
                            :else t)
                    n (utils/normal (curve (- t eps)) (curve (+ t eps)))
-                   a (utils/angle-from-pts [0 1] [0 0] n)
+                   a (utils/angle-from-pts n [0 0] [0 1])
                    o (map #(utils/round % 4) (utils/rotate-pt (tf/centroid item) a))]
                (-> item
                    (tf/rotate a)

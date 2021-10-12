@@ -269,7 +269,8 @@ Put another way, the angle is measured following the 'right hand rule' around p2
 (defn str->number
   [s]
   (let [n (try (read-string s)
-               (catch Exception e s))]
+               (catch #?(:clj Exception
+                         :cljs js/Object) e s))]
     (if (number? n) n s)))
 
 (def numerical-attrs
