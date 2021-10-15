@@ -41,13 +41,78 @@
 (defn line
   [a b]
   (fn
-    ([] {:fn 'line :input [a b]})
+    ([] {:fn `line
+         :input [a b]
+         :length (utils/distance a b)})
     ([t]
      (cond
        (= (float t) 0.0) a
        (= (float t) 1.0) b
        :else
        (utils/v+ a (utils/v* (utils/v- b a) (repeat t)))))))
+
+(defn- fastline
+  [[ax ay :as a] [bx by :as b]]
+  (let [[vx vy] (utils/v- b a)]
+    (fn [t]
+      [(+ ax (* vx t))
+       (+ ay (* vy t))])))
+
+(defn- remap-within
+  [f [start end] x]
+  (when (and (>= x start) (< x end))
+    (let [step (- end start)
+          t (/ (- x start) step)]
+      (f t))))
+
+(defn polyline
+  [pts]
+  (let [step (/ 1.0 (dec (count pts)))
+        lines (map (partial apply line) (partition 2 1 pts))
+        length (reduce + (map #(:length (%)) lines))
+        intervals (->> lines
+                       (map #(:length (%)))
+                       (reductions +)
+                       (concat [0])
+                       (map #(/ % length))
+                       (partition 2 1))]
+    (fn
+      ([] {:fn `polyline
+           :input [pts]
+           :length length})
+      ([t]
+       (cond
+         (= (float t) 0.0) (first pts)
+         (= (float t) 1.0) (last pts)
+         :else
+         (first
+          (filter some?
+                  (map #(remap-within %1 %2 t) lines intervals))))))))
+
+(defn polygon
+  [pts]
+  (let [pts (concat (vec pts) [(first pts)])
+        step (/ 1.0 (dec (count pts)))
+        lines (map (partial apply line) (partition 2 1 pts))
+        length (reduce + (map #(:length (%)) lines))
+        intervals (->> lines
+                       (map #(:length (%)))
+                       (reductions +)
+                       (concat [0])
+                       (map #(/ % length))
+                       (partition 2 1))]
+    (fn
+      ([] {:fn `polygon
+           :input [pts]
+           :length (reduce + (map #(:length (%)) lines))})
+      ([t]
+       (cond
+         (= (float t) 0.0) (first pts)
+         (= (float t) 1.0) (last pts)
+         :else
+         (first
+          (filter some?
+                  (map #(remap-within %1 %2 t) lines intervals))))))))
 
 (defn- radius-from-pts
   "compute the radius of an arc defined by 3 points"
@@ -96,7 +161,9 @@
 (defn circle
   ([r]
    (fn
-     ([] {:fn 'circle :input [r]})
+     ([] {:fn `circle
+          :input [r]
+          :length (* Math/PI 2 r)})
      ([t]
       (let [t (* 2 Math/PI t)
             x (* r (Math/cos t))
@@ -111,7 +178,9 @@
          u (utils/normalize (utils/v- a cp))
          v (utils/cross* n u)]
      (fn
-       ([] {:fn 'circle :input [a b c]})
+       ([] {:fn `circle
+            :input [a b c]
+            :length (* Math/PI 2 r)})
        ([t]
        (cond
          (or (< t 0.0) (> t 1.0)) nil
@@ -126,10 +195,25 @@
                        (utils/v* (repeat (* r (Math/cos t))) u)
                        (utils/v* (repeat (* r (Math/sin t))) v)))))))))))
 
+;; https://www.mathsisfun.com/geometry/ellipse-perimeter.html
+;; uses 'Infinite Series 2' exact calc. using 4 terms.
+
+(defn- ellipse-perimeter
+  [rx ry]
+  (let [h (/ (Math/pow (- rx ry) 2)
+             (Math/pow (+ rx ry) 2))]
+    (* Math/PI (+ rx ry)
+       (+ 1
+          (* h (/ 1 4))
+          (* h h (/ 1 64))
+          (* h h h (/ 1 256))))))
+
 (defn ellipse
   [rx ry]
   (fn 
-    ([] {:fn 'ellipse :input [rx ry]})
+    ([] {:fn `ellipse
+         :input [rx ry]
+         :length (ellipse-perimeter rx ry)})
     ([t]
      (let [t (* 2 Math/PI t)
            x (* rx (Math/cos t))
@@ -141,9 +225,12 @@
   (let [[a b c] (map #(conj % 0) [a b c])
         f (circle a b c)
         cp (center-from-pts a b c)
-        angle (angle-from-pts a cp c)]
+        angle (angle-from-pts a cp c)
+        r (radius-from-pts a b c)]
     (fn
-      ([] {:fn 'arc :input [a b c]})
+      ([] {:fn `arc
+           :input [a b c]
+           :length (* Math/PI 2 r (/ angle 360))})
       ([t]
        (let [t (* t (/ angle 360.0))]
          (f t))))))
@@ -162,7 +249,8 @@
     (apply quadratic-bezier pts)
     (let [lines (map #(apply line %) (partition 2 1 pts))] 
       (fn
-        ([] {:fn 'bezier :input [pts]})
+        ([] {:fn `bezier
+             :input [pts]})
         ([t]
          (let [npts (map #(% t) lines)]
            ((bezier npts) t)))))))
@@ -274,3 +362,29 @@
         pts [[0 0] [5 5] [10 -5] [15 25] [20 -5] [25 5] [30 0]]
         knots [1 2 3 4 5 6 7 8 9 10 11]]
     (partial b-spline-inner [pts degree knots] [1 pts])))
+
+(defn translate
+  [f [x y]]
+  (fn
+    ([] {:fn `translate
+         :input [f [x y]]})
+    ([t]
+     (utils/v+ (f t) [x y]))))
+
+(defn rotate
+  [f deg]
+  (let [ctr (utils/centroid-of-pts (map f (range 0 1 0.05)))]
+    (fn
+      ([] {:fn `rotate
+           :input [f deg]})
+      ([t]
+       (utils/rotate-pt-around-center (f t) deg ctr)))))
+
+(defn scale
+  [f [sx sy]]
+  (let [ctr (utils/centroid-of-pts (map f (range 0 1 0.05)))]
+    (fn
+      ([] {:fn `scale
+           :input [f [sx sy]]})
+      ([t]
+       (utils/scale-pt-from-center (f t) [sx sy] ctr)))))

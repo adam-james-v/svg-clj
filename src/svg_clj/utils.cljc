@@ -262,7 +262,7 @@ Put another way, the angle is measured following the 'right hand rule' around p2
     [(- xmax xmin) (- ymax ymin)]))
 
 (defn scale-pt-from-center
-  [[cx cy] [sx sy] [x y]]
+  [[x y] [sx sy] [cx cy]]
   [(+ (* (- x cx) sx) cx)
    (+ (* (- y cy) sy) cy)])
 

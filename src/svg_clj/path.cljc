@@ -713,6 +713,17 @@
           :else
           (path (cmds->path-string cmds)))))))
 
+(defn- clean-m-cmds-threshold
+  "Remove cmdb if it is an M command with the same position as the last input of cmda."
+  [[cmda cmdb]]
+  (let [merge-dist 1.0
+        [pa pb] (map (comp (partial take-last 2) :input) [cmda cmdb])
+        [ca cb] (map :command [cmda cmdb])]
+    (cond
+      (= "M" ca) [] ;; discard M in first position always
+      (and (< (utils/distance pa pb) merge-dist) (= "M" cb)) [cmda]
+      :else [cmda cmdb])))
+
 (defn- clean-m-cmds
   "Remove cmdb if it is an M command with the same position as the last input of cmda."
   [[cmda cmdb]]
@@ -730,7 +741,7 @@
         cmds (mapcat #(path-str->cmds (get-in % [1 :d])) paths)
         xf-cmds
         (conj 
-         (remove nil? (mapcat clean-m-cmds (partition 2 1 (rest cmds))))
+         (remove nil? (mapcat clean-m-cmds-threshold (partition 2 1 (rest cmds))))
          (first cmds))]
     [:path (assoc props :d (cmds->path-string xf-cmds))]))
 
