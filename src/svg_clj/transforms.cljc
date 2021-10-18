@@ -478,8 +478,8 @@
 ;; translate back to original bb-center
 
 (defmethod scale :line
-  [[k props] [sx sy]]
-  (let [[cx cy] (centroid [k props])
+  [[k props :as elem] [sx sy]]
+  (let [[cx cy] (centroid elem)
         new-props (-> props
                       (update :x1 #(+ (* (- % cx) sx) cx))
                       (update :y1 #(+ (* (- % cy) sy) cy))
@@ -488,20 +488,20 @@
     [k new-props]))
 
 (defmethod scale :polygon
-  [[k props] [sx sy]]
-  (let [pts (mapv utils/s->v (str/split (:points props) #" "))
-        ctr (centroid [k props])
+  [[k props :as elem] [sx sy]]
+  (let [pts (map vec (partition 2 (utils/s->v (:points props))))
+        ctr (centroid elem)
         xpts (->> pts
-                  (map (partial utils/scale-pt-from-center ctr [sx sy]))
+                  (map #(utils/scale-pt-from-center % [sx sy] ctr))
                   (map utils/v->s))]
     [k (assoc props :points (str/join " " xpts))]))
 
 (defmethod scale :polyline
-  [[k props] [sx sy]]
-  (let [pts (mapv utils/s->v (str/split (:points props) #" "))
-        ctr (centroid [k props])
+  [[k props :as elem] [sx sy]]
+  (let [pts (map vec (partition 2 (utils/s->v (:points props))))
+        ctr (centroid elem)
         xpts (->> pts
-                  (map (partial utils/scale-pt-from-center ctr [sx sy]))
+                  (map #(utils/scale-pt-from-center % [sx sy] ctr))
                   (map utils/v->s))]
     [k (assoc props :points (str/join " " xpts))]))
 

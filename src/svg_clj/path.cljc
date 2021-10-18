@@ -603,25 +603,25 @@
     (:command cmd)))
 
 (defmethod scale-path-command :default
-  [{:keys [:input] :as m} ctr [sx sy]]
+  [{:keys [:input] :as m} [sx sy] ctr]
   (let [pts (mapv vec (partition 2 input))
         xpts (->> pts
-                  (mapcat (partial utils/scale-pt-from-center ctr [sx sy])))]
+                  (mapcat #(utils/scale-pt-from-center % [sx sy] ctr)))]
     (assoc m :input (vec xpts))))
 
 ;; this is wrong. just a stub to get moving a bit
 (defmethod scale-path-command "A"
-  [{:keys [:input] :as m} ctr [sx sy]]
+  [{:keys [:input] :as m} [sx sy] ctr]
   (let [pts [(take-last 2 input)]
         xpts (->> pts
-                  (mapcat (partial utils/scale-pt-from-center ctr [sx sy])))]
+                  (mapcat #(utils/scale-pt-from-center % [sx sy] ctr)))]
     (assoc m :input (vec xpts))))
 
 (defn scale
   [[k props] [sx sy]]
   (let [ctr (centroid [k props])
         cmds (path-str->cmds (:d props))
-        xcmds (map #(scale-path-command % ctr [sx sy]) cmds)]
+        xcmds (map #(scale-path-command % [sx sy] ctr) cmds)]
     [k (assoc props :d (cmds->path-string xcmds))]))
 
 (defn split-path

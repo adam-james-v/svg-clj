@@ -1814,25 +1814,25 @@ To do this, I have a second multimethod to handle different commands that can sh
     (:command cmd)))
 
 (defmethod scale-path-command :default
-  [{:keys [:input] :as m} ctr [sx sy]]
+  [{:keys [:input] :as m} [sx sy] ctr]
   (let [pts (mapv vec (partition 2 input))
         xpts (->> pts
-                  (mapcat (partial utils/scale-pt-from-center ctr [sx sy])))]
+                  (mapcat #(utils/scale-pt-from-center % [sx sy] ctr)))]
     (assoc m :input (vec xpts))))
 
 ;; this is wrong. just a stub to get moving a bit
 (defmethod scale-path-command "A"
-  [{:keys [:input] :as m} ctr [sx sy]]
+  [{:keys [:input] :as m} [sx sy] ctr]
   (let [pts [(take-last 2 input)]
         xpts (->> pts
-                  (mapcat (partial utils/scale-pt-from-center ctr [sx sy])))]
+                  (mapcat #(utils/scale-pt-from-center % [sx sy] ctr)))]
     (assoc m :input (vec xpts))))
 
 (defn scale
   [[k props] [sx sy]]
   (let [ctr (centroid [k props])
         cmds (path-str->cmds (:d props))
-        xcmds (map #(scale-path-command % ctr [sx sy]) cmds)]
+        xcmds (map #(scale-path-command % [sx sy] ctr) cmds)]
     [k (assoc props :d (cmds->path-string xcmds))]))
 
 #+END_SRC
@@ -2663,8 +2663,8 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
 ;; translate back to original bb-center
 
 (defmethod scale :line
-  [[k props] [sx sy]]
-  (let [[cx cy] (centroid [k props])
+  [[k props :as elem] [sx sy]]
+  (let [[cx cy] (centroid elem)
         new-props (-> props
                       (update :x1 #(+ (* (- % cx) sx) cx))
                       (update :y1 #(+ (* (- % cy) sy) cy))
@@ -2673,20 +2673,20 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
     [k new-props]))
 
 (defmethod scale :polygon
-  [[k props] [sx sy]]
-  (let [pts (mapv utils/s->v (str/split (:points props) #" "))
-        ctr (centroid [k props])
+  [[k props :as elem] [sx sy]]
+  (let [pts (map vec (partition 2 (utils/s->v (:points props))))
+        ctr (centroid elem)
         xpts (->> pts
-                  (map (partial utils/scale-pt-from-center ctr [sx sy]))
+                  (map #(utils/scale-pt-from-center % [sx sy] ctr))
                   (map utils/v->s))]
     [k (assoc props :points (str/join " " xpts))]))
 
 (defmethod scale :polyline
-  [[k props] [sx sy]]
-  (let [pts (mapv utils/s->v (str/split (:points props) #" "))
-        ctr (centroid [k props])
+  [[k props :as elem] [sx sy]]
+  (let [pts (map vec (partition 2 (utils/s->v (:points props))))
+        ctr (centroid elem)
         xpts (->> pts
-                  (map (partial utils/scale-pt-from-center ctr [sx sy]))
+                  (map #(utils/scale-pt-from-center % [sx sy] ctr))
                   (map utils/v->s))]
     [k (assoc props :points (str/join " " xpts))]))
 
@@ -3707,6 +3707,17 @@ Use this function to pull elements from an SVG that can be used directly with th
 #+end_src
 
 ** repl-show
+Cider-show depends on CIDER's ability to display inline images. You have to enable this feature though:
+
+~M-x~
+~cider-repl-toggle-content-types~
+
+Run that command in a CIDER REPL buffer to enable the feature.
+
+Or, permanently enable the setting by placing this somewhere in your emacs init config:
+
+~(setq cider-repl-content-types t)~
+
 #+begin_src clojure :tangle ./src/svg_clj/tools.clj
 (defn cider-show
   [svg-data]
