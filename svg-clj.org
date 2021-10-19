@@ -1134,11 +1134,10 @@ If the entire sequence has NO V or H, done.
           xinput (cond
                    (and (= command "H") (= coordsys :abs)) [(first input) py]
                    (and (= command "V") (= coordsys :abs)) [px (first input)]
-                   (and (= command "H") (= coordsys :rel)) [(+ (first input) px) py]
-                   (and (= command "V") (= coordsys :rel)) [px (+ (first input) py)])
+                   (and (= command "H") (= coordsys :rel)) [(first input) 0]
+                   (and (= command "V") (= coordsys :rel)) [0 (first input)])
           ncmd (-> ccmd
                    (assoc :command "L")
-                   (assoc :coordsys :abs)
                    (assoc :input xinput))]
       [pcmd ncmd])
     [pcmd ccmd]))
