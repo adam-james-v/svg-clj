@@ -766,12 +766,62 @@ Centroid of a list of points is used in a few places. Having it here keeps it ac
 
 #+end_src
 
+** offset
+#+begin_src clojure :tangle ./src/svg_clj/utils.cljc
+(defn offset-edge
+  [[a b] d]
+  (let [p (perpendicular (v- b a))
+        pd (v* (normalize p) (repeat (- d)))
+        xa (v+ a pd)
+        xb (v+ b pd)]
+    [xa xb]))
+
+(defn- cycle-pairs
+  [pts]
+  (let [n (count pts)]
+    (vec (take n (partition 2 1 (cycle pts))))))
+
+(defn- wrap-list-once
+  [s]
+  (conj (drop-last s) (last s)))
+
+(defn- every-other
+  [v]
+  (let [n (count v)]
+    (map #(get v %) (filter even? (range n)))))
+
+(defn offset-pts
+  [pts d]
+  (let [edges (cycle-pairs pts)
+        opts (mapcat #(offset-edge % d) edges)
+        oedges (every-other (cycle-pairs opts))
+        edge-pairs (cycle-pairs oedges)]
+    (wrap-list-once (map #(apply line-intersection %) edge-pairs))))
+
+#+end_src
+
 ** scale
 #+begin_src clojure :tangle ./src/svg_clj/utils.cljc
 (defn scale-pt-from-center
   [[x y] [sx sy] [cx cy]]
   [(+ (* (- x cx) sx) cx)
    (+ (* (- y cy) sy) cy)])
+
+#+end_src
+
+** easing-fns
+#+begin_src clojure :tangle ./src/svg_clj/utils.cljc
+(defn ease-in-sin
+  [t]
+  (- 1 (Math/cos (/ (* Math/PI t) 2))))
+
+(defn ease-out-sin
+  [t]
+  (Math/sin (/ (* Math/PI t) 2)))
+
+(defn ease-in-out-sin
+  [t]
+  (/ (- (Math/cos (* Math/PI t)) 1) -2))
 
 #+end_src
 
@@ -2128,7 +2178,6 @@ This leads to challenges with groups. Groups must have their centroid calculated
             [svg-clj.utils :as utils]
             [svg-clj.elements :as el]
             [svg-clj.path :as path]
-            [svg-clj.parametric :as p]
             #?(:cljs
                [cljs.reader :refer [read-string]])))
 
@@ -2773,36 +2822,6 @@ For a group scale to work as expected, two things must happen:
 ** offset
 *** offset-elements
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
-(defn- offset-edge
-  [[a b] d]
-  (let [p (utils/perpendicular (utils/v- b a))
-        pd (utils/v* (utils/normalize p) (repeat (- d)))
-        xa (utils/v+ a pd)
-        xb (utils/v+ b pd)]
-    [xa xb]))
-
-(defn- cycle-pairs
-  [pts]
-  (let [n (count pts)]
-    (vec (take n (partition 2 1 (cycle pts))))))
-
-(defn- wrap-list-once
-  [s]
-  (conj (drop-last s) (last s)))
-
-(defn- every-other
-  [v]
-  (let [n (count v)]
-    (map #(get v %) (filter even? (range n)))))
-
-(defn offset-pts
-  [pts d]
-  (let [edges (cycle-pairs pts)
-        opts (mapcat #(offset-edge % d) edges)
-        oedges (every-other (cycle-pairs opts))
-        edge-pairs (cycle-pairs oedges)]
-    (wrap-list-once (map #(apply utils/line-intersection %) edge-pairs))))
-
 (defmulti offset
   (fn [element _]
     (if (keyword? (first element))
@@ -2841,7 +2860,7 @@ For a group scale to work as expected, two things must happen:
 
 (defmethod offset :line
   [[k {:keys [x1 y1 x2 y2] :as props}] d]
-  (let [[[nx1 ny1] [nx2 ny2]] (offset-edge [[x1 y1] [x2 y2]] d)
+  (let [[[nx1 ny1] [nx2 ny2]] (utils/offset-edge [[x1 y1] [x2 y2]] d)
         new-props (-> props
                       (assoc :x1 nx1)
                       (assoc :y1 ny1)
@@ -2852,7 +2871,7 @@ For a group scale to work as expected, two things must happen:
 (defmethod offset :polygon
   [[k {:keys [points] :as props}] d]
   (let [pts (map vec (partition 2 (utils/s->v points)))
-        opts (offset-pts pts d)
+        opts (utils/offset-pts pts d)
         npoints (str/join " " (map utils/v->s opts))
         new-props (assoc props :points npoints)]
     [k new-props]))
@@ -2860,7 +2879,7 @@ For a group scale to work as expected, two things must happen:
 (defmethod offset :polyline
   [[k {:keys [points] :as props}] d]
   (let [pts (map vec (partition 2 (utils/s->v points)))
-        opts (offset-pts pts d)
+        opts (utils/offset-pts pts d)
         npoints (str/join " " (map utils/v->s opts))
         new-props (assoc props :points npoints)]
     [k new-props]))
@@ -3031,13 +3050,125 @@ This is a helpful default for text elements. It expects a font size arg. This co
             :dominant-baseline "middle"
             :font-size font-size}} text])
 #+end_src
+* algorithms
+Various useful algorithms, usually working on points.
+
+** ns
+#+begin_src clojure :tangle ./src/svg_clj/algorithms.cljc
+(ns svg-clj.algorithms
+  (:require [svg-clj.utils :as utils]
+            [clojure.set :as set]))
+
+#+end_src
+
+** triangulation
+#+begin_src clojure :tangle ./src/svg_clj/algorithms.cljc
+(def abs #?(:clj #(Math/abs %) :cljs js/Math.abs))
+(def pow #?(:clj #(Math/pow %1 %2) :cljs js/Math.pow))
+
+;; https://gist.github.com/mutoo/5617691
+(defn circumscribe-tri
+  [[[ax ay] [bx by] [cx cy]]]
+  (let [A (- bx ax)
+        B (- by ay)
+        C (- cx ax)
+        D (- cy ay)
+        E (+ (* A (+ ax bx)) (* B (+ ay by)))
+        F (+ (* C (+ ax cx)) (* D (+ ay cy)))
+        G (* 2 (- (* A (- cy by)) (* B (- cx bx))))]
+    (when (> (abs G) 0.000001)
+      (let [cx (/ (- (* D E) (* B F)) G)
+            cy (/ (- (* A F) (* C E)) G)
+            dx (- cx ax)
+            dy (- cy ay)
+            r  (+ (pow dx 2) (pow dy 2))]
+        {:x cx :y cy :radius-squared r}))))
+
+(defn edges [pts]
+  (partition 2 1 (conj (vec pts) (first pts))))
+
+(defn contains-pt?
+  [{:keys [x y radius-squared]} [px py]]
+  (let [distance-squared (+ (pow (- x px) 2) (pow (- y py) 2))]
+    (< distance-squared radius-squared)))
+
+(defn outer-edges
+  [tris]
+  (let [all-edges (mapcat edges tris)
+        matches (fn [edge] (filter #{edge (reverse edge)} all-edges))
+        appears-once (fn [edge] (= (count (matches edge)) 1))]
+    (filter appears-once all-edges)))
+
+(defn make-new-tris
+  [containers pt]
+  (->> containers
+       outer-edges
+       (map (fn [[p1 p2]] [p1 p2 pt]))
+       set))
+
+(defn add-pt-to-tris
+  [tris pt]
+  (let [containers (filter #(contains-pt? (circumscribe-tri %) pt) tris)
+        new-tris (make-new-tris containers pt)]
+    (set/union (set/difference tris containers) new-tris)))
+
+;; http://paulbourke.net/papers/triangulate/
+(defn triangulate
+  [pts]
+  (let [pts (map (fn [[x y]] [(float x) (float y)]) pts)
+        [bl br tr tl] (map #(utils/v* % [2 2]) (utils/bounds-of-pts pts))
+        initial #{[tl tr bl] [bl tr br]}
+        with-bounds (reduce add-pt-to-tris initial pts)
+        tris (remove #(some #{tl tr bl br} %) with-bounds)]
+    {:pts pts
+     :tris tris
+     :edges (distinct (mapcat edges tris))}))
+
+#+end_src
+
+** hull
+#+begin_src clojure :tangle ./src/svg_clj/algorithms.cljc
+(defn hull
+  ([pts] (hull [{:pt (first (sort-by first pts))}] pts))
+  ([acc pts]
+   (if (or
+        ;; stop the process if acc grows larger than the pts count
+        (> (count acc) (count pts))
+        ;; *should* always end where the last added point closes the poly
+        (and (< 1 (count acc))
+             (= (:pt (first acc)) (:pt (last acc)))))
+     (map :pt (drop-last acc))
+     (let [prev (:pt (last acc))
+           dir (if (= 1 (count acc))
+                 (utils/v+ [0 1] prev)
+                 (:pt (last (drop-last acc))))
+           f (fn [pt]
+               (let [a (when (= 3 (count (into #{} [dir prev pt])))
+                         (utils/angle-from-pts dir prev pt))]
+                 {:pt pt :angle a}))
+           sorted (->> (map f pts)
+                       (remove #(nil? (:angle %)))
+                       (sort-by #(Math/abs (- (:angle %) 180))))]
+       (recur (conj acc (first sorted)) pts)))))
+
+(defn nested-hull
+  ([pts] (nested-hull [] pts))
+  ([acc pts]
+   (if (> 3 (count pts))
+     acc
+     (let [hull (hull pts)
+           npts (remove (set hull) pts)]
+       (recur (conj acc hull) npts)))))
+
+#+end_src
 
 * parametric
 ** ns
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (ns svg-clj.parametric
-  "Provides functions that generate lists of points or return parametric curve functions, intended for use with layout functionality."
-  (:require [svg-clj.utils :as utils]))
+  "Provides functions that generate lists of points or return parametric curve functions."
+  (:require [svg-clj.utils :as utils]
+            [svg-clj.algorithms :as alg]))
 
 #+end_src
 
@@ -3549,6 +3680,134 @@ Splitting is needed as part of approximating bezier curve offsets with 'chains' 
 
 #+end_src
 
+** blend
+#+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
+(defn sinwave
+  [amp freq]
+  (fn [t]
+    (* amp (Math/sin (* t freq Math/PI)))))
+
+(defn blend
+  ([fa fb alpha]
+   (fn [t]
+     (let [line (line (fa t) (fb t))]
+       (line alpha))))
+  ([fa fb easefn alpha]
+   (fn [t]
+     (let [line (line (fa t) (fb t))]
+       (line (easefn alpha))))))
+
+(defn eased-polyline
+  [pts easefn]
+  (let [step (/ 1.0 (dec (count pts)))
+        lines (map (partial apply line) (partition 2 1 pts))
+        length (reduce + (map #(:length (%)) lines))
+        intervals (->> lines
+                       (map #(:length (%)))
+                       (reductions +)
+                       (concat [0])
+                       (map #(/ % length))
+                       (partition 2 1))
+        easedlines (map #(fn [t] (% (easefn t))) lines)]
+    (fn
+      ([] {:fn `polyline
+           :input [pts]
+           :length length})
+      ([t]
+       (cond
+         (= (float t) 0.0) (first pts)
+         (= (float t) 1.0) (last pts)
+         :else
+         (first
+          (filter some?
+                  (map #(remap-within %1 %2 t) easedlines intervals))))))))
+
+(defn multiblend
+  ([fs alpha]
+   (fn [t]
+     (let [line (polyline (map #(% t) fs))]
+       (line alpha))))
+  ([fs easefn alpha]
+   (fn [t]
+     (let [line (eased-polyline (map #(% t) fs) easefn)]
+       (line alpha)))))
+
+(defn fn-offset
+  [curve f]
+  (let [eps 0.000001]
+    (fn [t]
+      (let [t (cond (<= (- 1 eps) t) (- 1 eps)
+                    (> eps t) eps
+                    :else t)
+            n (utils/normalize (utils/normal (curve (- t eps)) (curve (+ t eps))))
+            tpt (curve t)
+            l (line tpt (utils/v+ tpt n))]
+        (l (f t))))))
+#+end_src
+
+** stroke-pts
+#+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
+(defn- pline
+  [line]
+  (let [[_ {:keys [x1 y1 x2 y2]}] line]
+    (line [x1 y1] [x2 y2])))
+
+(defn stroke-pts
+  [curve width n-segments]
+  (let [of (fn [_] (* 0.5 width))
+        tcurve (fn-offset curve #(* 0.5 width))
+        bcurve (fn-offset curve #(* -0.5 width))]
+    (concat [(curve 0)]
+            (map #(tcurve (/ % n-segments)) (range (inc n-segments)))
+            [(curve 1)]
+            (map #(bcurve (/ % n-segments)) (reverse (range (inc n-segments)))))))
+
+#_(defn tapered-stroke-pts
+  [curve width n-segments taper-t]
+  (let [taper-n (int (* n-segments taper-t))
+        taper (map #(ease-out-sin (/ % taper-n)) (range taper-n))
+        dist (concat taper (repeat (- n-segments (* 2 (count taper))) 1) (reverse taper))
+        tlns (->> (el/line [0 0] [0 (* 0.5 width)])
+                  (repeat (inc n-segments))
+                  (#(lo/distribute-on-curve % curve))
+                  (map pline))
+        blns (->> (el/line [0 0] [0 (* -0.5 width)])
+                  (repeat n-segments)
+                  (#(lo/distribute-on-curve % curve))
+                  (map pline))]
+    (concat [(curve 0)]
+            (map #(%1 (* 1 (- 1 %2))) tlns dist)
+            [(curve 1)]
+            (reverse (map #(%1 (* 1 (- 1 %2))) blns dist)))))
+
+#+end_src
+
+** fillet-chamfer-pts
+#+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
+(defn fillet-pts
+  [pts r]
+  (let [fillet (regular-polygon-pts r 50)
+        ipts (utils/offset-pts pts (- r))
+        f (fn [pt] (map #(utils/v+ pt %) fillet))
+        npts (mapcat f ipts)]
+    (alg/hull npts)))
+
+(defn chamfer-pts
+  [pts r]
+  (let [fillet (regular-polygon-pts r 50)
+        ipts (utils/offset-pts pts (- r))
+        f (fn [pt] (map #(utils/v+ pt %) fillet))
+        npts (mapcat f ipts)]
+    (->> (alg/hull npts)
+         (partition 2 1)
+         (sort-by #(apply utils/distance %))
+         reverse
+         (take (count pts))
+         (apply concat)
+         alg/hull)))
+
+#+end_src
+
 ** translate
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn translate
@@ -3765,7 +4024,7 @@ clj -M:test
 
 (deftest angle-first-quadrant
   (let [eps 0.00001
-        a (utils/angle-from-pts [10 0] [0 0] [0 10])]
+        a (utils/angle-from-pts [0 10] [0 0] [10 0])]
     (is (< (Math/abs (- 90.0 a)) eps))))
   
 #+END_SRC
@@ -4574,6 +4833,7 @@ Play around with code here.
             [svg-clj.elements :as el]
             [svg-clj.composites :refer [svg]]
             [svg-clj.parametric :as p]
+            [svg-clj.algorithms :as alg]
             [svg-clj.tools :as tools :refer [show cider-show]]))
 
 (def sk (slurp "/Users/adam/dev/forge/sk.svg"))

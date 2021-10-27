@@ -14,7 +14,7 @@
 
 (deftest angle-first-quadrant
   (let [eps 0.00001
-        a (utils/angle-from-pts [10 0] [0 0] [0 10])]
+        a (utils/angle-from-pts [0 10] [0 0] [10 0])]
     (is (< (Math/abs (- 90.0 a)) eps))))
 
 (deftest cast-numerical-attrs-test

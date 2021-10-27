@@ -261,10 +261,52 @@ Put another way, the angle is measured following the 'right hand rule' around p2
   (let [[[xmin ymin] _ [xmax ymax] _] (bounds-of-pts pts)]
     [(- xmax xmin) (- ymax ymin)]))
 
+(defn offset-edge
+  [[a b] d]
+  (let [p (perpendicular (v- b a))
+        pd (v* (normalize p) (repeat (- d)))
+        xa (v+ a pd)
+        xb (v+ b pd)]
+    [xa xb]))
+
+(defn- cycle-pairs
+  [pts]
+  (let [n (count pts)]
+    (vec (take n (partition 2 1 (cycle pts))))))
+
+(defn- wrap-list-once
+  [s]
+  (conj (drop-last s) (last s)))
+
+(defn- every-other
+  [v]
+  (let [n (count v)]
+    (map #(get v %) (filter even? (range n)))))
+
+(defn offset-pts
+  [pts d]
+  (let [edges (cycle-pairs pts)
+        opts (mapcat #(offset-edge % d) edges)
+        oedges (every-other (cycle-pairs opts))
+        edge-pairs (cycle-pairs oedges)]
+    (wrap-list-once (map #(apply line-intersection %) edge-pairs))))
+
 (defn scale-pt-from-center
   [[x y] [sx sy] [cx cy]]
   [(+ (* (- x cx) sx) cx)
    (+ (* (- y cy) sy) cy)])
+
+(defn ease-in-sin
+  [t]
+  (- 1 (Math/cos (/ (* Math/PI t) 2))))
+
+(defn ease-out-sin
+  [t]
+  (Math/sin (/ (* Math/PI t) 2)))
+
+(defn ease-in-out-sin
+  [t]
+  (/ (- (Math/cos (* Math/PI t)) 1) -2))
 
 (defn str->number
   [s]

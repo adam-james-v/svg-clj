@@ -8,7 +8,6 @@
             [svg-clj.utils :as utils]
             [svg-clj.elements :as el]
             [svg-clj.path :as path]
-            [svg-clj.parametric :as p]
             #?(:cljs
                [cljs.reader :refer [read-string]])))
 
@@ -574,36 +573,6 @@
                       (-> ch (translate (utils/v+ (utils/v* [sx sy] elem-v) g-ctr)))))]
     (into [k props] (filter (complement nil?) xfcontent))))
 
-(defn- offset-edge
-  [[a b] d]
-  (let [p (utils/perpendicular (utils/v- b a))
-        pd (utils/v* (utils/normalize p) (repeat (- d)))
-        xa (utils/v+ a pd)
-        xb (utils/v+ b pd)]
-    [xa xb]))
-
-(defn- cycle-pairs
-  [pts]
-  (let [n (count pts)]
-    (vec (take n (partition 2 1 (cycle pts))))))
-
-(defn- wrap-list-once
-  [s]
-  (conj (drop-last s) (last s)))
-
-(defn- every-other
-  [v]
-  (let [n (count v)]
-    (map #(get v %) (filter even? (range n)))))
-
-(defn offset-pts
-  [pts d]
-  (let [edges (cycle-pairs pts)
-        opts (mapcat #(offset-edge % d) edges)
-        oedges (every-other (cycle-pairs opts))
-        edge-pairs (cycle-pairs oedges)]
-    (wrap-list-once (map #(apply utils/line-intersection %) edge-pairs))))
-
 (defmulti offset
   (fn [element _]
     (if (keyword? (first element))
@@ -642,7 +611,7 @@
 
 (defmethod offset :line
   [[k {:keys [x1 y1 x2 y2] :as props}] d]
-  (let [[[nx1 ny1] [nx2 ny2]] (offset-edge [[x1 y1] [x2 y2]] d)
+  (let [[[nx1 ny1] [nx2 ny2]] (utils/offset-edge [[x1 y1] [x2 y2]] d)
         new-props (-> props
                       (assoc :x1 nx1)
                       (assoc :y1 ny1)
@@ -653,7 +622,7 @@
 (defmethod offset :polygon
   [[k {:keys [points] :as props}] d]
   (let [pts (map vec (partition 2 (utils/s->v points)))
-        opts (offset-pts pts d)
+        opts (utils/offset-pts pts d)
         npoints (str/join " " (map utils/v->s opts))
         new-props (assoc props :points npoints)]
     [k new-props]))
@@ -661,7 +630,7 @@
 (defmethod offset :polyline
   [[k {:keys [points] :as props}] d]
   (let [pts (map vec (partition 2 (utils/s->v points)))
-        opts (offset-pts pts d)
+        opts (utils/offset-pts pts d)
         npoints (str/join " " (map utils/v->s opts))
         new-props (assoc props :points npoints)]
     [k new-props]))

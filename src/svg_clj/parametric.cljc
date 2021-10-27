@@ -1,6 +1,7 @@
 (ns svg-clj.parametric
-  "Provides functions that generate lists of points or return parametric curve functions, intended for use with layout functionality."
-  (:require [svg-clj.utils :as utils]))
+  "Provides functions that generate lists of points or return parametric curve functions."
+  (:require [svg-clj.utils :as utils]
+            [svg-clj.algorithms :as alg]))
 
 (defn arc-length
   ([curve] (arc-length curve 0 1))
@@ -362,6 +363,123 @@
         pts [[0 0] [5 5] [10 -5] [15 25] [20 -5] [25 5] [30 0]]
         knots [1 2 3 4 5 6 7 8 9 10 11]]
     (partial b-spline-inner [pts degree knots] [1 pts])))
+
+(defn sinwave
+  [amp freq]
+  (fn [t]
+    (* amp (Math/sin (* t freq Math/PI)))))
+
+(defn blend
+  ([fa fb alpha]
+   (fn [t]
+     (let [line (line (fa t) (fb t))]
+       (line alpha))))
+  ([fa fb easefn alpha]
+   (fn [t]
+     (let [line (line (fa t) (fb t))]
+       (line (easefn alpha))))))
+
+(defn eased-polyline
+  [pts easefn]
+  (let [step (/ 1.0 (dec (count pts)))
+        lines (map (partial apply line) (partition 2 1 pts))
+        length (reduce + (map #(:length (%)) lines))
+        intervals (->> lines
+                       (map #(:length (%)))
+                       (reductions +)
+                       (concat [0])
+                       (map #(/ % length))
+                       (partition 2 1))
+        easedlines (map #(fn [t] (% (easefn t))) lines)]
+    (fn
+      ([] {:fn `polyline
+           :input [pts]
+           :length length})
+      ([t]
+       (cond
+         (= (float t) 0.0) (first pts)
+         (= (float t) 1.0) (last pts)
+         :else
+         (first
+          (filter some?
+                  (map #(remap-within %1 %2 t) easedlines intervals))))))))
+
+(defn multiblend
+  ([fs alpha]
+   (fn [t]
+     (let [line (polyline (map #(% t) fs))]
+       (line alpha))))
+  ([fs easefn alpha]
+   (fn [t]
+     (let [line (eased-polyline (map #(% t) fs) easefn)]
+       (line alpha)))))
+
+(defn fn-offset
+  [curve f]
+  (let [eps 0.000001]
+    (fn [t]
+      (let [t (cond (<= (- 1 eps) t) (- 1 eps)
+                    (> eps t) eps
+                    :else t)
+            n (utils/normalize (utils/normal (curve (- t eps)) (curve (+ t eps))))
+            tpt (curve t)
+            l (line tpt (utils/v+ tpt n))]
+        (l (f t))))))
+
+(defn- pline
+  [line]
+  (let [[_ {:keys [x1 y1 x2 y2]}] line]
+    (line [x1 y1] [x2 y2])))
+
+(defn stroke-pts
+  [curve width n-segments]
+  (let [of (fn [_] (* 0.5 width))
+        tcurve (fn-offset curve #(* 0.5 width))
+        bcurve (fn-offset curve #(* -0.5 width))]
+    (concat [(curve 0)]
+            (map #(tcurve (/ % n-segments)) (range (inc n-segments)))
+            [(curve 1)]
+            (map #(bcurve (/ % n-segments)) (reverse (range (inc n-segments)))))))
+
+#_(defn tapered-stroke-pts
+  [curve width n-segments taper-t]
+  (let [taper-n (int (* n-segments taper-t))
+        taper (map #(ease-out-sin (/ % taper-n)) (range taper-n))
+        dist (concat taper (repeat (- n-segments (* 2 (count taper))) 1) (reverse taper))
+        tlns (->> (el/line [0 0] [0 (* 0.5 width)])
+                  (repeat (inc n-segments))
+                  (#(lo/distribute-on-curve % curve))
+                  (map pline))
+        blns (->> (el/line [0 0] [0 (* -0.5 width)])
+                  (repeat n-segments)
+                  (#(lo/distribute-on-curve % curve))
+                  (map pline))]
+    (concat [(curve 0)]
+            (map #(%1 (* 1 (- 1 %2))) tlns dist)
+            [(curve 1)]
+            (reverse (map #(%1 (* 1 (- 1 %2))) blns dist)))))
+
+(defn fillet-pts
+  [pts r]
+  (let [fillet (regular-polygon-pts r 50)
+        ipts (utils/offset-pts pts (- r))
+        f (fn [pt] (map #(utils/v+ pt %) fillet))
+        npts (mapcat f ipts)]
+    (alg/hull npts)))
+
+(defn chamfer-pts
+  [pts r]
+  (let [fillet (regular-polygon-pts r 50)
+        ipts (utils/offset-pts pts (- r))
+        f (fn [pt] (map #(utils/v+ pt %) fillet))
+        npts (mapcat f ipts)]
+    (->> (alg/hull npts)
+         (partition 2 1)
+         (sort-by #(apply utils/distance %))
+         reverse
+         (take (count pts))
+         (apply concat)
+         alg/hull)))
 
 (defn translate
   [f [x y]]
