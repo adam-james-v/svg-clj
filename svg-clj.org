@@ -3116,12 +3116,15 @@ Various useful algorithms, usually working on points.
 (defn triangulate
   [pts]
   (let [pts (map (fn [[x y]] [(float x) (float y)]) pts)
+        pt-indices (zipmap pts (range 0 (count pts)))
         [bl br tr tl] (map #(utils/v* % [2 2]) (utils/bounds-of-pts pts))
         initial #{[tl tr bl] [bl tr br]}
         with-bounds (reduce add-pt-to-tris initial pts)
-        tris (remove #(some #{tl tr bl br} %) with-bounds)]
+        tris (remove #(some #{tl tr bl br} %) with-bounds)
+        tri-indices (fn [tri] (mapv #(get pt-indices %) tri))]
     {:pts pts
      :tris tris
+     :tri-indices (map tri-indices tris)
      :edges (distinct (mapcat edges tris))}))
 
 #+end_src
