@@ -86,13 +86,6 @@
                (map str->xf-kv)))
     {}))
 
-(defn distance
-  "Computes the distance between two points `a` and `b`."
-  [a b]
-  (let [v (v- b a)
-        v2 (reduce + (v* v v))]
-    (round (Math/sqrt v2))))
-
 (defn rotate-pt
   "Rotates 2d point `pt` around the origin by `deg` in the counter-clockwise direction."
   [pt deg]
@@ -110,23 +103,49 @@
       (rotate-pt deg)
       (v+ center)))
 
+(defn distance
+  "Computes the distance between two points `a` and `b`."
+  [a b]
+  (let [v (v- b a)
+        v2 (reduce + (v* v v))]
+    (round (Math/sqrt v2))))
+
+(defn determinant
+  [a b]
+  (- (* (first a) (second b))
+     (* (second a) (first b))))
+
+;; this fn name doesn't make sense? It inverts y, which is not
+;; the same as giving a perpendicular line
+;; maybe call it 'invert-y' or 'vertical-flip'
+(defn perpendicular
+  [[x y]]
+  [(- y) x])
+
 (defn dot*
   "Calculates the dot product of two vectors."
   [a b]
   (reduce + (map * a b)))
 
 (defn cross*
-  "Calculates cross product of two 3d-vectors."
+  "Calculates cross product of two 3d-vectors. If `a` and `b` are 2D, z is assumed to be 0."
   [a b]
   (let [[a1 a2 a3] a
         [b1 b2 b3] b
+        a3 (if a3 a3 0)
+        b3 (if b3 b3 0)
         i (- (* a2 b3) (* a3 b2))
         j (- (* a3 b1) (* a1 b3))
         k (- (* a1 b2) (* a2 b1))]
     [i j k]))
 
+(defn cross*-k
+  "Calculates the k component of the cross product of two 2D vectors, assuming Z=0 as the 3rd component."
+  [[ax ay] [bx by]]
+  (- (* ax by) (* ay bx)))
+
 (defn normalize
-  "Calculates the unit vector of a given vector. Vector here is used in the mathematical sense."
+  "Calculates the unit vector of a given vector."
   [v]
   (let [m (Math/sqrt (reduce + (v* v v)))]
     (mapv / v (repeat m))))
@@ -140,8 +159,8 @@
          dy (- y2 y1)]
      [(- dy) dx]))
   ([a b c]
-   (let [ab (mapv - a b)
-         ac (mapv - a c)]
+   (let [ab (v- a b)
+         ac (v- a c)]
      (cross* ab ac))))
 
 ;; https://math.stackexchange.com/questions/361412/finding-the-angle-between-three-points
@@ -205,18 +224,6 @@ Put another way, the angle is measured following the 'right hand rule' around p2
           #_#_(#{"ppn_" "np_n" "nnp_" "pn_p"} quadrants) (- 360 a)
           :else (- 360 a))))))
 
-(defn determinant
-  [a b]
-  (- (* (first a) (second b))
-     (* (second a) (first b))))
-
-;; this fn name doesn't make sense? It inverts y, which is not
-;; the same as giving a perpendicular line
-;; maybe call it 'invert-y' or 'vertical-flip'
-(defn perpendicular
-  [[x y]]
-  [(- y) x])
-
 (defn line-intersection
   [[pt-a pt-b] [pt-c pt-d]]
   (let [[ax ay] pt-a
@@ -231,6 +238,41 @@ Put another way, the angle is measured following the 'right hand rule' around p2
             x (/ (determinant dets xdiff) div)
             y (/ (determinant dets ydiff) div)]
         [x y]))))
+
+(defn colinear?
+  [a b c]
+  (let [ba (v- a b)
+        bc (v- c b)
+        eps 0.000001]
+    (> eps (abs (cross*-k ba bc)))))
+
+(defn corner-condition
+  [a b c]
+  (let [ba (v- a b)
+        bc (v- c b)
+        eps 0.000001
+        k (cross*-k ba bc)]
+    (cond
+      (> eps (abs k)) :colinear
+      (< eps k) :reflex
+      (> (- eps) k) :convex)))
+
+;; https://youtu.be/hTJFcHutls8?t=1473
+;; use k component from cross product to quickly check if vector
+;; is on right or left of another vector
+;; check each triangle edge vector against corner to pt vectors
+(defn pt-inside?
+  [[a b c] pt]
+  (let [ab (v- b a)
+        bc (v- c b)
+        ca (v- a c)
+        apt (v- pt a)
+        bpt (v- pt b)
+        cpt (v- pt c)]
+    (not
+     (or (<= (cross*-k ab apt) 0)
+         (<= (cross*-k bc bpt) 0)
+         (<= (cross*-k ca cpt) 0)))))
 
 (defn style
   [[k props & content] style-map]

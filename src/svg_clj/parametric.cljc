@@ -426,6 +426,26 @@
             l (line tpt (utils/v+ tpt n))]
         (l (f t))))))
 
+(defn shift-pts
+  "Shift a list of `pts` to begin at `start`, preserving order and cycling the list.
+If no `start` is provided, pt with lowest x and y values is used."
+  ([pts]
+   (let [start (first (sort-by (juxt first second) pts))]
+     (shift-pts pts start)))
+  ([pts start]
+   (let [[back front] (split-with (complement #{start}) pts)]
+     (concat front back))))
+
+(defn simplify
+  "Simplifies the list of `pts` by evenly stepping `n` times along the parametric curve produced by the original list.
+This does not guarantee that input pts are preserved in the output."
+  [pts n]
+  (let [c (polygon pts)]
+    (mapv #(c (/ % (inc n))) (range n))))
+
+;; not certain if this is a great design idea yet
+(defn remove-colinears [pts] (alg/remove-colinears pts))
+
 (defn- pline
   [line]
   (let [[_ {:keys [x1 y1 x2 y2]}] line]

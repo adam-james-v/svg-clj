@@ -52,7 +52,7 @@
     (set/union (set/difference tris containers) new-tris)))
 
 ;; http://paulbourke.net/papers/triangulate/
-(defn triangulate
+(defn delaunay
   [pts]
   (let [pts (map (fn [[x y]] [(float x) (float y)]) pts)
         pt-indices (zipmap pts (range 0 (count pts)))
@@ -65,6 +65,38 @@
      :tris tris
      :tri-indices (map tri-indices tris)
      :edges (distinct (mapcat edges tris))}))
+
+(defn remove-colinears
+  [pts]
+  (let [indices (zipmap pts (range (count pts)))
+        tris (partition 3 1 (concat pts (take 2 pts)))
+        clpts (set (map second (filter #(apply utils/colinear? %) tris)))
+        xindices (vals (apply dissoc indices clpts))]
+    (map #(get pts %) xindices)))
+
+(defn- clip-one-ear
+  [pts]
+  (let [pts (vec pts)
+        indices (zipmap pts (range (count pts)))
+        corners (->> pts
+                     (#(concat % (take 2 %)))
+                     (partition 3 1)
+                     (filter #(#{:convex} (apply utils/corner-condition %))))
+        clear? (fn [corner]
+                 (not (seq (filter #(utils/pt-inside? corner %) pts))))
+        tri (first (filter clear? corners))]
+    {:pts pts
+     :npts (mapv #(get pts %) (sort (vals (dissoc indices (second tri)))))
+     :tri tri}))
+
+(defn clip-ears
+  ([pts] (clip-ears {:indices (zipmap pts (range (count pts)))} pts [] []))
+  ([data pts tris indices]
+   (if (< (count pts) 3)
+     (merge data {:tris tris :tri-indices indices})
+     (let [{:keys [npts tri]} (clip-one-ear pts)
+           local-indices (mapv #(get (:indices data) %) tri)]
+       (recur data npts (conj tris tri) (conj indices local-indices))))))
 
 (defn hull
   ([pts] (hull [{:pt (first (sort-by first pts))}] pts))

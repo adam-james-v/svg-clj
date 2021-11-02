@@ -488,7 +488,7 @@ So, to keep the mental model the same, I have designed my transform fns to alway
 
 #+end_src
 
-** maths-and-transforms
+** basic-helpers
 #+begin_src clojure :tangle ./src/svg_clj/utils.cljc
 (def ^:dynamic *rounding* nil)
 
@@ -568,14 +568,10 @@ So, to keep the mental model the same, I have designed my transform fns to alway
                (map str/trim)
                (map str->xf-kv)))
     {}))
+#+end_src
 
-(defn distance
-  "Computes the distance between two points `a` and `b`."
-  [a b]
-  (let [v (v- b a)
-        v2 (reduce + (v* v v))]
-    (round (Math/sqrt v2))))
-
+** pt-rotation
+#+begin_src clojure :tangle ./src/svg_clj/utils.cljc
 (defn rotate-pt
   "Rotates 2d point `pt` around the origin by `deg` in the counter-clockwise direction."
   [pt deg]
@@ -593,23 +589,53 @@ So, to keep the mental model the same, I have designed my transform fns to alway
       (rotate-pt deg)
       (v+ center)))
 
+#+end_src
+
+** geometry
+#+begin_src clojure :tangle ./src/svg_clj/utils.cljc
+(defn distance
+  "Computes the distance between two points `a` and `b`."
+  [a b]
+  (let [v (v- b a)
+        v2 (reduce + (v* v v))]
+    (round (Math/sqrt v2))))
+
+(defn determinant
+  [a b]
+  (- (* (first a) (second b))
+     (* (second a) (first b))))
+
+;; this fn name doesn't make sense? It inverts y, which is not
+;; the same as giving a perpendicular line
+;; maybe call it 'invert-y' or 'vertical-flip'
+(defn perpendicular
+  [[x y]]
+  [(- y) x])
+
 (defn dot*
   "Calculates the dot product of two vectors."
   [a b]
   (reduce + (map * a b)))
 
 (defn cross*
-  "Calculates cross product of two 3d-vectors."
+  "Calculates cross product of two 3d-vectors. If `a` and `b` are 2D, z is assumed to be 0."
   [a b]
   (let [[a1 a2 a3] a
         [b1 b2 b3] b
+        a3 (if a3 a3 0)
+        b3 (if b3 b3 0)
         i (- (* a2 b3) (* a3 b2))
         j (- (* a3 b1) (* a1 b3))
         k (- (* a1 b2) (* a2 b1))]
     [i j k]))
 
+(defn cross*-k
+  "Calculates the k component of the cross product of two 2D vectors, assuming Z=0 as the 3rd component."
+  [[ax ay] [bx by]]
+  (- (* ax by) (* ay bx)))
+
 (defn normalize
-  "Calculates the unit vector of a given vector. Vector here is used in the mathematical sense."
+  "Calculates the unit vector of a given vector."
   [v]
   (let [m (Math/sqrt (reduce + (v* v v)))]
     (mapv / v (repeat m))))
@@ -623,8 +649,8 @@ So, to keep the mental model the same, I have designed my transform fns to alway
          dy (- y2 y1)]
      [(- dy) dx]))
   ([a b c]
-   (let [ab (mapv - a b)
-         ac (mapv - a c)]
+   (let [ab (v- a b)
+         ac (v- a c)]
      (cross* ab ac))))
 
 #+end_src
@@ -692,18 +718,10 @@ Put another way, the angle is measured following the 'right hand rule' around p2
           #_#_(#{"ppn_" "np_n" "nnp_" "pn_p"} quadrants) (- 360 a)
           :else (- 360 a))))))
 
-(defn determinant
-  [a b]
-  (- (* (first a) (second b))
-     (* (second a) (first b))))
+#+end_src
 
-;; this fn name doesn't make sense? It inverts y, which is not
-;; the same as giving a perpendicular line
-;; maybe call it 'invert-y' or 'vertical-flip'
-(defn perpendicular
-  [[x y]]
-  [(- y) x])
-
+** intersection
+#+begin_src clojure :tangle ./src/svg_clj/utils.cljc
 (defn line-intersection
   [[pt-a pt-b] [pt-c pt-d]]
   (let [[ax ay] pt-a
@@ -718,6 +736,45 @@ Put another way, the angle is measured following the 'right hand rule' around p2
             x (/ (determinant dets xdiff) div)
             y (/ (determinant dets ydiff) div)]
         [x y]))))
+
+#+end_src
+
+** corners-tris
+#+begin_src clojure :tangle ./src/svg_clj/utils.cljc
+(defn colinear?
+  [a b c]
+  (let [ba (v- a b)
+        bc (v- c b)
+        eps 0.000001]
+    (> eps (abs (cross*-k ba bc)))))
+
+(defn corner-condition
+  [a b c]
+  (let [ba (v- a b)
+        bc (v- c b)
+        eps 0.000001
+        k (cross*-k ba bc)]
+    (cond
+      (> eps (abs k)) :colinear
+      (< eps k) :reflex
+      (> (- eps) k) :convex)))
+
+;; https://youtu.be/hTJFcHutls8?t=1473
+;; use k component from cross product to quickly check if vector
+;; is on right or left of another vector
+;; check each triangle edge vector against corner to pt vectors
+(defn pt-inside?
+  [[a b c] pt]
+  (let [ab (v- b a)
+        bc (v- c b)
+        ca (v- a c)
+        apt (v- pt a)
+        bpt (v- pt b)
+        cpt (v- pt c)]
+    (not
+     (or (<= (cross*-k ab apt) 0)
+         (<= (cross*-k bc bpt) 0)
+         (<= (cross*-k ca cpt) 0)))))
 
 #+end_src
 
@@ -3061,7 +3118,7 @@ Various useful algorithms, usually working on points.
 
 #+end_src
 
-** triangulation
+** delaunay
 #+begin_src clojure :tangle ./src/svg_clj/algorithms.cljc
 (def abs #?(:clj #(Math/abs %) :cljs js/Math.abs))
 (def pow #?(:clj #(Math/pow %1 %2) :cljs js/Math.pow))
@@ -3113,7 +3170,7 @@ Various useful algorithms, usually working on points.
     (set/union (set/difference tris containers) new-tris)))
 
 ;; http://paulbourke.net/papers/triangulate/
-(defn triangulate
+(defn delaunay
   [pts]
   (let [pts (map (fn [[x y]] [(float x) (float y)]) pts)
         pt-indices (zipmap pts (range 0 (count pts)))
@@ -3126,6 +3183,41 @@ Various useful algorithms, usually working on points.
      :tris tris
      :tri-indices (map tri-indices tris)
      :edges (distinct (mapcat edges tris))}))
+#+end_src
+
+** ear-clipping
+#+begin_src clojure :tangle ./src/svg_clj/algorithms.cljc
+(defn remove-colinears
+  [pts]
+  (let [indices (zipmap pts (range (count pts)))
+        tris (partition 3 1 (concat pts (take 2 pts)))
+        clpts (set (map second (filter #(apply utils/colinear? %) tris)))
+        xindices (vals (apply dissoc indices clpts))]
+    (map #(get pts %) xindices)))
+
+(defn- clip-one-ear
+  [pts]
+  (let [pts (vec pts)
+        indices (zipmap pts (range (count pts)))
+        corners (->> pts
+                     (#(concat % (take 2 %)))
+                     (partition 3 1)
+                     (filter #(#{:convex} (apply utils/corner-condition %))))
+        clear? (fn [corner]
+                 (not (seq (filter #(utils/pt-inside? corner %) pts))))
+        tri (first (filter clear? corners))]
+    {:pts pts
+     :npts (mapv #(get pts %) (sort (vals (dissoc indices (second tri)))))
+     :tri tri}))
+
+(defn clip-ears
+  ([pts] (clip-ears {:indices (zipmap pts (range (count pts)))} pts [] []))
+  ([data pts tris indices]
+   (if (< (count pts) 3)
+     (merge data {:tris tris :tri-indices indices})
+     (let [{:keys [npts tri]} (clip-one-ear pts)
+           local-indices (mapv #(get (:indices data) %) tri)]
+       (recur data npts (conj tris tri) (conj indices local-indices))))))
 
 #+end_src
 
@@ -3200,6 +3292,7 @@ Arc-length is slow at the moment. I have to figure out how to optimize it, and i
     (map #(vector (utils/round (* r (Math/cos (* % angle))) 5)
                   (utils/round (* r (Math/sin (* % angle))) 5))
          (range n))))
+
 #+end_src
 
 ** rectilinear-grid
@@ -3746,6 +3839,29 @@ Splitting is needed as part of approximating bezier curve offsets with 'chains' 
             tpt (curve t)
             l (line tpt (utils/v+ tpt n))]
         (l (f t))))))
+#+end_src
+
+** pts-utils
+#+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
+(defn shift-pts
+  "Shift a list of `pts` to begin at `start`, preserving order and cycling the list.
+If no `start` is provided, pt with lowest x and y values is used."
+  ([pts]
+   (let [start (first (sort-by (juxt first second) pts))]
+     (shift-pts pts start)))
+  ([pts start]
+   (let [[back front] (split-with (complement #{start}) pts)]
+     (concat front back))))
+
+(defn simplify
+  "Simplifies the list of `pts` by evenly stepping `n` times along the parametric curve produced by the original list.
+This does not guarantee that input pts are preserved in the output."
+  [pts n]
+  (let [c (polygon pts)]
+    (mapv #(c (/ % (inc n))) (range n))))
+
+;; not certain if this is a great design idea yet
+(defn remove-colinears [pts] (alg/remove-colinears pts))
 #+end_src
 
 ** stroke-pts
@@ -4723,6 +4839,97 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
   [:html 
    [:body
     [:h1 "Offset Examples"]
+    doc]]))
+#+end_src
+
+** algorithms
+#+begin_src clojure :tangle ./examples/offset.cljc
+(ns examples.algorithms
+  (:require [clojure.string :as str]
+            [hiccup.core :refer [html]]
+            [svg-clj.composites :as cp :refer [svg]]
+            [svg-clj.utils :as utils]
+            [svg-clj.elements :as el]
+            [svg-clj.parametric :as p]
+            [svg-clj.path :as path]
+            [svg-clj.transforms :as tf]
+            [svg-clj.layout :as lo]
+            [svg-clj.algorithms :as alg]
+            #?(:clj [svg-clj.tools :as tools])))
+
+(defn inside-pt-example
+  []
+  (let [deg (rand-int 361)
+        tri (->> (p/regular-polygon-pts 100 3)
+                 (map #(utils/rotate-pt % deg)))
+        rand-pt (fn [] [(- 100 (rand-int 200))
+                        (- 100 (rand-int 200))])
+        pts (repeatedly 1400 rand-pt)]
+    (el/g
+     (-> (el/polygon tri)
+         (tf/style {:fill "none" :stroke "black"}))
+     (into [:g {}]
+           (for [pt pts]
+             (if (utils/pt-inside? tri pt)
+               (-> (el/circle 2)
+                   (tf/translate pt)
+                   (tf/style {:fill "green"}))
+               (-> (el/circle 2)
+                   (tf/translate pt)
+                   (tf/style {:fill "red"}))))))))
+
+(def remove-colinears-example
+  (let [pts (-> (p/regular-polygon-pts 100 4)
+                (p/simplify 160))
+        xpts (p/remove-colinears pts)]
+    (el/g
+     (into [:g {}]
+           (for [pt pts]
+             (-> (el/circle 1.5)
+                 (tf/translate pt)
+                 (tf/style {:fill "black"}))))
+     (into [:g {}]
+           (for [pt xpts]
+             (-> (el/circle 2.5)
+                 (tf/translate pt)
+                 (tf/style {:fill "green"})))))))
+
+(defn draw-triangulation
+  [{:keys [tris]}]
+  (into [:g {}]
+        (for [tri tris]
+          (-> (el/polygon tri)
+              (tf/style {:fill "none" :stroke "black"})))))
+
+(def concave
+  (let [f (p/blend (p/circle 100)
+                   (p/polygon (p/regular-polygon-pts 100 6)) 2)]
+    (map f (range 0 1 0.01))))
+
+(def ear-clip-example
+  (draw-triangulation (alg/clip-ears concave)))
+
+(def examples [(inside-pt-example)
+               (inside-pt-example)
+               remove-colinears-example
+               ear-clip-example])
+
+(def doc
+  (->>
+   (for [elem examples]
+     (-> elem
+         svg
+         (tf/style {:style {:outline "1px solid blue"
+                            :margin "10px"}})))
+   (partition-all 3)
+   (interpose [:br])))
+
+(spit 
+ "examples/algorithms.html"
+ (html 
+  [:html 
+   [:body
+    [:h1 "Algorithms Examples"]
     doc]]))
 
 #+end_src
