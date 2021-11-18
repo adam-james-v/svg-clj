@@ -110,6 +110,11 @@
         v2 (reduce + (v* v v))]
     (round (Math/sqrt v2))))
 
+(defn distance-squared
+  [a b]
+  (let [v (v- b a)]
+    (reduce + (v* v v))))
+
 (defn determinant
   [a b]
   (- (* (first a) (second b))

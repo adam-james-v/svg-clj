@@ -3,16 +3,47 @@
   (:require [svg-clj.utils :as utils]
             [svg-clj.algorithms :as alg]))
 
+(defn check-parametric
+  [f]
+  (let [fdata (try (f) (catch #?(:cljs :default :clj Exception) e))
+        [f0 f05 f1] (map f [0 0.5 1])
+        t0 (if (seqable? f0) f0 [f0])
+        t05 (if (seqable? f05) f05 [f05])
+        t1 (if (seqable? f1) f1 [f1])
+        dim (count t05)
+        required [:fn :input :vertex-params :length]
+        keys-pred (every? #(contains? fdata %) required)
+        t0-pred (and t0 (= (count t0) dim) (every? number? t0))
+        t1-pred (and t1 (= (count t1) dim) (every? number? t1))
+        missing (when-not keys-pred (remove (set (keys fdata)) (set required)))
+        result {:dimension dim
+                :data fdata
+                :valid-data keys-pred
+                :valid-t0 t0-pred
+                :valid-t1 t1-pred}]
+    (cond-> result
+      missing       (assoc-in [:error :missing] missing)
+      (not fdata)   (assoc-in [:error :invalid-0-arity] fdata)
+      (not t0-pred) (assoc-in [:error :invalid-t0] t0)
+      (not t1-pred) (assoc-in [:error :invalid-t1] t1))))
+
+(defn valid-parametric?
+  [f]
+  (nil? (:error (check-parametric f))))
+
 (defn arc-length
   ([curve] (arc-length curve 0 1))
   ([curve t] (arc-length curve 0 t))
   ([curve ta tb]
-   (let [delta 0.0000075]
-     (->> (range ta (+ tb delta) delta)
+   (let [seg 13500
+         start (/ (* ta seg) seg)
+         end   (/ (inc (* tb seg)) seg)]
+     (->> (range start end (/ 1 seg))
           (map curve)
           (partition 2 1)
           (map #(apply utils/distance %))
-          (reduce +)))))
+          (reduce +)
+          (#(utils/round % 5))))))
 
 (defn regular-polygon-pts
   [r n]
@@ -44,6 +75,7 @@
   (fn
     ([] {:fn `line
          :input [a b]
+         :vertex-params [0 1]
          :length (utils/distance a b)})
     ([t]
      (cond
@@ -52,7 +84,7 @@
        :else
        (utils/v+ a (utils/v* (utils/v- b a) (repeat t)))))))
 
-(defn- fastline
+(defn fastline
   [[ax ay :as a] [bx by :as b]]
   (let [[vx vy] (utils/v- b a)]
     (fn [t]
@@ -80,6 +112,7 @@
     (fn
       ([] {:fn `polyline
            :input [pts]
+           :vertex-params (concat [0] (mapv second intervals))
            :length length})
       ([t]
        (cond
@@ -105,6 +138,7 @@
     (fn
       ([] {:fn `polygon
            :input [pts]
+           :vertex-params (concat [0] (mapv second intervals))
            :length (reduce + (map #(:length (%)) lines))})
       ([t]
        (cond
@@ -164,6 +198,7 @@
    (fn
      ([] {:fn `circle
           :input [r]
+          :vertex-params [0]
           :length (* Math/PI 2 r)})
      ([t]
       (let [t (* 2 Math/PI t)
@@ -181,7 +216,9 @@
      (fn
        ([] {:fn `circle
             :input [a b c]
-            :length (* Math/PI 2 r)})
+            :vertex-params [0]
+            :length (* Math/PI 2 r)
+            :radius r})
        ([t]
        (cond
          (or (< t 0.0) (> t 1.0)) nil
@@ -214,6 +251,7 @@
   (fn 
     ([] {:fn `ellipse
          :input [rx ry]
+         :vertex-params [0]
          :length (ellipse-perimeter rx ry)})
     ([t]
      (let [t (* 2 Math/PI t)
@@ -231,7 +269,10 @@
     (fn
       ([] {:fn `arc
            :input [a b c]
-           :length (* Math/PI 2 r (/ angle 360))})
+           :vertex-params [0 1]
+           :length (* Math/PI 2 r (/ angle 360))
+           :radius r
+           :center cp})
       ([t]
        (let [t (* t (/ angle 360.0))]
          (f t))))))
@@ -239,22 +280,31 @@
 (defn- quadratic-bezier
   [a b c]
   (fn [t]
-    (let [l1 (line a b)
-          l2 (line b c)
-          l3 (line (l1 t) (l2 t))]
+    (let [l1 (fastline a b)
+          l2 (fastline b c)
+          l3 (fastline (l1 t) (l2 t))]
       (l3 t))))
 
-(defn bezier
+(defn- n-bezier
   [pts]
   (if (= 3 (count pts))
     (apply quadratic-bezier pts)
-    (let [lines (map #(apply line %) (partition 2 1 pts))] 
+    (let [lines (map #(apply fastline %) (partition 2 1 pts))] 
       (fn
-        ([] {:fn `bezier
-             :input [pts]})
-        ([t]
-         (let [npts (map #(% t) lines)]
-           ((bezier npts) t)))))))
+        [t]
+        (let [npts (map #(% t) lines)]
+          ((n-bezier npts) t))))))
+
+(defn bezier
+  [pts]
+  (let [curve (n-bezier pts)
+        length (arc-length curve)]
+    (fn
+      ([] {:fn `bezier
+           :input [pts]
+           :vertex-params [0 1]
+           :length length})
+      ([t] (curve t)))))
 
 (defn split-bezier
   "Returns the Control Point 'de Casteljau Skeleton', used to derive split Bezier Curve Control Points."

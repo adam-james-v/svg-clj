@@ -39,8 +39,9 @@
 ** release.edn
 For now, to make a release to clojars, do the following:
 
+0. Git commit and push latest changes
 1. rm pom.xml from project root dir
-2. git tag (currently 0.0.3-SNAPSHOT)
+2. git tag (currently 0.0.9)
    - you can only re-use snapshot tags... so if you're making tiny changes, do it on snapshots. Then, when you feel it's appropriate, push a proper update by incrementing the Major.Minor.Patch (whichever makes sense).
 3. clj -M:release will push to clojars
 
@@ -599,6 +600,11 @@ So, to keep the mental model the same, I have designed my transform fns to alway
   (let [v (v- b a)
         v2 (reduce + (v* v v))]
     (round (Math/sqrt v2))))
+
+(defn distance-squared
+  [a b]
+  (let [v (v- b a)]
+    (reduce + (v* v v))))
 
 (defn determinant
   [a b]
@@ -3258,16 +3264,81 @@ Various useful algorithms, usually working on points.
 #+end_src
 
 * parametric
+The parametric ns has functions that generate useful geometric elements. Primarily, they fall into one of two categories:
+ - pt list generators (eg. regular-polygon-pts)
+ - higher-order parametric functions, taking in args and returning (fn [t] ...), (fn [u v] ...)
+
+The pt lists are not technically parametric, though they are quite useful in conjunction with the parametric functions, especially considering the polygon and polyline parametric functions which take in lists of points.
+
+** parametric-fn-design
+The parametric functions return a function expecting a parameter, denoted as t by convention.
+
+Given a parametric function, you can pass in a parameter t with a value anywhere between 0 and 1. The function is then expected to return a position. It can be an n-dimensional position, but in SVG-CLJ, it is almost always 2D point [x y].
+
+In my library, I am using a 0-arity call to any parametric function to return a map of details about that curve. This means that every function that 'constructs' one of these parametric functions must properly generate this map.
+
+The required keys for the curve map are:
+
+#+begin_src clojure
+{:fn `fn-symbol
+ :input [arg1 arg2 ...]
+ :length "length of curve, exact if possible, estimated otherwise"
+ :vertex-params "t values where the curve equals the input vertices."}
+#+end_src
+
+Additionally, it is required that any parametric function that modifies a function (transforms) also matches this 0-arity scheme. This is because certain algorithms will be built requiring data from these keys, in particular, :length is valuable to have basically pre-calculated when the curve is first created.
+
+Finally, it must be true that (f 0) and (f 1) are valid points, not nil.
+
 ** ns
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (ns svg-clj.parametric
   "Provides functions that generate lists of points or return parametric curve functions."
   (:require [svg-clj.utils :as utils]
             [svg-clj.algorithms :as alg]))
+#+end_src
+
+** parametric-validator
+A utility for checking validity of a parametric function based on the design requirements, in particular of the zero-arity function.
+
+There are also some checks for validity at (f 0) and (f 1) since the end conditions can sometimes get confusing and break down.
+
+One assumption made is that (f 0.5) will be valid in terms of the dimensionality of the curve. For now, this is perhaps a sufficient assumption for checks.
+
+This check does not determine yet if the implied function from :fn :input will be equivalent. This may be a feature to build into a full-check-parametric or something later on. For now, I'm not worrying about that.
+
+#+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
+(defn check-parametric
+  [f]
+  (let [fdata (try (f) (catch #?(:cljs :default :clj Exception) e))
+        [f0 f05 f1] (map f [0 0.5 1])
+        t0 (if (seqable? f0) f0 [f0])
+        t05 (if (seqable? f05) f05 [f05])
+        t1 (if (seqable? f1) f1 [f1])
+        dim (count t05)
+        required [:fn :input :vertex-params :length]
+        keys-pred (every? #(contains? fdata %) required)
+        t0-pred (and t0 (= (count t0) dim) (every? number? t0))
+        t1-pred (and t1 (= (count t1) dim) (every? number? t1))
+        missing (when-not keys-pred (remove (set (keys fdata)) (set required)))
+        result {:dimension dim
+                :data fdata
+                :valid-data keys-pred
+                :valid-t0 t0-pred
+                :valid-t1 t1-pred}]
+    (cond-> result
+      missing       (assoc-in [:error :missing] missing)
+      (not fdata)   (assoc-in [:error :invalid-0-arity] fdata)
+      (not t0-pred) (assoc-in [:error :invalid-t0] t0)
+      (not t1-pred) (assoc-in [:error :invalid-t1] t1))))
+
+(defn valid-parametric?
+  [f]
+  (nil? (:error (check-parametric f))))
 
 #+end_src
 
-** curve-calcs
+** arc-length
 Arc-length is slow at the moment. I have to figure out how to optimize it, and in a way that is portable to CLJS.
 
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
@@ -3275,12 +3346,15 @@ Arc-length is slow at the moment. I have to figure out how to optimize it, and i
   ([curve] (arc-length curve 0 1))
   ([curve t] (arc-length curve 0 t))
   ([curve ta tb]
-   (let [delta 0.0000075]
-     (->> (range ta (+ tb delta) delta)
+   (let [seg 13500
+         start (/ (* ta seg) seg)
+         end   (/ (inc (* tb seg)) seg)]
+     (->> (range start end (/ 1 seg))
           (map curve)
           (partition 2 1)
           (map #(apply utils/distance %))
-          (reduce +)))))
+          (reduce +)
+          (#(utils/round % 5))))))
 
 #+end_src
 
@@ -3321,12 +3395,19 @@ Arc-length is slow at the moment. I have to figure out how to optimize it, and i
 #+end_src
 
 ** line
+Line is a very simple parametric curve, but is used a lot in other contexts, especially because it can build some very useful interpolations for you.
+
+To make certain circumstances faster, when the line's length is irrelevant, a user or other fn with lines internally (eg. bezier), fastline can be used to avoid calculating length at all. This speeds things up because a line's length uses Math/sqrt, which is fast enough but slows down when doing lots of calculations.
+
+This was observed to have noticable improvement on estimating arc-length of a bezier curve, since lines are created for any t. Avoiding length calculations is critical as the lines generated depend on how many t values are used (lots for arc length estimation) and on the order of the bezier curve (more recursion for higher order bezier curvs).
+
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn line
   [a b]
   (fn
     ([] {:fn `line
          :input [a b]
+         :vertex-params [0 1]
          :length (utils/distance a b)})
     ([t]
      (cond
@@ -3335,7 +3416,7 @@ Arc-length is slow at the moment. I have to figure out how to optimize it, and i
        :else
        (utils/v+ a (utils/v* (utils/v- b a) (repeat t)))))))
 
-(defn- fastline
+(defn fastline
   [[ax ay :as a] [bx by :as b]]
   (let [[vx vy] (utils/v- b a)]
     (fn [t]
@@ -3367,6 +3448,7 @@ Arc-length is slow at the moment. I have to figure out how to optimize it, and i
     (fn
       ([] {:fn `polyline
            :input [pts]
+           :vertex-params (concat [0] (mapv second intervals))
            :length length})
       ([t]
        (cond
@@ -3396,6 +3478,7 @@ Arc-length is slow at the moment. I have to figure out how to optimize it, and i
     (fn
       ([] {:fn `polygon
            :input [pts]
+           :vertex-params (concat [0] (mapv second intervals))
            :length (reduce + (map #(:length (%)) lines))})
       ([t]
        (cond
@@ -3459,6 +3542,7 @@ Arc-length is slow at the moment. I have to figure out how to optimize it, and i
    (fn
      ([] {:fn `circle
           :input [r]
+          :vertex-params [0]
           :length (* Math/PI 2 r)})
      ([t]
       (let [t (* 2 Math/PI t)
@@ -3476,7 +3560,9 @@ Arc-length is slow at the moment. I have to figure out how to optimize it, and i
      (fn
        ([] {:fn `circle
             :input [a b c]
-            :length (* Math/PI 2 r)})
+            :vertex-params [0]
+            :length (* Math/PI 2 r)
+            :radius r})
        ([t]
        (cond
          (or (< t 0.0) (> t 1.0)) nil
@@ -3513,6 +3599,7 @@ Arc-length is slow at the moment. I have to figure out how to optimize it, and i
   (fn 
     ([] {:fn `ellipse
          :input [rx ry]
+         :vertex-params [0]
          :length (ellipse-perimeter rx ry)})
     ([t]
      (let [t (* 2 Math/PI t)
@@ -3534,7 +3621,10 @@ Arc-length is slow at the moment. I have to figure out how to optimize it, and i
     (fn
       ([] {:fn `arc
            :input [a b c]
-           :length (* Math/PI 2 r (/ angle 360))})
+           :vertex-params [0 1]
+           :length (* Math/PI 2 r (/ angle 360))
+           :radius r
+           :center cp})
       ([t]
        (let [t (* t (/ angle 360.0))]
          (f t))))))
@@ -3542,7 +3632,7 @@ Arc-length is slow at the moment. I have to figure out how to optimize it, and i
 #+end_src
 
 ** bezier
-More permanent notes end up here.
+Implement bezier parametric curves so that I can use them for layouts and other advanced drawing functions.
 
 [[https://pomax.github.io/bezierinfo/#splitting]]
 
@@ -3552,23 +3642,36 @@ Splitting is needed as part of approximating bezier curve offsets with 'chains' 
 (defn- quadratic-bezier
   [a b c]
   (fn [t]
-    (let [l1 (line a b)
-          l2 (line b c)
-          l3 (line (l1 t) (l2 t))]
+    (let [l1 (fastline a b)
+          l2 (fastline b c)
+          l3 (fastline (l1 t) (l2 t))]
       (l3 t))))
 
-(defn bezier
+(defn- n-bezier
   [pts]
   (if (= 3 (count pts))
     (apply quadratic-bezier pts)
-    (let [lines (map #(apply line %) (partition 2 1 pts))] 
+    (let [lines (map #(apply fastline %) (partition 2 1 pts))] 
       (fn
-        ([] {:fn `bezier
-             :input [pts]})
-        ([t]
-         (let [npts (map #(% t) lines)]
-           ((bezier npts) t)))))))
+        [t]
+        (let [npts (map #(% t) lines)]
+          ((n-bezier npts) t))))))
 
+(defn bezier
+  [pts]
+  (let [curve (n-bezier pts)
+        length (arc-length curve)]
+    (fn
+      ([] {:fn `bezier
+           :input [pts]
+           :vertex-params [0 1]
+           :length length})
+      ([t] (curve t)))))
+
+#+end_src
+
+*** splitting-beziers
+#+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn split-bezier
   "Returns the Control Point 'de Casteljau Skeleton', used to derive split Bezier Curve Control Points."
   ([curve t]
@@ -3627,9 +3730,7 @@ Splitting is needed as part of approximating bezier curve offsets with 'chains' 
            (conj b)
            (conj a)
            reverse)))))
-#+end_src
 
-#+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn uniform-split-bezier
   [curve n-segments]
   (let [l (arc-length curve)
@@ -5058,7 +5159,22 @@ Play around with code here.
      (-> (el/circle 3) (tf/translate [150 150]))
      (-> p (tf/style {:stroke "green" :fill "none"}))
      (-> p (tf/scale [1.5 1.5]) (tf/style {:stroke "blue" :fill "none"})))
-    (tf/scale [2 2])
+    (tf/scale [1 1])
     (svg 300 300))))
+
+(defn show-parametric
+  [f]
+  (let [eps 0.00005
+        closed? (< (utils/distance (f 0) (f 1)) eps)
+        pts (map f (range 0 1 0.01))
+        draw-fn (if closed? el/polygon el/polyline)]
+    (-> (draw-fn pts)
+        (tf/style {:fill "none"
+                   :stroke "limegreen"
+                   :stroke-width 3})
+        tools/cider-show)))
+        
+
+(def a (p/bezier [[0 0] [10 20] [40 90] [120 230]]))
 
 #+end_src
