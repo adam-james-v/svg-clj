@@ -170,7 +170,7 @@
 
 ;; https://math.stackexchange.com/questions/361412/finding-the-angle-between-three-points
 (defn- check-quadrants
-  "Using `p2` as the 'origin', return a string indicating positive, negative, or aligned to an axis for p1 p2."
+  "Using `p2` as the 'origin', return a string indicating positive, negative, or axis-aligned for p1 p2."
   [p1 p2 p3]
   (let [v1 (v- p1 p2)
         v2 (v- p3 p2)
@@ -224,9 +224,6 @@ Put another way, the angle is measured following the 'right hand rule' around p2
           (and (= "nppn" quadrants) (< (Math/abs v1nx) (Math/abs v2nx))) a
           ;; 180 degrees away on axes
           (#{"p_n_" "_p_n" "n_p_" "_n_p"} quadrants) a
-          ;; three quadrants away
-          #_#_(#{"_pnn" "n_pn" "_npp" "p_np"} quadrants) (- 360 a)
-          #_#_(#{"ppn_" "np_n" "nnp_" "pn_p"} quadrants) (- 360 a)
           :else (- 360 a))))))
 
 (defn line-intersection
@@ -238,7 +235,7 @@ Put another way, the angle is measured following the 'right hand rule' around p2
         xdiff [(- ax bx) (- cx dx)]
         ydiff [(- ay by) (- cy dy)]
         div (determinant xdiff ydiff)]
-    (when (not (zeroish? (abs div)))
+    (when-not (zeroish? (abs div))
       (let [dets [(determinant pt-a pt-b) (determinant pt-c pt-d)]
             x (/ (determinant dets xdiff) div)
             y (/ (determinant dets ydiff) div)]

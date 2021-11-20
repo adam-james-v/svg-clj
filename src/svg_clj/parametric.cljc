@@ -11,7 +11,7 @@
         t05 (if (seqable? f05) f05 [f05])
         t1 (if (seqable? f1) f1 [f1])
         dim (count t05)
-        required [:fn :input :vertex-params :length]
+        required [:fn :input :vertex-params :length :origin]
         keys-pred (every? #(contains? fdata %) required)
         t0-pred (and t0 (= (count t0) dim) (every? number? t0))
         t1-pred (and t1 (= (count t1) dim) (every? number? t1))
@@ -30,6 +30,13 @@
 (defn valid-parametric?
   [f]
   (nil? (:error (check-parametric f))))
+
+(defn- remap-within
+  [f [start end] x]
+  (when (and (>= x start) (< x end))
+    (let [step (- end start)
+          t (/ (- x start) step)]
+      (f t))))
 
 (defn arc-length
   ([curve] (arc-length curve 0 1))
@@ -75,6 +82,7 @@
   (fn
     ([] {:fn `line
          :input [a b]
+         :origin (utils/centroid-of-pts [a b])
          :vertex-params [0 1]
          :length (utils/distance a b)})
     ([t]
@@ -91,13 +99,6 @@
       [(+ ax (* vx t))
        (+ ay (* vy t))])))
 
-(defn- remap-within
-  [f [start end] x]
-  (when (and (>= x start) (< x end))
-    (let [step (- end start)
-          t (/ (- x start) step)]
-      (f t))))
-
 (defn polyline
   [pts]
   (let [step (/ 1.0 (dec (count pts)))
@@ -112,6 +113,7 @@
     (fn
       ([] {:fn `polyline
            :input [pts]
+           :origin (utils/centroid-of-pts pts)
            :vertex-params (concat [0] (mapv second intervals))
            :length length})
       ([t]
@@ -138,6 +140,7 @@
     (fn
       ([] {:fn `polygon
            :input [pts]
+           :origin (utils/centroid-of-pts pts)
            :vertex-params (concat [0] (mapv second intervals))
            :length (reduce + (map #(:length (%)) lines))})
       ([t]
@@ -159,7 +162,7 @@
         sa ( - s a)
         sb ( - s b)
         sc ( - s c)
-        rt (Math/sqrt (* s sa sb sc))
+        rt (Math/sqrt ^double (* s sa sb sc))
         radius (/ (/ (* a b c) 4) rt)]
     radius))
 
@@ -182,22 +185,12 @@
               (utils/v* (repeat (/ bx 2)) u) 
               (utils/v* (repeat h) v))))
 
-(defn- angle-from-pts
-  [p1 p2 p3]
-  (let [v1 (utils/v- p2 p1)
-        v2 (utils/v- p2 p3)
-        l1 (utils/distance p1 p2)
-        l2 (utils/distance p3 p2)
-        n (utils/dot* v1 v2)
-        d (Math/abs ^double (* l1 l2))]
-    (when (not (= 0.0 (float d)))
-      (utils/to-deg (Math/acos (/ n d))))))
-
 (defn circle
   ([r]
    (fn
      ([] {:fn `circle
           :input [r]
+          :origin [0 0]
           :vertex-params [0]
           :length (* Math/PI 2 r)})
      ([t]
@@ -216,6 +209,7 @@
      (fn
        ([] {:fn `circle
             :input [a b c]
+            :origin cp
             :vertex-params [0]
             :length (* Math/PI 2 r)
             :radius r})
@@ -233,9 +227,27 @@
                        (utils/v* (repeat (* r (Math/cos t))) u)
                        (utils/v* (repeat (* r (Math/sin t))) v)))))))))))
 
+(defn arc
+  [a b c]
+  (let [[a b c] (map #(conj % 0) [a b c])
+        f (circle a b c)
+        cp (center-from-pts a b c)
+        angle (utils/angle-from-pts a cp c)
+        r (radius-from-pts a b c)]
+    (fn
+      ([] {:fn `arc
+           :input [a b c]
+           :origin cp
+           :vertex-params [0 1]
+           :length (* Math/PI 2 r (/ angle 360))
+           :radius r
+           :center cp})
+      ([t]
+       (let [t (* t (/ angle 360.0))]
+         (f t))))))
+
 ;; https://www.mathsisfun.com/geometry/ellipse-perimeter.html
 ;; uses 'Infinite Series 2' exact calc. using 4 terms.
-
 (defn- ellipse-perimeter
   [rx ry]
   (let [h (/ (Math/pow (- rx ry) 2)
@@ -251,6 +263,7 @@
   (fn 
     ([] {:fn `ellipse
          :input [rx ry]
+         :origin [0 0]
          :vertex-params [0]
          :length (ellipse-perimeter rx ry)})
     ([t]
@@ -258,24 +271,6 @@
            x (* rx (Math/cos t))
            y (* ry (Math/sin t))]
        [x y]))))
-
-(defn arc
-  [a b c]
-  (let [[a b c] (map #(conj % 0) [a b c])
-        f (circle a b c)
-        cp (center-from-pts a b c)
-        angle (angle-from-pts a cp c)
-        r (radius-from-pts a b c)]
-    (fn
-      ([] {:fn `arc
-           :input [a b c]
-           :vertex-params [0 1]
-           :length (* Math/PI 2 r (/ angle 360))
-           :radius r
-           :center cp})
-      ([t]
-       (let [t (* t (/ angle 360.0))]
-         (f t))))))
 
 (defn- quadratic-bezier
   [a b c]
@@ -285,7 +280,7 @@
           l3 (fastline (l1 t) (l2 t))]
       (l3 t))))
 
-(defn- n-bezier
+(defn- bezier*
   [pts]
   (if (= 3 (count pts))
     (apply quadratic-bezier pts)
@@ -293,15 +288,62 @@
       (fn
         [t]
         (let [npts (map #(% t) lines)]
-          ((n-bezier npts) t))))))
+          ((bezier* npts) t))))))
 
 (defn bezier
   [pts]
-  (let [curve (n-bezier pts)
+  (let [curve (bezier* pts)
         length (arc-length curve)]
     (fn
       ([] {:fn `bezier
            :input [pts]
+           :origin (utils/centroid-of-pts pts)
+           :vertex-params [0 1]
+           :length length})
+      ([t] (curve t)))))
+
+(defn- next-pascal
+  [row]
+  (vec (concat [(first row)]
+          (mapv #(apply + %) (partition 2 1 row))
+          [(last row)])))
+
+(defn- binomial
+  [n i]
+  (let [pascal-tri-row (last (take (inc n) (iterate next-pascal [1])))]
+  (get pascal-tri-row i)))
+
+(defn- polynomial
+  [n i t]
+  (* (Math/pow (- 1 t) (- n i)) (Math/pow t i)))
+
+(defn- half-bezier
+  [ws t]
+  (let [n (dec (count ws))
+        poly (partial polynomial n)
+        bi (partial binomial n)]
+    (reduce + (map-indexed 
+               (fn [i w]
+                 (* (bi i) (poly i t) w))
+               ws))))
+
+(defn rational-bezier*
+  [pts wts]
+  (let [xs (map #(* (first %1) %2) pts wts)
+        ys (map #(* (second %1) %2) pts wts)
+        dn (partial half-bezier wts)]
+    (fn [t]
+      [(/ (half-bezier xs t) (dn t)) 
+       (/ (half-bezier ys t) (dn t))])))
+
+(defn rational-bezier
+  [pts wts]
+  (let [curve (rational-bezier* pts wts)
+        length (arc-length curve)]
+    (fn
+      ([] {:fn `rational-bezier
+           :input [pts wts]
+           :origin (utils/centroid-of-pts pts)
            :vertex-params [0 1]
            :length length})
       ([t] (curve t)))))
@@ -373,40 +415,6 @@
     (if (= 2 n-segments)
       (split-bezier curve 0.5)
       (multi-split-bezier [] curve (reverse (sort ds))))))
-
-(defn- next-pascal
-  [row]
-  (vec (concat [(first row)]
-          (mapv #(apply + %) (partition 2 1 row))
-          [(last row)])))
-
-(defn- binomial
-  [n i]
-  (let [pascal-tri-row (last (take (inc n) (iterate next-pascal [1])))]
-  (get pascal-tri-row i)))
-
-(defn- polynomial
-  [n i t]
-  (* (Math/pow (- 1 t) (- n i)) (Math/pow t i)))
-
-(defn- half-bezier
-  [ws t]
-  (let [n (dec (count ws))
-        poly (partial polynomial n)
-        bi (partial binomial n)]
-    (reduce + (map-indexed 
-               (fn [i w]
-                 (* (bi i) (poly i t) w))
-               ws))))
-
-(defn rational-bezier
-  [pts wts]
-  (let [xs (map #(* (first %1) %2) pts wts)
-        ys (map #(* (second %1) %2) pts wts)
-        dn (partial half-bezier wts)]
-    (fn [t]
-      [(/ (half-bezier xs t) (dn t)) 
-       (/ (half-bezier ys t) (dn t))])))
 
 #_(def test-spline
   (let [degree 3
@@ -553,15 +561,19 @@ This does not guarantee that input pts are preserved in the output."
 
 (defn translate
   [f [x y]]
-  (fn
-    ([] {:fn `translate
-         :input [f [x y]]})
-    ([t]
-     (utils/v+ (f t) [x y]))))
+  (let [data (f)]
+    (fn
+      ([] (merge data
+                 {:fn `translate
+                  :origin (utils/v+ (:origin data) [x y])
+                  :input [f [x y]]}))
+      ([t]
+       (utils/v+ (f t) [x y])))))
 
 (defn rotate
   [f deg]
-  (let [ctr (utils/centroid-of-pts (map f (range 0 1 0.05)))]
+  (let [data (f)
+        ctr (:origin data)]
     (fn
       ([] {:fn `rotate
            :input [f deg]})
@@ -570,9 +582,11 @@ This does not guarantee that input pts are preserved in the output."
 
 (defn scale
   [f [sx sy]]
-  (let [ctr (utils/centroid-of-pts (map f (range 0 1 0.05)))]
+  (let [data (f)
+        ctr (:origin data)]
     (fn
-      ([] {:fn `scale
-           :input [f [sx sy]]})
+      ([] (merge data
+                 {:fn `scale
+                  :input [f [sx sy]]}))
       ([t]
        (utils/scale-pt-from-center (f t) [sx sy] ctr)))))

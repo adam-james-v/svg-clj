@@ -41,7 +41,7 @@ For now, to make a release to clojars, do the following:
 
 0. Git commit and push latest changes
 1. rm pom.xml from project root dir
-2. git tag (currently 0.0.9)
+2. git tag (currently 0.0.10)
    - you can only re-use snapshot tags... so if you're making tiny changes, do it on snapshots. Then, when you feel it's appropriate, push a proper update by incrementing the Major.Minor.Patch (whichever makes sense).
 3. clj -M:release will push to clojars
 
@@ -665,7 +665,7 @@ So, to keep the mental model the same, I have designed my transform fns to alway
 #+begin_src clojure :tangle ./src/svg_clj/utils.cljc
 ;; https://math.stackexchange.com/questions/361412/finding-the-angle-between-three-points
 (defn- check-quadrants
-  "Using `p2` as the 'origin', return a string indicating positive, negative, or aligned to an axis for p1 p2."
+  "Using `p2` as the 'origin', return a string indicating positive, negative, or axis-aligned for p1 p2."
   [p1 p2 p3]
   (let [v1 (v- p1 p2)
         v2 (v- p3 p2)
@@ -719,9 +719,6 @@ Put another way, the angle is measured following the 'right hand rule' around p2
           (and (= "nppn" quadrants) (< (Math/abs v1nx) (Math/abs v2nx))) a
           ;; 180 degrees away on axes
           (#{"p_n_" "_p_n" "n_p_" "_n_p"} quadrants) a
-          ;; three quadrants away
-          #_#_(#{"_pnn" "n_pn" "_npp" "p_np"} quadrants) (- 360 a)
-          #_#_(#{"ppn_" "np_n" "nnp_" "pn_p"} quadrants) (- 360 a)
           :else (- 360 a))))))
 
 #+end_src
@@ -737,7 +734,7 @@ Put another way, the angle is measured following the 'right hand rule' around p2
         xdiff [(- ax bx) (- cx dx)]
         ydiff [(- ay by) (- cy dy)]
         div (determinant xdiff ydiff)]
-    (when (not (zeroish? (abs div)))
+    (when-not (zeroish? (abs div))
       (let [dets [(determinant pt-a pt-b) (determinant pt-c pt-d)]
             x (/ (determinant dets xdiff) div)
             y (/ (determinant dets ydiff) div)]
@@ -3147,7 +3144,8 @@ Various useful algorithms, usually working on points.
             r  (+ (pow dx 2) (pow dy 2))]
         {:x cx :y cy :radius-squared r}))))
 
-(defn edges [pts]
+(defn edges
+  [pts]
   (partition 2 1 (conj (vec pts) (first pts))))
 
 (defn contains-pt?
@@ -3189,9 +3187,10 @@ Various useful algorithms, usually working on points.
      :tris tris
      :tri-indices (map tri-indices tris)
      :edges (distinct (mapcat edges tris))}))
+
 #+end_src
 
-** ear-clipping
+** clip-ears
 #+begin_src clojure :tangle ./src/svg_clj/algorithms.cljc
 (defn remove-colinears
   [pts]
@@ -3249,7 +3248,7 @@ Various useful algorithms, usually working on points.
                  {:pt pt :angle a}))
            sorted (->> (map f pts)
                        (remove #(nil? (:angle %)))
-                       (sort-by #(Math/abs (- (:angle %) 180))))]
+                       (sort-by #(utils/abs (- (:angle %) 180))))]
        (recur (conj acc (first sorted)) pts)))))
 
 (defn nested-hull
@@ -3282,6 +3281,7 @@ The required keys for the curve map are:
 #+begin_src clojure
 {:fn `fn-symbol
  :input [arg1 arg2 ...]
+ :origin [0 0]
  :length "length of curve, exact if possible, estimated otherwise"
  :vertex-params "t values where the curve equals the input vertices."}
 #+end_src
@@ -3316,7 +3316,7 @@ This check does not determine yet if the implied function from :fn :input will b
         t05 (if (seqable? f05) f05 [f05])
         t1 (if (seqable? f1) f1 [f1])
         dim (count t05)
-        required [:fn :input :vertex-params :length]
+        required [:fn :input :vertex-params :length :origin]
         keys-pred (every? #(contains? fdata %) required)
         t0-pred (and t0 (= (count t0) dim) (every? number? t0))
         t1-pred (and t1 (= (count t1) dim) (every? number? t1))
@@ -3335,6 +3335,17 @@ This check does not determine yet if the implied function from :fn :input will b
 (defn valid-parametric?
   [f]
   (nil? (:error (check-parametric f))))
+
+#+end_src
+
+** remap
+#+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
+(defn- remap-within
+  [f [start end] x]
+  (when (and (>= x start) (< x end))
+    (let [step (- end start)
+          t (/ (- x start) step)]
+      (f t))))
 
 #+end_src
 
@@ -3407,6 +3418,7 @@ This was observed to have noticable improvement on estimating arc-length of a be
   (fn
     ([] {:fn `line
          :input [a b]
+         :origin (utils/centroid-of-pts [a b])
          :vertex-params [0 1]
          :length (utils/distance a b)})
     ([t]
@@ -3427,13 +3439,6 @@ This was observed to have noticable improvement on estimating arc-length of a be
 
 ** polyline
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
-(defn- remap-within
-  [f [start end] x]
-  (when (and (>= x start) (< x end))
-    (let [step (- end start)
-          t (/ (- x start) step)]
-      (f t))))
-
 (defn polyline
   [pts]
   (let [step (/ 1.0 (dec (count pts)))
@@ -3448,6 +3453,7 @@ This was observed to have noticable improvement on estimating arc-length of a be
     (fn
       ([] {:fn `polyline
            :input [pts]
+           :origin (utils/centroid-of-pts pts)
            :vertex-params (concat [0] (mapv second intervals))
            :length length})
       ([t]
@@ -3478,6 +3484,7 @@ This was observed to have noticable improvement on estimating arc-length of a be
     (fn
       ([] {:fn `polygon
            :input [pts]
+           :origin (utils/centroid-of-pts pts)
            :vertex-params (concat [0] (mapv second intervals))
            :length (reduce + (map #(:length (%)) lines))})
       ([t]
@@ -3503,7 +3510,7 @@ This was observed to have noticable improvement on estimating arc-length of a be
         sa ( - s a)
         sb ( - s b)
         sc ( - s c)
-        rt (Math/sqrt (* s sa sb sc))
+        rt (Math/sqrt ^double (* s sa sb sc))
         radius (/ (/ (* a b c) 4) rt)]
     radius))
 
@@ -3526,22 +3533,12 @@ This was observed to have noticable improvement on estimating arc-length of a be
               (utils/v* (repeat (/ bx 2)) u) 
               (utils/v* (repeat h) v))))
 
-(defn- angle-from-pts
-  [p1 p2 p3]
-  (let [v1 (utils/v- p2 p1)
-        v2 (utils/v- p2 p3)
-        l1 (utils/distance p1 p2)
-        l2 (utils/distance p3 p2)
-        n (utils/dot* v1 v2)
-        d (Math/abs ^double (* l1 l2))]
-    (when (not (= 0.0 (float d)))
-      (utils/to-deg (Math/acos (/ n d))))))
-
 (defn circle
   ([r]
    (fn
      ([] {:fn `circle
           :input [r]
+          :origin [0 0]
           :vertex-params [0]
           :length (* Math/PI 2 r)})
      ([t]
@@ -3560,6 +3557,7 @@ This was observed to have noticable improvement on estimating arc-length of a be
      (fn
        ([] {:fn `circle
             :input [a b c]
+            :origin cp
             :vertex-params [0]
             :length (* Math/PI 2 r)
             :radius r})
@@ -3579,11 +3577,33 @@ This was observed to have noticable improvement on estimating arc-length of a be
 
 #+end_src
 
+** arc
+#+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
+(defn arc
+  [a b c]
+  (let [[a b c] (map #(conj % 0) [a b c])
+        f (circle a b c)
+        cp (center-from-pts a b c)
+        angle (utils/angle-from-pts a cp c)
+        r (radius-from-pts a b c)]
+    (fn
+      ([] {:fn `arc
+           :input [a b c]
+           :origin cp
+           :vertex-params [0 1]
+           :length (* Math/PI 2 r (/ angle 360))
+           :radius r
+           :center cp})
+      ([t]
+       (let [t (* t (/ angle 360.0))]
+         (f t))))))
+
+#+end_src
+
 ** ellipse
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 ;; https://www.mathsisfun.com/geometry/ellipse-perimeter.html
 ;; uses 'Infinite Series 2' exact calc. using 4 terms.
-
 (defn- ellipse-perimeter
   [rx ry]
   (let [h (/ (Math/pow (- rx ry) 2)
@@ -3599,6 +3619,7 @@ This was observed to have noticable improvement on estimating arc-length of a be
   (fn 
     ([] {:fn `ellipse
          :input [rx ry]
+         :origin [0 0]
          :vertex-params [0]
          :length (ellipse-perimeter rx ry)})
     ([t]
@@ -3606,28 +3627,6 @@ This was observed to have noticable improvement on estimating arc-length of a be
            x (* rx (Math/cos t))
            y (* ry (Math/sin t))]
        [x y]))))
-
-#+end_src
-
-** arc
-#+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
-(defn arc
-  [a b c]
-  (let [[a b c] (map #(conj % 0) [a b c])
-        f (circle a b c)
-        cp (center-from-pts a b c)
-        angle (angle-from-pts a cp c)
-        r (radius-from-pts a b c)]
-    (fn
-      ([] {:fn `arc
-           :input [a b c]
-           :vertex-params [0 1]
-           :length (* Math/PI 2 r (/ angle 360))
-           :radius r
-           :center cp})
-      ([t]
-       (let [t (* t (/ angle 360.0))]
-         (f t))))))
 
 #+end_src
 
@@ -3647,7 +3646,7 @@ Splitting is needed as part of approximating bezier curve offsets with 'chains' 
           l3 (fastline (l1 t) (l2 t))]
       (l3 t))))
 
-(defn- n-bezier
+(defn- bezier*
   [pts]
   (if (= 3 (count pts))
     (apply quadratic-bezier pts)
@@ -3655,22 +3654,73 @@ Splitting is needed as part of approximating bezier curve offsets with 'chains' 
       (fn
         [t]
         (let [npts (map #(% t) lines)]
-          ((n-bezier npts) t))))))
+          ((bezier* npts) t))))))
 
 (defn bezier
   [pts]
-  (let [curve (n-bezier pts)
+  (let [curve (bezier* pts)
         length (arc-length curve)]
     (fn
       ([] {:fn `bezier
            :input [pts]
+           :origin (utils/centroid-of-pts pts)
            :vertex-params [0 1]
            :length length})
       ([t] (curve t)))))
 
 #+end_src
 
-*** splitting-beziers
+** rational-bezier
+#+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
+(defn- next-pascal
+  [row]
+  (vec (concat [(first row)]
+          (mapv #(apply + %) (partition 2 1 row))
+          [(last row)])))
+
+(defn- binomial
+  [n i]
+  (let [pascal-tri-row (last (take (inc n) (iterate next-pascal [1])))]
+  (get pascal-tri-row i)))
+
+(defn- polynomial
+  [n i t]
+  (* (Math/pow (- 1 t) (- n i)) (Math/pow t i)))
+
+(defn- half-bezier
+  [ws t]
+  (let [n (dec (count ws))
+        poly (partial polynomial n)
+        bi (partial binomial n)]
+    (reduce + (map-indexed 
+               (fn [i w]
+                 (* (bi i) (poly i t) w))
+               ws))))
+
+(defn rational-bezier*
+  [pts wts]
+  (let [xs (map #(* (first %1) %2) pts wts)
+        ys (map #(* (second %1) %2) pts wts)
+        dn (partial half-bezier wts)]
+    (fn [t]
+      [(/ (half-bezier xs t) (dn t)) 
+       (/ (half-bezier ys t) (dn t))])))
+
+(defn rational-bezier
+  [pts wts]
+  (let [curve (rational-bezier* pts wts)
+        length (arc-length curve)]
+    (fn
+      ([] {:fn `rational-bezier
+           :input [pts wts]
+           :origin (utils/centroid-of-pts pts)
+           :vertex-params [0 1]
+           :length length})
+      ([t] (curve t)))))
+
+#+end_src
+
+** WIP splitting-beziers
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn split-bezier
   "Returns the Control Point 'de Casteljau Skeleton', used to derive split Bezier Curve Control Points."
@@ -3742,45 +3792,7 @@ Splitting is needed as part of approximating bezier curve offsets with 'chains' 
 
 #+end_src
 
-*** rational-bezier
-#+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
-(defn- next-pascal
-  [row]
-  (vec (concat [(first row)]
-          (mapv #(apply + %) (partition 2 1 row))
-          [(last row)])))
-
-(defn- binomial
-  [n i]
-  (let [pascal-tri-row (last (take (inc n) (iterate next-pascal [1])))]
-  (get pascal-tri-row i)))
-
-(defn- polynomial
-  [n i t]
-  (* (Math/pow (- 1 t) (- n i)) (Math/pow t i)))
-
-(defn- half-bezier
-  [ws t]
-  (let [n (dec (count ws))
-        poly (partial polynomial n)
-        bi (partial binomial n)]
-    (reduce + (map-indexed 
-               (fn [i w]
-                 (* (bi i) (poly i t) w))
-               ws))))
-
-(defn rational-bezier
-  [pts wts]
-  (let [xs (map #(* (first %1) %2) pts wts)
-        ys (map #(* (second %1) %2) pts wts)
-        dn (partial half-bezier wts)]
-    (fn [t]
-      [(/ (half-bezier xs t) (dn t)) 
-       (/ (half-bezier ys t) (dn t))])))
-
-#+end_src
-
-*** b-spline
+** WIP b-spline
 #+begin_src clojure tangle ./src/svg_clj/parametric.cljc
 (defn- domain
   [degree knots]
@@ -3866,6 +3878,7 @@ Splitting is needed as part of approximating bezier curve offsets with 'chains' 
                         (recur new-vi (dec i)))
                       v)))
               v-outer)))))))
+
 #+end_src
 
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
@@ -4032,11 +4045,14 @@ This does not guarantee that input pts are preserved in the output."
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn translate
   [f [x y]]
-  (fn
-    ([] {:fn `translate
-         :input [f [x y]]})
-    ([t]
-     (utils/v+ (f t) [x y]))))
+  (let [data (f)]
+    (fn
+      ([] (merge data
+                 {:fn `translate
+                  :origin (utils/v+ (:origin data) [x y])
+                  :input [f [x y]]}))
+      ([t]
+       (utils/v+ (f t) [x y])))))
 
 #+end_src
 
@@ -4044,7 +4060,8 @@ This does not guarantee that input pts are preserved in the output."
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn rotate
   [f deg]
-  (let [ctr (utils/centroid-of-pts (map f (range 0 1 0.05)))]
+  (let [data (f)
+        ctr (:origin data)]
     (fn
       ([] {:fn `rotate
            :input [f deg]})
@@ -4057,10 +4074,12 @@ This does not guarantee that input pts are preserved in the output."
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn scale
   [f [sx sy]]
-  (let [ctr (utils/centroid-of-pts (map f (range 0 1 0.05)))]
+  (let [data (f)
+        ctr (:origin data)]
     (fn
-      ([] {:fn `scale
-           :input [f [sx sy]]})
+      ([] (merge data
+                 {:fn `scale
+                  :input [f [sx sy]]}))
       ([t]
        (utils/scale-pt-from-center (f t) [sx sy] ctr)))))
 

@@ -23,7 +23,8 @@
             r  (+ (pow dx 2) (pow dy 2))]
         {:x cx :y cy :radius-squared r}))))
 
-(defn edges [pts]
+(defn edges
+  [pts]
   (partition 2 1 (conj (vec pts) (first pts))))
 
 (defn contains-pt?
@@ -118,7 +119,7 @@
                  {:pt pt :angle a}))
            sorted (->> (map f pts)
                        (remove #(nil? (:angle %)))
-                       (sort-by #(Math/abs (- (:angle %) 180))))]
+                       (sort-by #(utils/abs (- (:angle %) 180))))]
        (recur (conj acc (first sorted)) pts)))))
 
 (defn nested-hull
