@@ -108,7 +108,7 @@
   [a b]
   (let [v (v- b a)
         v2 (reduce + (v* v v))]
-    (round (Math/sqrt v2))))
+    (round (Math/sqrt ^double v2))))
 
 (defn distance-squared
   [a b]
@@ -149,12 +149,6 @@
   [[ax ay] [bx by]]
   (- (* ax by) (* ay bx)))
 
-(defn normalize
-  "Calculates the unit vector of a given vector."
-  [v]
-  (let [m (Math/sqrt (reduce + (v* v v)))]
-    (mapv / v (repeat m))))
-
 (defn normal
   "Calculates the normal vector of plane given 3 points or calculates the normal vector of a line given two (2D) points."
   ([a b]
@@ -164,9 +158,19 @@
          dy (- y2 y1)]
      [(- dy) dx]))
   ([a b c]
-   (let [ab (v- a b)
-         ac (v- a c)]
-     (cross* ab ac))))
+   (let [eps 0.00001
+         ab (v- a b)
+         ac (v- a c)
+         [x y z] (cross* ab ac)]
+     (when (and (> x eps) (> y eps) (> z eps))
+       [x y z]))))
+
+(defn normalize
+  "find the unit vector of a given vector"
+  [v]
+  (when v
+    (let [m (Math/sqrt ^double (reduce + (v* v v)))]
+      (mapv / v (repeat m)))))
 
 ;; https://math.stackexchange.com/questions/361412/finding-the-angle-between-three-points
 (defn- check-quadrants

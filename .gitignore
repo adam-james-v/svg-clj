@@ -2,6 +2,8 @@ pom.xml
 pom.xml.asc
 *.jar
 *.class
+.lsp/
+.clj-kondo/
 /public/
 /lib/
 /classes/

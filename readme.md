@@ -60,7 +60,7 @@ This blossom is produced with the following code:
                  :stroke "none"})))
 
 (def petal-03
-  (-> (tf/merge-paths petal-01 petal-02)
+  (-> (path/merge-paths petal-01 petal-02)
       (tf/style {:fill "#a8e6cf"})))
 
 (def petal-ring-01 (petal-ring petal-01 120 12))

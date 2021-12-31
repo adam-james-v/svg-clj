@@ -149,7 +149,7 @@ This blossom is produced with the following code:
                  :stroke "none"})))
 
 (def petal-03
-  (-> (tf/merge-paths petal-01 petal-02)
+  (-> (path/merge-paths petal-01 petal-02)
       (tf/style {:fill "#a8e6cf"})))
 
 (def petal-ring-01 (petal-ring petal-01 120 12))
@@ -599,7 +599,7 @@ So, to keep the mental model the same, I have designed my transform fns to alway
   [a b]
   (let [v (v- b a)
         v2 (reduce + (v* v v))]
-    (round (Math/sqrt v2))))
+    (round (Math/sqrt ^double v2))))
 
 (defn distance-squared
   [a b]
@@ -640,12 +640,6 @@ So, to keep the mental model the same, I have designed my transform fns to alway
   [[ax ay] [bx by]]
   (- (* ax by) (* ay bx)))
 
-(defn normalize
-  "Calculates the unit vector of a given vector."
-  [v]
-  (let [m (Math/sqrt (reduce + (v* v v)))]
-    (mapv / v (repeat m))))
-
 (defn normal
   "Calculates the normal vector of plane given 3 points or calculates the normal vector of a line given two (2D) points."
   ([a b]
@@ -655,9 +649,19 @@ So, to keep the mental model the same, I have designed my transform fns to alway
          dy (- y2 y1)]
      [(- dy) dx]))
   ([a b c]
-   (let [ab (v- a b)
-         ac (v- a c)]
-     (cross* ab ac))))
+   (let [eps 0.00001
+         ab (v- a b)
+         ac (v- a c)
+         [x y z] (cross* ab ac)]
+     (when (and (> x eps) (> y eps) (> z eps))
+       [x y z]))))
+
+(defn normalize
+  "find the unit vector of a given vector"
+  [v]
+  (when v
+    (let [m (Math/sqrt ^double (reduce + (v* v v)))]
+      (mapv / v (repeat m)))))
 
 #+end_src
 
@@ -3387,6 +3391,7 @@ Arc-length is slow at the moment. I have to figure out how to optimize it, and i
   (for [a (range nx)
         b (range ny)]
     [(* w a) (* h b)]))
+
 #+end_src
 
 ** hex-grid
@@ -3720,6 +3725,38 @@ Splitting is needed as part of approximating bezier curve offsets with 'chains' 
 
 #+end_src
 
+*** piecewise-curve
+#+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
+(defn piecewise-curve
+  [curves]
+  (let [step (/ 1.0 (count curves))
+        intervals (partition 2 1 (range 0 (+ 1 step) step))
+        remapf (fn [curve [start end]]
+                 (let [vertex-params (:vertex-params (curve))
+                       sc (- end start)]
+                   (map #(+ start (* sc %)) vertex-params)))
+        vertex-params (vec (distinct (mapcat remapf curves intervals)))
+        origin (utils/centroid-of-pts (map #(:origin (%)) curves))
+        length (reduce + (map #(:length (%)) curves))
+        sample-curve (first curves)]
+    (fn
+      ([] {:fn `piecewise-curve
+           :input [curves]
+           :origin origin
+           :dimension (count (sample-curve 0.5))
+           :vertex-params vertex-params
+           :length length})
+      ([t]
+       (cond
+         (= (float t) 0.0) ((first curves) 0)
+         (= (float t) 1.0) ((last curves) 1)
+         :else
+         (first
+          (filter some?
+                  (map #(remap-within %1 %2 t) curves intervals))))))))
+
+#+end_src
+
 ** WIP splitting-beziers
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn split-bezier
@@ -3741,20 +3778,26 @@ Splitting is needed as part of approximating bezier curve offsets with 'chains' 
        (recur {:a (conj a (first npts))
                :b (conj b (last npts))} npts t)))))
 
-(defn- t-from-curve-distance
+(defn- get-t
+  "Estimate curve parameter `t` that corresponds to length-percentage `target-lp`."
+  [curve target-lp]
+  (let [eps 0.00001
+        length (:length (curve))
+        target-l (* length target-lp)]
+    (loop [t target-lp
+           n 0]
+        (let [next-t (+ t (/ (- target-l (arc-length curve t)) target-l))]
+          (if (or
+               (= (utils/round t 4) (utils/round next-t 4))
+               (< (utils/abs (- target-l (arc-length curve t))) eps)
+               (< 300 n))
+            next-t
+            (recur next-t (inc n)))))))
+
+(defn- get-t-at-distance
   [curve d]
-  (let [eps 0.000001
-        l (arc-length curve)
-        guess (/ d l)
-        itr (fn [[#_t-prev _ t-guess]]
-              (let [d-guess (arc-length curve t-guess)]
-                [t-guess (+ t-guess (/ (- d d-guess) l))]))]
-    (->> (iterate itr [0 guess])
-         (take 25)
-         (take-while #(< eps (Math/abs (apply - %))))
-         last
-         last
-         (#(utils/round % 5)))))
+  (let [target-lp (/ d (:length (curve)))]
+    (get-t curve target-lp)))
 
 (defn split-bezier-between
   [curve ta tb]
@@ -3762,7 +3805,7 @@ Splitting is needed as part of approximating bezier curve offsets with 'chains' 
         split1 (split-bezier curve tb)
         curve1 (bezier (:a split1))
         partial-result {:c (:b split1)}
-        ta1 (t-from-curve-distance curve1 da)]
+        ta1 (get-t-at-distance curve1 da)]
     (merge (split-bezier curve1 ta1) partial-result)))
 
 (defn multi-split-bezier
@@ -3771,10 +3814,10 @@ Splitting is needed as part of approximating bezier curve offsets with 'chains' 
      (multi-split-bezier [] curve (reverse ds))))
   ([acc curve ds]
    (if (< 1 (count ds))
-     (let [remapped-t (t-from-curve-distance curve (first ds)) 
+     (let [remapped-t (get-t-at-distance curve (first ds)) 
            {:keys [a b]} (split-bezier curve remapped-t)]
        (recur (conj acc b) (bezier a) (rest ds)))
-     (let [remapped-t (t-from-curve-distance curve (first ds)) 
+     (let [remapped-t (get-t-at-distance curve (first ds)) 
            {:keys [a b]} (split-bezier curve remapped-t)]
        (-> acc
            (conj b)
@@ -5163,6 +5206,7 @@ Play around with code here.
             [svg-clj.elements :as el]
             [svg-clj.composites :refer [svg]]
             [svg-clj.parametric :as p]
+            [svg-clj.layout :as lo]
             [svg-clj.algorithms :as alg]
             [svg-clj.tools :as tools :refer [show cider-show]]))
 

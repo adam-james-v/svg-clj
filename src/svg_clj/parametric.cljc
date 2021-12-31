@@ -348,6 +348,34 @@
            :length length})
       ([t] (curve t)))))
 
+(defn piecewise-curve
+  [curves]
+  (let [step (/ 1.0 (count curves))
+        intervals (partition 2 1 (range 0 (+ 1 step) step))
+        remapf (fn [curve [start end]]
+                 (let [vertex-params (:vertex-params (curve))
+                       sc (- end start)]
+                   (map #(+ start (* sc %)) vertex-params)))
+        vertex-params (vec (distinct (mapcat remapf curves intervals)))
+        origin (utils/centroid-of-pts (map #(:origin (%)) curves))
+        length (reduce + (map #(:length (%)) curves))
+        sample-curve (first curves)]
+    (fn
+      ([] {:fn `piecewise-curve
+           :input [curves]
+           :origin origin
+           :dimension (count (sample-curve 0.5))
+           :vertex-params vertex-params
+           :length length})
+      ([t]
+       (cond
+         (= (float t) 0.0) ((first curves) 0)
+         (= (float t) 1.0) ((last curves) 1)
+         :else
+         (first
+          (filter some?
+                  (map #(remap-within %1 %2 t) curves intervals))))))))
+
 (defn split-bezier
   "Returns the Control Point 'de Casteljau Skeleton', used to derive split Bezier Curve Control Points."
   ([curve t]
@@ -367,20 +395,26 @@
        (recur {:a (conj a (first npts))
                :b (conj b (last npts))} npts t)))))
 
-(defn- t-from-curve-distance
+(defn- get-t
+  "Estimate curve parameter `t` that corresponds to length-percentage `target-lp`."
+  [curve target-lp]
+  (let [eps 0.00001
+        length (:length (curve))
+        target-l (* length target-lp)]
+    (loop [t target-lp
+           n 0]
+        (let [next-t (+ t (/ (- target-l (arc-length curve t)) target-l))]
+          (if (or
+               (= (utils/round t 4) (utils/round next-t 4))
+               (< (utils/abs (- target-l (arc-length curve t))) eps)
+               (< 300 n))
+            next-t
+            (recur next-t (inc n)))))))
+
+(defn- get-t-at-distance
   [curve d]
-  (let [eps 0.000001
-        l (arc-length curve)
-        guess (/ d l)
-        itr (fn [[#_t-prev _ t-guess]]
-              (let [d-guess (arc-length curve t-guess)]
-                [t-guess (+ t-guess (/ (- d d-guess) l))]))]
-    (->> (iterate itr [0 guess])
-         (take 25)
-         (take-while #(< eps (Math/abs (apply - %))))
-         last
-         last
-         (#(utils/round % 5)))))
+  (let [target-lp (/ d (:length (curve)))]
+    (get-t curve target-lp)))
 
 (defn split-bezier-between
   [curve ta tb]
@@ -388,7 +422,7 @@
         split1 (split-bezier curve tb)
         curve1 (bezier (:a split1))
         partial-result {:c (:b split1)}
-        ta1 (t-from-curve-distance curve1 da)]
+        ta1 (get-t-at-distance curve1 da)]
     (merge (split-bezier curve1 ta1) partial-result)))
 
 (defn multi-split-bezier
@@ -397,10 +431,10 @@
      (multi-split-bezier [] curve (reverse ds))))
   ([acc curve ds]
    (if (< 1 (count ds))
-     (let [remapped-t (t-from-curve-distance curve (first ds)) 
+     (let [remapped-t (get-t-at-distance curve (first ds)) 
            {:keys [a b]} (split-bezier curve remapped-t)]
        (recur (conj acc b) (bezier a) (rest ds)))
-     (let [remapped-t (t-from-curve-distance curve (first ds)) 
+     (let [remapped-t (get-t-at-distance curve (first ds)) 
            {:keys [a b]} (split-bezier curve remapped-t)]
        (-> acc
            (conj b)
