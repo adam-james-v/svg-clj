@@ -60,10 +60,10 @@
          (range n))))
 
 (defn rect-grid
-  [nx ny w h]
-  (for [a (range nx)
-        b (range ny)]
-    [(* w a) (* h b)]))
+  [nx ny x-spacing y-spacing]
+  (for [b (range ny)
+        a (range nx)]
+    [(* a x-spacing) (* b y-spacing)]))
 
 (defn hex-grid
   [nx ny w]

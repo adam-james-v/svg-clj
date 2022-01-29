@@ -2,7 +2,18 @@
   (:require [svg-clj.utils :as utils]
             [svg-clj.parametric :as p]
             [svg-clj.transforms :as tf]
-            [clojure.test :as test :refer [deftest is]]))
+            [clojure.test :as test :refer [deftest testing is]]))
+
+(deftest zeroish-test
+  (testing "Zero is zerosih."
+    (is (= true (utils/zeroish? 0)))
+    (is (= true (utils/zeroish? 0.0))))
+  (testing "0.1 is not zerosih."
+    (is (= false (utils/zeroish? 0.1)))
+    (is (= false (utils/zeroish? -0.1))))
+  (testing "Really small is zerosih."
+    (is (= true (utils/zeroish? 0.000001)))
+    (is (= true (utils/zeroish? 1e-10)))))
 
 (deftest angle-from-pts
   (let [angles (map

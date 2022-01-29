@@ -3,9 +3,14 @@
             [clojure.data.xml :as xml]
             [clojure.walk :refer [postwalk]]
             [clojure.zip :as zip]
-            [same :refer [zeroish?]]
+            #_[same :refer [zeroish?]]
             #?(:cljs
                [cljs.reader :refer [read-string]])))
+
+(defn zeroish?
+  [x]
+  (let [eps 0.00001]
+    (< (Math/abs x) eps)))
 
 (def ^:dynamic *rounding* nil)
 
@@ -41,7 +46,7 @@
   [& numbers]
   (let [n (count numbers)]
     (round (/ (apply + numbers) n))))
- 
+
 ;; some string transformation tools
 (defn v->s
   "Turns the vector `v` into a string with commas separating the values."

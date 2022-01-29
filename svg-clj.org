@@ -11,10 +11,10 @@
 #+NAME: deps.edn
 #+begin_src clojure :tangle ./deps.edn
 {:deps 
- {org.clojure/clojure    {:mvn/version "1.10.3"}
-  org.clojure/data.xml   {:mvn/version "0.2.0-alpha6"}
-  same/ish               {:mvn/version "0.1.4"}
-  hiccup/hiccup          {:mvn/version "2.0.0-alpha2"}}
+ {org.clojure/clojure  {:mvn/version "1.10.3"}
+  org.clojure/data.xml {:mvn/version "0.2.0-alpha6"}
+  #_#_same/ish             {:mvn/version "0.1.4"}
+  hiccup/hiccup        {:mvn/version "2.0.0-alpha2"}}
  
  :aliases
  {:test
@@ -483,9 +483,18 @@ So, to keep the mental model the same, I have designed my transform fns to alway
             [clojure.data.xml :as xml]
             [clojure.walk :refer [postwalk]]
             [clojure.zip :as zip]
-            [same :refer [zeroish?]]
+            #_[same :refer [zeroish?]]
             #?(:cljs
                [cljs.reader :refer [read-string]])))
+
+#+end_src
+
+** zeroish
+#+begin_src clojure :tangle ./src/svg_clj/utils.cljc
+(defn zeroish?
+  [x]
+  (let [eps 0.00001]
+    (< (Math/abs x) eps)))
 
 #+end_src
 
@@ -525,7 +534,11 @@ So, to keep the mental model the same, I have designed my transform fns to alway
   [& numbers]
   (let [n (count numbers)]
     (round (/ (apply + numbers) n))))
- 
+
+#+end_src
+
+** string-xfs
+#+begin_src clojure :tangle ./src/svg_clj/utils.cljc
 ;; some string transformation tools
 (defn v->s
   "Turns the vector `v` into a string with commas separating the values."
@@ -3387,10 +3400,10 @@ Arc-length is slow at the moment. I have to figure out how to optimize it, and i
 ** rectilinear-grid
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn rect-grid
-  [nx ny w h]
-  (for [a (range nx)
-        b (range ny)]
-    [(* w a) (* h b)]))
+  [nx ny x-spacing y-spacing]
+  (for [b (range ny)
+        a (range nx)]
+    [(* a x-spacing) (* b y-spacing)]))
 
 #+end_src
 
@@ -4290,7 +4303,22 @@ clj -M:test
   (:require [svg-clj.utils :as utils]
             [svg-clj.parametric :as p]
             [svg-clj.transforms :as tf]
-            [clojure.test :as test :refer [deftest is]]))
+            [clojure.test :as test :refer [deftest testing is]]))
+
+#+END_SRC
+
+*** zeroish?
+#+BEGIN_SRC clojure :tangle ./test/svg_clj/utils_test.cljc
+(deftest zeroish-test
+  (testing "Zero is zerosih."
+    (is (= true (utils/zeroish? 0)))
+    (is (= true (utils/zeroish? 0.0))))
+  (testing "0.1 is not zerosih."
+    (is (= false (utils/zeroish? 0.1)))
+    (is (= false (utils/zeroish? -0.1))))
+  (testing "Really small is zerosih."
+    (is (= true (utils/zeroish? 0.000001)))
+    (is (= true (utils/zeroish? 1e-10)))))
 
 #+END_SRC
 
@@ -4308,7 +4336,7 @@ clj -M:test
   (let [eps 0.00001
         a (utils/angle-from-pts [0 10] [0 0] [10 0])]
     (is (< (Math/abs (- 90.0 a)) eps))))
-  
+
 #+END_SRC
 
 *** cast-numerical-attrs
@@ -5239,5 +5267,4 @@ Play around with code here.
         
 
 (def a (p/bezier [[0 0] [10 20] [40 90] [120 230]]))
-
 #+end_src
