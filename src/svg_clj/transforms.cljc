@@ -4,18 +4,19 @@
   The most common transformations include translate, rotate, style, and scale which all work on every element. Other transformations include merge, split, and explode and these only work on path elements.
 
   This namespace also provides `bounds`, and `centroid` functions which calculate the respective property for all elements provided by this library."
-  (:require [clojure.string :as str]   
-            [svg-clj.utils :as utils]
-            [svg-clj.elements :as el]
+  (:require [clojure.string :as str]
             [svg-clj.path :as path]
+            [svg-clj.utils :as u]
             #?(:cljs
                [cljs.reader :refer [read-string]])))
 
 (defn style
+  "Merge a style map into the given element."
   [elem style-map]
-  (utils/style elem style-map))
+  (u/style elem style-map))
 
 (defmulti centroid
+  "Calculates the arithmetic mean position of the given `element`."
   (fn [element]
     (if (keyword? (first element))
       (first element)
@@ -23,11 +24,11 @@
 
 (defmethod centroid :list
   [elems]
-  (utils/centroid-of-pts (into #{} (map centroid elems))))
+  (u/centroid-of-pts (into #{} (map centroid elems))))
 
 (defmethod centroid :circle
   [[_ props]]
-  [(:cx props) (:cy props)])  
+  [(:cx props) (:cy props)])
 
 (defmethod centroid :ellipse
   [[_ props]]
@@ -37,17 +38,17 @@
   [[_ props]]
   (let [a (mapv #(get props %) [:x1 :y1])
         b (mapv #(get props %) [:x2 :y2])]
-    (utils/centroid-of-pts [a b])))
+    (u/centroid-of-pts [a b])))
 
 (defmethod centroid :polygon
   [[_ props]]
-  (let [pts (mapv utils/s->v (str/split (:points props) #" "))]
-    (utils/centroid-of-pts pts)))
+  (let [pts (mapv u/s->v (str/split (:points props) #" "))]
+    (u/centroid-of-pts pts)))
 
 (defmethod centroid :polyline
   [[_ props]]
-  (let [pts (mapv utils/s->v (str/split (:points props) #" "))]
-    (utils/centroid-of-pts pts)))
+  (let [pts (mapv u/s->v (str/split (:points props) #" "))]
+    (u/centroid-of-pts pts)))
 
 (defmethod centroid :rect
   [[_ props]]
@@ -71,7 +72,7 @@
 (declare centroid)
 (defmethod centroid :g
   [[_ _ & content]]
-  (utils/centroid-of-pts (into #{} (map centroid content))))
+  (u/centroid-of-pts (into #{} (map centroid content))))
 
 (defmulti bounds
   "Calculates the axis-aligned-bounding-box of `element` or list of elements."
@@ -86,59 +87,59 @@
 
 (defmethod bounds :list
   [elems]
-  (utils/bounds-of-pts (mapcat bounds elems)))
+  (u/bounds-of-pts (mapcat bounds elems)))
 
 (defmethod bounds :circle
   [[_ props]]
   (let [c [(:cx props) (:cy props)]
         r (:r props)
-        pts (mapv #(utils/v+ c %) [[r 0]
+        pts (mapv #(u/v+ c %) [[r 0]
                              [0 r]
                              [(- r) 0]
                              [0 (- r)]])]
-    (utils/bounds-of-pts pts)))
+    (u/bounds-of-pts pts)))
 
 (defmethod bounds :ellipse
   [[_ props]]
-  (let [xf (utils/str->xf-map  (get props :transform "rotate(0 0 0)"))
+  (let [xf (u/str->xf-map  (get props :transform "rotate(0 0 0)"))
         deg (get-in xf [:rotate 0])
         mx (get-in xf [:rotate 1])
         my (get-in xf [:rotate 2])
         c [(:cx props) (:cy props)]
         rx (:rx props)
         ry (:ry props)
-        pts (mapv #(utils/v+ c %) [[rx 0]
-                                   [0 ry] 
+        pts (mapv #(u/v+ c %) [[rx 0]
+                                   [0 ry]
                                    [(- rx) 0]
                                    [0 (- ry)]])
-        bb (utils/bounds-of-pts pts)
-        obb (mapv #(utils/rotate-pt-around-center % deg [mx my]) bb)
-        xpts (mapv #(utils/rotate-pt-around-center % deg [mx my]) pts)
-        small-bb (utils/bounds-of-pts xpts)
-        large-bb (utils/bounds-of-pts obb)]
+        bb (u/bounds-of-pts pts)
+        obb (mapv #(u/rotate-pt-around-center % deg [mx my]) bb)
+        xpts (mapv #(u/rotate-pt-around-center % deg [mx my]) pts)
+        small-bb (u/bounds-of-pts xpts)
+        large-bb (u/bounds-of-pts obb)]
     ;; not accurate, but good enough for now
     ;; take the bb to be the average between the small and large
-    (utils/bounds-of-pts (mapv #(utils/centroid-of-pts [%1 %2]) small-bb large-bb))))
+    (u/bounds-of-pts (mapv #(u/centroid-of-pts [%1 %2]) small-bb large-bb))))
 
 (defmethod bounds :line
   [[_ props]]
   (let [a (mapv #(get props %) [:x1 :y1])
         b (mapv #(get props %) [:x2 :y2])]
-    (utils/bounds-of-pts [a b])))
+    (u/bounds-of-pts [a b])))
 
 (defmethod bounds :polygon
   [[_ props]]
-  (let [pts (mapv utils/s->v (str/split (:points props) #" "))]
-    (utils/bounds-of-pts pts)))
+  (let [pts (mapv u/s->v (str/split (:points props) #" "))]
+    (u/bounds-of-pts pts)))
 
 (defmethod bounds :polyline
   [[_ props]]
-  (let [pts (mapv utils/s->v (str/split (:points props) #" "))]
-    (utils/bounds-of-pts pts)))
+  (let [pts (mapv u/s->v (str/split (:points props) #" "))]
+    (u/bounds-of-pts pts)))
 
 (defmethod bounds :rect
   [[_ props]]
-  (let [xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
+  (let [xf (u/str->xf-map (get props :transform "rotate(0 0 0)"))
         deg (get-in xf [:rotate 0])
         mx (get-in xf [:rotate 1])
         my (get-in xf [:rotate 2])
@@ -150,12 +151,12 @@
              [(+ x w) y]
              [(+ x w) (+ y h)]
              [x (+ y h)]]
-        xpts (mapv #(utils/rotate-pt-around-center % deg [mx my]) pts)]
-    (utils/bounds-of-pts xpts)))
+        xpts (mapv #(u/rotate-pt-around-center % deg [mx my]) pts)]
+    (u/bounds-of-pts xpts)))
 
 (defmethod bounds :image
   [[_ props]]
-  (let [xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
+  (let [xf (u/str->xf-map (get props :transform "rotate(0 0 0)"))
         deg (get-in xf [:rotate 0])
         mx (get-in xf [:rotate 1])
         my (get-in xf [:rotate 2])
@@ -167,14 +168,14 @@
              [(+ x w) y]
              [(+ x w) (+ y h)]
              [x (+ y h)]]
-        xpts (mapv #(utils/rotate-pt-around-center % deg [mx my]) pts)]
-    (utils/bounds-of-pts xpts)))
+        xpts (mapv #(u/rotate-pt-around-center % deg [mx my]) pts)]
+    (u/bounds-of-pts xpts)))
 
 ;; this is not done yet. Text in general needs a redo.
 ;; Austin is a headless browser that may help with .getBBox???
 (defmethod bounds :text
   [[_ {:keys [x y font-size ] :as props} text]]
-  (let [xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
+  (let [xf (u/str->xf-map (get props :transform "rotate(0 0 0)"))
         deg (get-in xf [:rotate 0])
         ar 0.6
         h (read-string (str font-size))
@@ -184,8 +185,8 @@
              [(+ x hw) (- y hh)]
              [(+ x hw) (+ y hh)]
              [(- x hw) (+ y hh)] ]
-        xpts (mapv #(utils/rotate-pt-around-center % deg [x y]) pts)]
-    (utils/bounds-of-pts xpts)))
+        xpts (mapv #(u/rotate-pt-around-center % deg [x y]) pts)]
+    (u/bounds-of-pts xpts)))
 
 (defmethod bounds :path
   [elem]
@@ -194,18 +195,14 @@
 (declare bounds)
 (defmethod bounds :g
   [[_ _ & content]]
-  (utils/bounds-of-pts (mapcat bounds content)))
-
-(defn bb-dims
-  [element]
-  (let [[[xmin ymin] _ [xmax ymax] _] (bounds element)]
-    [(- xmax xmin) (- ymax ymin)]))
+  (u/bounds-of-pts (mapcat bounds content)))
 
 (defn- get-props
   [props]
-  (merge {:rotate [0 0 0]} (utils/str->xf-map (get props :transform))))
+  (merge {:rotate [0 0 0]} (u/str->xf-map (get props :transform))))
 
 (defmulti translate
+  "Translates `element` by [`x` `y`]."
   (fn [element _]
     (if (keyword? (first element))
       (first element)
@@ -224,7 +221,7 @@
                    (assoc-in [:rotate 1] (+ x cx))
                    (assoc-in [:rotate 2] (+ y cy)))
         new-props (-> props
-                      (assoc :transform (utils/xf-map->str new-xf))
+                      (assoc :transform (u/xf-map->str new-xf))
                       (update :cx + x)
                       (update :cy + y))]
     [k new-props]))
@@ -238,7 +235,7 @@
                    (assoc-in [:rotate 1] (+ x cx))
                    (assoc-in [:rotate 2] (+ y cy)))
         new-props (-> props
-                      (assoc :transform (utils/xf-map->str new-xf))
+                      (assoc :transform (u/xf-map->str new-xf))
                       (update :cx + x)
                       (update :cy + y))]
     [k new-props]))
@@ -254,18 +251,18 @@
 
 (defmethod translate :polygon
   [[k props] [x y]]
-  (let [pts (mapv utils/s->v (str/split (:points props) #" "))
+  (let [pts (mapv u/s->v (str/split (:points props) #" "))
         xpts (->> pts
-                  (map (partial utils/v+ [x y]))
-                  (map utils/v->s))]
+                  (map (partial u/v+ [x y]))
+                  (map u/v->s))]
     [k (assoc props :points (str/join " " xpts))]))
 
 (defmethod translate :polyline
   [[k props] [x y]]
-  (let [pts (mapv utils/s->v (str/split (:points props) #" "))
-        xpts (->> pts 
-                  (map (partial utils/v+ [x y]))
-                  (map utils/v->s))]
+  (let [pts (mapv u/s->v (str/split (:points props) #" "))
+        xpts (->> pts
+                  (map (partial u/v+ [x y]))
+                  (map u/v->s))]
     [k (assoc props :points (str/join " " xpts))]))
 
 (defmethod translate :rect
@@ -276,7 +273,7 @@
                    (assoc-in [:rotate 1] (+ cx x))
                    (assoc-in [:rotate 2] (+ cy y)))
         new-props (-> props
-                      (assoc :transform (utils/xf-map->str new-xf))
+                      (assoc :transform (u/xf-map->str new-xf))
                       (update :x + x)
                       (update :y + y))]
     [k new-props]))
@@ -289,7 +286,7 @@
                    (assoc-in [:rotate 1] (+ cx x))
                    (assoc-in [:rotate 2] (+ cy y)))
         new-props (-> props
-                      (assoc :transform (utils/xf-map->str new-xf))
+                      (assoc :transform (u/xf-map->str new-xf))
                       (update :x + x)
                       (update :y + y))]
     [k new-props]))
@@ -301,7 +298,7 @@
                    (update-in [:rotate 1] + x)
                    (update-in [:rotate 2] + y))
         new-props (-> props
-                      (assoc :transform (utils/xf-map->str new-xf))
+                      (assoc :transform (u/xf-map->str new-xf))
                       (update :x + x)
                       (update :y + y))]
     [k new-props text]))
@@ -325,10 +322,11 @@
   (let [xf (get-props props)
         new-xf (-> xf
                    (update-in [:rotate 0] + deg))
-        new-props (assoc props :transform (utils/xf-map->str new-xf))]
+        new-props (assoc props :transform (u/xf-map->str new-xf))]
     (vec (filter (complement nil?) [k new-props (when content content)]))))
 
 (defmulti rotate
+  "Rotate `element` by `deg` degrees around its centroid."
   (fn [element _]
     (if (keyword? (first element))
       (first element)
@@ -350,33 +348,33 @@
   [[k props] deg]
   (let [pts [[(:x1 props) (:y1 props)] [(:x2 props) (:y2 props)]]
         [[x1 y1] [x2 y2]]  (->> pts
-                                (map #(utils/v- % (utils/centroid-of-pts pts)))
-                                (map #(utils/rotate-pt % deg))
-                                (map #(utils/v+ % (utils/centroid-of-pts pts))))
+                                (map #(u/v- % (u/centroid-of-pts pts)))
+                                (map #(u/rotate-pt % deg))
+                                (map #(u/v+ % (u/centroid-of-pts pts))))
         new-props (assoc props :x1 x1 :y1 y1 :x2 x2 :y2 y2)]
     [k new-props]))
 
 (defmethod rotate :polygon
   [[k props] deg]
   (let [ctr (centroid [k props])
-        pts (mapv utils/s->v (str/split (:points props) #" "))
+        pts (mapv u/s->v (str/split (:points props) #" "))
         xpts (->> pts
-                  (map #(utils/v- % ctr))
-                  (map #(utils/rotate-pt % deg))
-                  (map #(utils/v+ % ctr))
-                  (map utils/v->s))
+                  (map #(u/v- % ctr))
+                  (map #(u/rotate-pt % deg))
+                  (map #(u/v+ % ctr))
+                  (map u/v->s))
         xprops (assoc props :points (str/join " " xpts))]
     [k xprops]))
 
 (defmethod rotate :polyline
   [[k props] deg]
   (let [ctr (centroid [k props])
-        pts (mapv utils/s->v (str/split (:points props) #" "))
+        pts (mapv u/s->v (str/split (:points props) #" "))
         xpts (->> pts
-                  (map #(utils/v- % ctr))
-                  (map #(utils/rotate-pt % deg))
-                  (map #(utils/v+ % ctr))
-                  (map utils/v->s))
+                  (map #(u/v- % ctr))
+                  (map #(u/rotate-pt % deg))
+                  (map #(u/v+ % ctr))
+                  (map u/v->s))
         xprops (assoc props :points (str/join " " xpts))]
     [k xprops]))
 
@@ -388,7 +386,7 @@
                    (update-in [:rotate 0] + deg)
                    (assoc-in  [:rotate 1] cx)
                    (assoc-in  [:rotate 2] cy))
-        new-props (assoc props :transform (utils/xf-map->str new-xf))]
+        new-props (assoc props :transform (u/xf-map->str new-xf))]
     [k new-props]))
 
 (defmethod rotate :image
@@ -399,7 +397,7 @@
                    (update-in [:rotate 0] + deg)
                    (assoc-in  [:rotate 1] cx)
                    (assoc-in  [:rotate 2] cy))
-        new-props (assoc props :transform (utils/xf-map->str new-xf))]
+        new-props (assoc props :transform (u/xf-map->str new-xf))]
     [k new-props]))
 
 (defmethod rotate :text
@@ -412,30 +410,33 @@
 
 (defmethod rotate :g
   [[k props & content :as elem] deg]
-  (let [[gcx gcy] (utils/centroid-of-pts (bounds elem))
+  (let [[gcx gcy] (u/centroid-of-pts (bounds elem))
         xfcontent (for [child content]
                     (let [ch (translate child [(- gcx) (- gcy)])
                           ctr (if (= :g (first ch))
-                                (utils/centroid-of-pts (bounds ch))
+                                (u/centroid-of-pts (bounds ch))
                                 (centroid ch))
                           xfm (-> ctr
-                                  (utils/rotate-pt deg)
-                                  (utils/v+ [gcx gcy]))]
+                                  (u/rotate-pt deg)
+                                  (u/v+ [gcx gcy]))]
                       (-> ch
-                          (translate (utils/v* [-1 -1] ctr))
+                          (translate (u/v* [-1 -1] ctr))
                           (rotate deg)
                           (translate xfm))))]
     (into [k props] (filter (complement nil?) xfcontent))))
 
 (defn scale-by-transform
+  "Scale an element by using the SVG transform property.
+  This function is used to transform elements that cannot 'bake' the transform into their other geometric properties."
   [[k props & content] [sx sy]]
-  (let [xf (utils/str->xf-map (:transform props))
+  (let [xf (u/str->xf-map (:transform props))
         new-xf (-> xf
                    (update :scale (fnil #(map * [sx sy] %) [1 1])))
-        new-props (assoc props :transform (utils/xf-map->str new-xf))]
+        new-props (assoc props :transform (u/xf-map->str new-xf))]
     [k new-props] content))
 
 (defmulti scale
+  "Scale `element` by [`sx` `sy`] around its centroid."
   (fn [element _]
     (if (keyword? (first element))
       (first element)
@@ -488,20 +489,20 @@
 
 (defmethod scale :polygon
   [[k props :as elem] [sx sy]]
-  (let [pts (map vec (partition 2 (utils/s->v (:points props))))
+  (let [pts (map vec (partition 2 (u/s->v (:points props))))
         ctr (centroid elem)
         xpts (->> pts
-                  (map #(utils/scale-pt-from-center % [sx sy] ctr))
-                  (map utils/v->s))]
+                  (map #(u/scale-pt-from-center % [sx sy] ctr))
+                  (map u/v->s))]
     [k (assoc props :points (str/join " " xpts))]))
 
 (defmethod scale :polyline
   [[k props :as elem] [sx sy]]
-  (let [pts (map vec (partition 2 (utils/s->v (:points props))))
+  (let [pts (map vec (partition 2 (u/s->v (:points props))))
         ctr (centroid elem)
         xpts (->> pts
-                  (map #(utils/scale-pt-from-center % [sx sy] ctr))
-                  (map utils/v->s))]
+                  (map #(u/scale-pt-from-center % [sx sy] ctr))
+                  (map u/v->s))]
     [k (assoc props :points (str/join " " xpts))]))
 
 (defmethod scale :rect
@@ -541,7 +542,7 @@
                    (assoc-in [:rotate 1] (- x))
                    (assoc-in [:rotate 2] (- y)))
         new-props (-> props
-                      (assoc :transform (utils/xf-map->str new-xf))
+                      (assoc :transform (u/xf-map->str new-xf))
                       (assoc :x x)
                       (assoc :y y)
                       (update-in [:style :font-size] #(* % sx)))]
@@ -553,27 +554,29 @@
 
 #_(defmethod scale :g
   [[k props & content] [sx sy]]
-  (let [xf (utils/str->xf-map (:transform props))
+  (let [xf (u/str->xf-map (:transform props))
         new-xf (-> xf
                    (update :scale (fnil #(map * [sx sy] %) [1 1])))
-        new-props (assoc props :transform (utils/xf-map->str new-xf))]
+        new-props (assoc props :transform (u/xf-map->str new-xf))]
     (into [k new-props] content)))
 
 (defmethod scale :g
   [[k props & content :as elem] [sx sy]]
-  (let [g-ctr (utils/centroid-of-pts (bounds elem))
+  (let [g-ctr (u/centroid-of-pts (bounds elem))
         xfcontent (for [child content]
                     (let [elem-ctr (if (= :g (first child))
-                                     (utils/centroid-of-pts (bounds child))
+                                     (u/centroid-of-pts (bounds child))
                                      (centroid child))
                           ch (-> child
-                                 (translate (utils/v* [-1 -1] elem-ctr))
+                                 (translate (u/v* [-1 -1] elem-ctr))
                                  (scale [sx sy]))
-                          elem-v (utils/v- elem-ctr g-ctr)]
-                      (-> ch (translate (utils/v+ (utils/v* [sx sy] elem-v) g-ctr)))))]
+                          elem-v (u/v- elem-ctr g-ctr)]
+                      (-> ch (translate (u/v+ (u/v* [sx sy] elem-v) g-ctr)))))]
     (into [k props] (filter (complement nil?) xfcontent))))
 
 (defmulti offset
+  "Offset the boundary of `element` by distance `d`.
+  The offset direction is always normal to the boundary, pointing outward if the path is wound in a CCW direction around the element's centroid."
   (fn [element _]
     (if (keyword? (first element))
       (first element)
@@ -611,7 +614,7 @@
 
 (defmethod offset :line
   [[k {:keys [x1 y1 x2 y2] :as props}] d]
-  (let [[[nx1 ny1] [nx2 ny2]] (utils/offset-edge [[x1 y1] [x2 y2]] d)
+  (let [[[nx1 ny1] [nx2 ny2]] (u/offset-edge [[x1 y1] [x2 y2]] d)
         new-props (-> props
                       (assoc :x1 nx1)
                       (assoc :y1 ny1)
@@ -621,16 +624,80 @@
 
 (defmethod offset :polygon
   [[k {:keys [points] :as props}] d]
-  (let [pts (map vec (partition 2 (utils/s->v points)))
-        opts (utils/offset-pts pts d)
-        npoints (str/join " " (map utils/v->s opts))
+  (let [pts (map vec (partition 2 (u/s->v points)))
+        opts (u/offset-pts pts d)
+        npoints (str/join " " (map u/v->s opts))
         new-props (assoc props :points npoints)]
     [k new-props]))
 
 (defmethod offset :polyline
   [[k {:keys [points] :as props}] d]
-  (let [pts (map vec (partition 2 (utils/s->v points)))
-        opts (utils/offset-pts pts d)
-        npoints (str/join " " (map utils/v->s opts))
+  (let [pts (map vec (partition 2 (u/s->v points)))
+        opts (u/offset-pts pts d)
+        npoints (str/join " " (map u/v->s opts))
         new-props (assoc props :points npoints)]
     [k new-props]))
+
+(defmulti ^:private offset-path-command
+  "Offset the path command `cmd`."
+  (fn [cmd _]
+    (:command cmd)))
+
+(defmethod offset-path-command "M"
+  [{:keys [:input] :as m} [x y]]
+  (assoc m :input (u/v+ [x y] input)))
+
+(defmethod offset-path-command "L"
+  [{:keys [:input] :as m} [x y]]
+  (assoc m :input (u/v+ [x y] input)))
+
+(defmethod offset-path-command "H"
+  [{:keys [:input] :as m} [x _]]
+  (assoc m :input (u/v+ [x] input)))
+
+(defmethod offset-path-command "V"
+  [{:keys [:input] :as m} [_ y]]
+  (assoc m :input (u/v+ [y] input)))
+
+;; x y x y x y because input will have the form:
+;; [x1 y1 x2 y2 x y] (first two pairs are control points)
+(defmethod offset-path-command "C"
+  [{:keys [:input] :as m} [x y]]
+  (assoc m :input (u/v+ [x y x y x y] input)))
+
+;; similar approach to above, but one control point is implicit
+(defmethod offset-path-command "S"
+  [{:keys [:input] :as m} [x y]]
+  (assoc m :input (u/v+ [x y x y] input)))
+
+(defmethod offset-path-command "Q"
+  [{:keys [:input] :as m} [x y]]
+  (assoc m :input (u/v+ [x y x y] input)))
+
+(defmethod offset-path-command "T"
+  [{:keys [:input] :as m} [x y]]
+  (assoc m :input (u/v+ [x y] input)))
+
+;; [rx ry xrot laf swf x y]
+;; rx, ry do not change
+;; xrot also no change
+;; large arc flag and swf again no change
+(defmethod offset-path-command "A"
+  [{:keys [:input] :as m} [x y]]
+  (let [[rx ry xrot laf swf ox oy] input]
+    (assoc m :input [rx ry xrot laf swf (+ x ox) (+ y oy)])))
+
+(defmethod offset-path-command "Z"
+  [cmd _]
+  cmd)
+
+(defmethod offset-path-command :default
+  [cmd a]
+  [cmd a])
+
+;; todo: TDD this offset implementation
+(defmethod offset :path
+  [[k props] d]
+  (let [cmds (path/path-str->cmds (:d props))
+        xcmds (map #(offset-path-command % d) cmds)]
+    [k (assoc props :d (path/cmds->path-string xcmds))]))

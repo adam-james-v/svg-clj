@@ -3,10 +3,18 @@
              [clojure.string :as str])
   :init (def windows? (str/starts-with? (System/getProperty "os.name")
                                         "Windows"))
+  lint
+  {:doc "Lint the project with clj-kondo"
+   :task (shell "clj-kondo --lint src/svg_clj examples")}
+
+  test
+  {:doc "Run the tests"
+   :task (shell "clj -M:test")}
+
   run-main
   {:doc "Run main"
    :task (apply clojure "-M -m svg-clj.cli" *command-line-args*)}
-  
+
   uberjar
   {:doc "Builds uberjar"
    :task (when (seq (fs/modified-since "svg_clj.jar" "src"))

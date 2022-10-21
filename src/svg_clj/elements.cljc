@@ -6,9 +6,7 @@
 
   One notable element which is not provided is `path`. Since path elements have a more complex property specification, the [[svg-clj.path]] namespace is dedicated to path element generation."
   (:require [clojure.string :as str]
-            [svg-clj.utils :as utils]))
-
-(def svg-element-keys utils/svg-element-keys)
+            [svg-clj.utils :as u]))
 
 (defn circle
   "Emits a circle element with radius `r` centered at the origin."
@@ -31,13 +29,13 @@
   "Emits a polygon element with 2d points from vector or list `pts`.
   Polygon elements have a closed path."
   [pts]
-  [:polygon {:points (str/join " " (map utils/v->s pts))}])
+  [:polygon {:points (str/join " " (map u/v->s pts))}])
 
 (defn polyline
   "Emits a polyline element with 2d points from vector or list `pts`.
   Polyline elements have an open path."
   [pts]
-  [:polyline {:points (str/join " " (map utils/v->s pts))}])
+  [:polyline {:points (str/join " " (map u/v->s pts))}])
 
 (defn rect
   "Emits a rect element of width `w` and height `h` centered at the origin."

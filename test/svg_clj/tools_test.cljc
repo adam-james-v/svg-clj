@@ -1,6 +1,6 @@
 (ns svg-clj.tools-test
   (:require [clojure.string :as str]
-            [svg-clj.utils :as utils]
+            [svg-clj.utils :as u]
             [svg-clj.path :as path]
             [svg-clj.transforms :as tf]
             [svg-clj.elements :as el]

@@ -1,50 +1,55 @@
 (ns svg-clj.layout
   "Provides functions for layout control of elements."
   (:require [svg-clj.elements :as el]
-            [svg-clj.utils :as utils]
-            [svg-clj.transforms :as tf]))
+            [svg-clj.transforms :as tf]
+            [svg-clj.utils :as u]))
 
 (defn distribute-linear
-  [axis-key gap items]
-  (let [dir (axis-key {:x first :y second})
+  "Distribute `elems` along the `axis` (either :x or :y) with a `gap` distance between each item."
+  [elems axis gap]
+  (let [getfn (axis {:x first :y second})
         distances
         (reductions +
-                    (map #(+ (/ (dir (tf/bb-dims %1)) 2)
-                             (/ (dir (tf/bb-dims %2)) 2) gap)
-                         items (rest items)))]
+                    (map #(+ (/ (getfn (u/bb-dims %1)) 2)
+                             (/ (getfn (u/bb-dims %2)) 2) gap)
+                         elems (rest elems)))]
     (el/g
-     (conj 
+     (conj
       (map
-       #(tf/translate %1 (if (= axis-key :x) 
+       #(tf/translate %1 (if (= axis :x)
                            [%2 0]
-                           [0 %2])) (rest items) distances)
-      (first items)))))
+                           [0 %2])) (rest elems) distances)
+      (first elems)))))
 
 (defn distribute-on-pts
-  [items pts]
-  (el/g (map #(-> %1 (tf/translate %2)) items pts)))
+  "Distribute the `elems` along the given `pts`. Each element is centered on its point."
+  [elems pts]
+  (el/g (map #(-> %1 (tf/translate %2)) elems pts)))
 
 (defn distribute-on-curve
-  [items curve]
-  (let [eps 0.000001
-        n (if (> (count items) 1) (dec (count items)) 1)
-        xf (fn [item t]
+  "Distribute the `elems` evenly along the given `curve`."
+  [elems curve]
+  (let [eps u/*eps*
+        n (if (> (count elems) 1) (dec (count elems)) 1)
+        xf (fn [elem t]
              (let [t (cond (<= (- 1 eps) t) (- 1 eps)
                            (> eps t) eps
                            :else t)
-                   n (utils/normal (curve (- t eps)) (curve (+ t eps)))
-                   a (utils/angle-from-pts n [0 0] [0 1])
-                   o (map #(utils/round % 4) (utils/rotate-pt (tf/centroid item) a))]
-               (-> item
+                   n (u/normal (curve (- t eps)) (curve (+ t eps)))
+                   a (u/angle-from-pts n [0 0] [0 1])
+                   o (map #(u/round % 4) (u/rotate-pt (tf/centroid elem) a))]
+               (-> elem
                    (tf/rotate a)
-                   (tf/translate (utils/v- (curve t) o (tf/centroid item))))))]
-    (map #(xf %1 (float (/ %2 n))) items (range 0 (inc n)))))
+                   (tf/translate (u/v- (curve t) o (tf/centroid elem))))))]
+    (map #(xf %1 (float (/ %2 n))) elems (range 0 (inc n)))))
 
 (defn pattern-on-pts
-  [item pts]
-  (el/g (map #(-> item (tf/translate %)) pts)))
+  "Repeat `elem`, centering on each point of `pts`."
+  [elem pts]
+  (el/g (map #(-> elem (tf/translate %)) pts)))
 
 (defn pattern-on-curve
-  [item curve n]
+  "Repeat `elem` evenly along `curve` `n` times."
+  [elem curve n]
   (let [step (/ 1.0 n)]
-    (map #(-> item (tf/translate (curve %))) (range 0 1.0 step))))
+    (map #(-> elem (tf/translate (curve %))) (range 0 1.0 step))))

@@ -10,40 +10,50 @@
 ** deps.edn
 #+NAME: deps.edn
 #+begin_src clojure :tangle ./deps.edn
-{:deps 
- {org.clojure/clojure  {:mvn/version "1.10.3"}
-  org.clojure/data.xml {:mvn/version "0.2.0-alpha6"}
-  #_#_same/ish             {:mvn/version "0.1.4"}
-  hiccup/hiccup        {:mvn/version "2.0.0-alpha2"}}
- 
+{:deps
+ {org.clojure/clojure            {:mvn/version "1.11.1"}
+  org.clojure/data.xml           {:mvn/version "0.2.0-alpha6"}
+  hiccup/hiccup                  {:mvn/version "2.0.0-alpha2"}
+  io.github.nextjournal/clerk    {:mvn/version "RELEASE"}
+  org.clojure/clojurescript      {:mvn/version "RELEASE"}
+  thheller/shadow-cljs           {:mvn/version "RELEASE"}
+  applied-science/js-interop     {:mvn/version "0.3.3"}
+  org.babashka/sci               {:mvn/version "0.3.5"}
+  reagent/reagent                {:mvn/version "1.1.1"}
+  io.github.babashka/sci.configs {:git/sha "fcd367c6a6115c5c4e41f3a08ee5a8d5b3387a18"}
+  io.github.nextjournal/viewers  {:git/sha "c88c97c9ad008b0c214e44523488fcfa0605e6d9"}
+  metosin/reitit-frontend        {:mvn/version "0.5.15"}
+  adam-james-v/eyebrowse         {:local/root "/Users/adam/dev/work/eyebrowse"}}
+
  :aliases
  {:test
   {:extra-paths ["test"]
-   :extra-deps {org.clojure/test.check {:mvn/version "1.1.0"}
-                com.cognitect/test-runner
-                {:git/url "https://github.com/cognitect-labs/test-runner.git"
-                 :sha "209b64504cb3bd3b99ecfec7937b358a879f55c1"}}
-   :main-opts ["-m" "cognitect.test-runner"]}
-  
+   :extra-deps  {org.clojure/test.check {:mvn/version "1.1.0"}
+                 com.cognitect/test-runner
+                 {:git/url "https://github.com/cognitect-labs/test-runner.git"
+                  :sha     "209b64504cb3bd3b99ecfec7937b358a879f55c1"}}
+   :main-opts   ["-m" "cognitect.test-runner"]}
+
   :jar
   {:replace-deps {com.github.seancorfield/depstar {:mvn/version "2.1.245"}}
-   :exec-fn hf.depstar/jar
-   :exec-args {}}
+   :exec-fn      hf.depstar/jar
+   :exec-args    {}}
 
   :release
   {:extra-deps {applied-science/deps-library {:mvn/version "0.4.0"}}
-   :main-opts ["-m" "applied-science.deps-library"]}}}
-
+   :main-opts  ["-m" "applied-science.deps-library"]}}}
 #+end_src
 
 ** release.edn
 For now, to make a release to clojars, do the following:
 
-0. Git commit and push latest changes
-1. rm pom.xml from project root dir
-2. git tag (currently 0.0.10)
+1. lint with ~clj-kondo --lint src/svg_clj examples~ FIX ISSUES
+2. run tests with ~clj -M:test~ FIX ISSUES
+3. Git commit and push latest changes
+4. rm pom.xml from project root dir
+5. git tag (currently 0.0.10)
    - you can only re-use snapshot tags... so if you're making tiny changes, do it on snapshots. Then, when you feel it's appropriate, push a proper update by incrementing the Major.Minor.Patch (whichever makes sense).
-3. clj -M:release will push to clojars
+6. ~clj -M:release~ will push to clojars
 
 NOTE TO SELF: This seems like a good thing to wrap in a bb.edn task to make things a bit cleaner and clearer.
 
@@ -54,6 +64,38 @@ As well, be sure to write a note about where the deploy token secret is configur
 {:group-id "io.github.adam-james-v"
  :artifact-id "svg-clj"
  :scm-url "https://github.com/adam-james-v/svg-clj"}
+#+end_src
+
+** .clj-kondo/config.edn
+#+begin_src clojure :tangle ./.clj-kondo/config.edn
+{:linters {:refer-all                    {:level   :warning
+                                          :exclude [clojure.test]}
+           :missing-else-branch          {:level :warning}
+           :misplaced-docstring          {:level :warning}
+           :non-arg-vec-return-type-hint {:level :warning}
+           :missing-body-in-when         {:level :warning}
+           :missing-docstring            {:level :warning}
+           :namespace-name-mismatch      {:level :warning}
+           :use                          {:level :warning}
+           :unsorted-required-namespaces {:level :warning}
+           :consistent-alias             {:aliases {clojure.string     str
+                                                    hiccup.core        hiccup
+                                                    svg-clj.algorithms alg
+                                                    svg-clj.composites comp
+                                                    svg-clj.elements   el
+                                                    svg-clj.layout     lo
+                                                    svg-clj.parametric p
+                                                    svg-clj.path       path
+                                                    svg-clj.tools      tools
+                                                    svg-clj.transforms tf
+                                                    svg-clj.utils      u}}}
+
+ :ns-groups [{:pattern "examples.*" :name examples}]
+ :config-in-ns {examples {:linters {:missing-docstring {:level :off}}}}
+
+ :config-in-comment
+ {:linters {:unresolved-symbol {:level :off}}}}
+
 #+end_src
 
 ** build-cmds
@@ -69,10 +111,18 @@ clojure -X:jar :jar svg-clj.jar
              [clojure.string :as str])
   :init (def windows? (str/starts-with? (System/getProperty "os.name")
                                         "Windows"))
+  lint
+  {:doc "Lint the project with clj-kondo"
+   :task (shell "clj-kondo --lint src/svg_clj examples")}
+
+  test
+  {:doc "Run the tests"
+   :task (shell "clj -M:test")}
+
   run-main
   {:doc "Run main"
    :task (apply clojure "-M -m svg-clj.cli" *command-line-args*)}
-  
+
   uberjar
   {:doc "Builds uberjar"
    :task (when (seq (fs/modified-since "svg_clj.jar" "src"))
@@ -114,7 +164,7 @@ This blossom is produced with the following code:
             [svg-clj.parametric :as p]
             [svg-clj.layout :as lo]
             #?(:clj [svg-clj.tools :as tools])))
-            
+
 (defn flip-y
   [pts]
   (mapv #(utils/v* % [1 -1]) pts))
@@ -234,7 +284,7 @@ NOTE: check that you're grabbing the version you want.
 ## Design
 The library uses hiccup syntax to represent the SVG diagrams being created. The user writes functional code to define various elements of the SVG and has access to transformations via utility functions.
 
-Since the library functions emit hiccup data structures, the user can extend and manipulate their data using other clojure libraries or their own functions. 
+Since the library functions emit hiccup data structures, the user can extend and manipulate their data using other clojure libraries or their own functions.
 
 The library has two main categories of functions:
 
@@ -251,7 +301,7 @@ The library has two main categories of functions:
   - text
   - g
   - composites (custom functions using shapes.. eg. arrow)
-  
+
 - transforms and property calcs
   - centroid
   - bounds
@@ -271,16 +321,16 @@ I've annotated a ns declaration to help make sense of where you can find various
   (:require
     ;; math helpers, simple data manip helpers
     [svg-clj.utils :as utils]
-    
+
     ;; all of the shape functions like rect, circle, polygon, etc.
     [svg-clj.elements :as el]
-    
+
     ;; all of the transforms, including path specific fns
     [svg-clj.transforms :as tf]
-    
+
     ;; shapes built from other shapes, AND the svg container fn
     [svg-clj.composites :as comp :refer [svg]]
-    
+
     ;; draw elements using path instead, and has the 'commands' path DSL
     ;; also has arc and bezier drawing fns
     [svg-clj.path :as path]
@@ -317,12 +367,12 @@ This is not quite a straight wrapper for SVG functionality. I have altered the d
 
 For example, a rectangle is drawn centered around the orgin by default. Plain SVG rectangles draw with the first corner located at the origin by default.
 
-All rotations are applied to shapes locally by default. This means that a circle at [10 0] rotated by 90 deg will not appear to move using svg-clj; the shape itself is being spun around it's center, but that center point is not moving. Default SVG behaviour rotates around the origin by default. So, any elements offset from the orgin will move large distances away from their starting positions. 
+All rotations are applied to shapes locally by default. This means that a circle at [10 0] rotated by 90 deg will not appear to move using svg-clj; the shape itself is being spun around it's center, but that center point is not moving. Default SVG behaviour rotates around the origin by default. So, any elements offset from the orgin will move large distances away from their starting positions.
 
 This choice was made because it feels more intuitive (to me, at least) to draw with local transformation operations in mind.
 
 ## Threading
-Greencoder (one of my Twitch viewers) sent several twitter DMs with some criticisms/feedback. All have been appropriately addressed, but I wanted to highlight his thoughts regarding my use of threading macros. 
+Greencoder (one of my Twitch viewers) sent several twitter DMs with some criticisms/feedback. All have been appropriately addressed, but I wanted to highlight his thoughts regarding my use of threading macros.
 
 "thread last macro should be kept for stream operations to compose better with other fns. I think that translate-element should take elem as first argument."
 - GreenCoder (Twitch handle)
@@ -359,19 +409,102 @@ Proper documentation is, naturally, a key element in bringing this project from 
 #+END_SRC
 
 * admin
-** roadmap
-Some features that are planned for implementation.
+** get to 1.0
+To get to a 1.0 release:
+- [ ] drawing-repl-v1
+- [ ] thorough unit tests for all namespaces
+  - [ ] utils
+  - [ ] elements
+  - [ ] path
+  - [ ] transforms
+  - [ ] composites
+  - [ ] algorithms
+  - [ ] parametric
+  - [ ] layout
+  - [ ] tools
+- [ ] clear all ;;todos in code
+- [ ] make a working b-spline implementation in parametric.cljc
+- [ ] tapered-stroke-pts in parametric.cljc
+- [ ] add a few more useful layout functions in layout.cljc
+- [ ] improve linear distribute function in layout.cljc
+- [ ] consider adding a few more useful tools.cljc functions??
+- [ ] architecture Check/rework
+  - [ ] composites -> maybe rename or otherwise move/rework the necessity of some of these
+  - [ ] offset -> path elements especially
+  - [ ] path->element and element->path round tripping needs to work
+  - [ ] path transforms -> add rel->abs abs->rel and make things simpler to use
+  - [ ] create some quality of life improvements for the parametric fns (macro?)
+  - [ ] fix blending/easing to work in expected ways, document better
+- [ ] integration tests where they make sense
+- [ ] up to date Readme
+- [ ] better, faster, smoother online interactive page
+- [ ] clean up the GitHub page
+  - [ ] better issues
+  - [ ] wiki?
+  - [ ] clear contribution instructions
+- [ ] examples for every ns
+  - [ ] utils
+  - [ ] elements
+  - [ ] path
+  - [ ] transforms
+  - [ ] composites
+  - [ ] algorithms
+  - [ ] parametric
+  - [ ] layout
+  - [ ] tools
+- [ ] works in .clj and .cljs
+- [ ] reasonably efficient calcs
+  - [ ] algorithms ns needs efficieny improvement
+  - [ ] utils and some math related fns could use improvement
+- [x] clj-kondo default setup
+- [x] make sure there are good aliases for:
+  - [x] tests
+  - [x] linting -> set up a bb task ~bb run lint~
+- [x] fix lint errors for every NS
+  - [x] utils
+  - [x] elements
+  - [x] path
+  - [x] transforms
+  - [x] composites
+  - [x] algorithms
+  - [x] parametric
+  - [x] layout
+  - [x] tools
+  - [x] examples namespaces
 
-*** candidate-features
-Some features that might be added. 
-    
-- drawing features  
-  - regular-polygon-pts  
+** drawing-repl v1
+This idea should ship with my v1 because it's cool and (hopefully) quite useful.
+
+Use Clerk to power a notebook server that is always looking at the file (or folder) you pass in via the alias command, eg. ~clj -A:draw :drawing my-drawing.clj~ or maybe it has to be -X? Don't know yet.
+
+Then, this notebook is started with some special viewers built in that will properly render every SVG element this library has. And the cool part: every viewer will have interactivity! For example, the circle viewer will let you adjust the radius. Initially, I think with a slider, but ideally with a node on the image itself.
+
+The interactive views will have a 'save to file' button that will take the state's value and save it back to the file.
+
+At this point, the entire file is saved again and Clerk will re-eval. This way, you get two-way control. If you change the value yourself in the file, the UI will always follow the file, but any change in the UI can be saved too!
+
+What would be a cool set of stretch goals:
+- parameter macro that builds a UI for its body
+-
+
+** feature ideas
+Some features that might be added.
+
+- interactivity
+  - macros for setting up interactive blocks
+    - reagent? pure js?
+    - some Java Swing?
+    - TUI interactivity?
+- macros?
+  - ??
+- quality of life dynamic vars
+  - default style -> dynamically bound for easy changing
+  - rounding (default 5 places?)
+- drawing features
   - offset
 - 'composite' shapes and containers
   - arrows
   - dimensions
-  - figure containers
 
 ** misc-notes
 Remember in REPL you can't re-def the defmulti dispatch function with some ns magic.
@@ -380,7 +513,7 @@ https://clojuredocs.org/clojure.core/defmulti#example-55d9e498e4b0831e02cddf1b
 
 #+begin_src clojure
 (defmulti x (fn[_] :dec)) ;; Can't redefine
-(x 0) ;; => 1 ;; STILL 
+(x 0) ;; => 1 ;; STILL
 (ns-unmap *ns* 'x) ;; => unmap the var from the namespace
 
 #+end_src
@@ -397,7 +530,7 @@ Config would control:
 
 * design
 ** intent
-The purpose of this library is to allow users to create simple functional programs that compile to SVG elements. 
+The purpose of this library is to allow users to create simple functional programs that compile to SVG elements.
 
 The expected kinds of input are .clj files with svg-clj code, STDIN with svg-clj code. The expected output is hiccup-style clojure data structures, and optionally a compiled SVG string to file or STDOUT.
 
@@ -406,7 +539,7 @@ Basically, this is just a library, but I will add a small CLI interface and crea
 ** structure
 The library uses hiccup syntax to represent the SVG diagrams being created. The user writes functional code to define various elements of the SVG and has access to transformations via utility functions.
 
-Since the library functions emit hiccup data structures, the user can extend and manipulate their data using other clojure libraries or their own functions. 
+Since the library functions emit hiccup data structures, the user can extend and manipulate their data using other clojure libraries or their own functions.
 
 The library has two main categories of functions:
 
@@ -423,7 +556,7 @@ The library has two main categories of functions:
   - text
   - g
   - composites (custom functions using shapes.. eg. arrow)
-  
+
 - transforms/property calcs
   - centroid
   - bounds
@@ -457,14 +590,14 @@ This is not quite a straight wrapper for SVG functionality. I have altered the d
 
 For example, a rectangle is drawn centered around the orgin by default. Plain SVG rectangles draw with the first corner located at the origin by default.
 
-All rotations are applied to shapes locally by default. This means that a circle at [10 0] rotated by 90 deg will not appear to move using svg-clj; the shape itself is being spun around it's center, but that center point is not moving. Default SVG behaviour rotates around the origin by default. So, any elements offset from the orgin will move large distances away from their starting positions. 
+All rotations are applied to shapes locally by default. This means that a circle at [10 0] rotated by 90 deg will not appear to move using svg-clj; the shape itself is being spun around it's center, but that center point is not moving. Default SVG behaviour rotates around the origin by default. So, any elements offset from the orgin will move large distances away from their starting positions.
 
 This choice was made because it feels more intuitive (to me, at least) to draw with local transformation operations in mind.
 
 As much as possible, all transformations are 'baked' into shape properties directly.
 
 ** Threading
-Greencoder (one of my Twitch viewers) sent several twitter DMs with some criticisms/feedback. All have been appropriately addressed, but I wanted to highlight his thoughts regarding my use of threading macros. 
+Greencoder (one of my Twitch viewers) sent several twitter DMs with some criticisms/feedback. All have been appropriately addressed, but I wanted to highlight his thoughts regarding my use of threading macros.
 
 "thread last macro should be kept for stream operations to compose better with other fns. I think that translate-element should take elem as first argument."
 - GreenCoder (Twitch handle)
@@ -479,11 +612,9 @@ So, to keep the mental model the same, I have designed my transform fns to alway
 ** ns
 #+begin_src clojure :tangle ./src/svg_clj/utils.cljc
 (ns svg-clj.utils
-  (:require [clojure.string :as str]
-            [clojure.data.xml :as xml]
-            [clojure.walk :refer [postwalk]]
+  (:require [clojure.data.xml :as xml]
+            [clojure.string :as str]
             [clojure.zip :as zip]
-            #_[same :refer [zeroish?]]
             #?(:cljs
                [cljs.reader :refer [read-string]])))
 
@@ -491,46 +622,57 @@ So, to keep the mental model the same, I have designed my transform fns to alway
 
 ** zeroish
 #+begin_src clojure :tangle ./src/svg_clj/utils.cljc
+(def ^:dynamic *eps*
+  "Epsilon Value where any floating point value less than `*eps*` will be considered zero."
+  0.00001)
+
 (defn zeroish?
+  "`True` if the absolute value of number `x` is less than `*eps*`, which is 0.00001 by default."
   [x]
-  (let [eps 0.00001]
-    (< (Math/abs x) eps)))
+  (< (abs x) *eps*))
 
 #+end_src
 
 ** basic-helpers
 #+begin_src clojure :tangle ./src/svg_clj/utils.cljc
-(def ^:dynamic *rounding* nil)
+(def ^:dynamic *rounding-decimal-places*
+  "The number of decimal places the `round` funciton will round to."
+  5)
 
-(def abs #?(:clj #(Math/abs %)  :cljs js/Math.abs))
-(def pow #?(:clj #(Math/pow %1 %2) :cljs js/Math.pow))
+(def pow
+  "Implementation for clj/cljs `pow` function."
+  #?(:clj #(Math/pow %1 %2)
+     :cljs js/Math.pow))
 
 (defn round
   "Rounds a non-integer number `num` to `places` decimal places."
   ([num]
-   (round num *rounding*))
+   (round num *rounding-decimal-places*))
   ([num places]
    (if places
      (let [d #?(:clj (bigdec (Math/pow 10 places))
                 :cljs (Math/pow 10 places))]
-       (double (/ (Math/round (* num d)) d)))
+       (double (/ (Math/round (* (double num) d)) d)))
      num)))
 
 ;; vector arithmetic helpers
-(def v+ (partial mapv +))
-(def v- (partial mapv -))
-(def v* (partial mapv *))
+(def v+ "Add vectors element-wise." (partial mapv +))
+(def v- "Subtract vectors element-wise." (partial mapv -))
+(def v* "Multiply vectors element-wise." (partial mapv *))
 
 ;; simple calcs
 (defn to-deg
+  "Convert `rad` radians to degrees."
   [rad]
   (round (* rad (/ 180 Math/PI))))
 
 (defn to-rad
+  "Convert `deg` degrees to radians."
   [deg]
   (round (* deg (/ Math/PI 180))))
 
 (defn average
+  "Compute the average of `numbers`."
   [& numbers]
   (let [n (count numbers)]
     (round (/ (apply + numbers) n))))
@@ -554,11 +696,19 @@ So, to keep the mental model the same, I have designed my transform fns to alway
       (#(filter (complement empty?) %))
       (#(mapv read-string %))))
 
-(defn xf-kv->str
+(defn- xf-kv->str
+  "Formats a key value pair [`k` `v`] from a transform map into an inline-able string.
+  Example:
+
+  [:rotate [0 90 0]] -> \"rotate(0 90 0)\""
   [[k v]]
   (str (symbol k) (apply list v)))
 
-(defn str->xf-kv
+(defn- str->xf-kv
+  "Formats an SVG transform string `s` into a key value pair. The opposite of `xf-kv->str`.
+  Example:
+
+  \"rotate(0 90 0)\" -> [:rotate [0 90 0]]"
   [s]
   (let [split (str/split s #"\(")
         key (keyword (first split))
@@ -566,16 +716,15 @@ So, to keep the mental model the same, I have designed my transform fns to alway
     [key val]))
 
 (defn xf-map->str
-  "Turn transform maps from an element's properties into a string properly formatted for use inline in an svg element tag.
-
-  Consider this an internal tool."
+  "Turn transform maps from an element's properties into a string properly formatted for use inline in an svg element tag. Consider this an internal tool."
   [m]
   (str/join "\n" (map xf-kv->str m)))
 
 (defn str->xf-map
+  "Turn inline SVG transform strings from an element's properties into a map in a form which the transforms namespace expects. Consider this an internal tool."
   [s]
   (if-let [s s]
-    (into {} 
+    (into {}
           (->> s
                (#(str/replace % #"\)" ")\n"))
                str/split-lines
@@ -615,19 +764,19 @@ So, to keep the mental model the same, I have designed my transform fns to alway
     (round (Math/sqrt ^double v2))))
 
 (defn distance-squared
+  "Computes the squared distance between two points `a` and `b`. Avoids a square-root calculation, so this can be used in some cases for optimization."
   [a b]
   (let [v (v- b a)]
     (reduce + (v* v v))))
 
 (defn determinant
-  [a b]
-  (- (* (first a) (second b))
-     (* (second a) (first b))))
+  "Computes the determinant between two 2D points `a` and `b`."
+  [[a b] [c d]]
+  (- (* a d)
+     (* b c)))
 
-;; this fn name doesn't make sense? It inverts y, which is not
-;; the same as giving a perpendicular line
-;; maybe call it 'invert-y' or 'vertical-flip'
 (defn perpendicular
+  "Returns a vector perpendicular to the vector [`x` `y`]."
   [[x y]]
   [(- y) x])
 
@@ -662,11 +811,10 @@ So, to keep the mental model the same, I have designed my transform fns to alway
          dy (- y2 y1)]
      [(- dy) dx]))
   ([a b c]
-   (let [eps 0.00001
-         ab (v- a b)
+   (let [ab (v- a b)
          ac (v- a c)
          [x y z] (cross* ab ac)]
-     (when (and (> x eps) (> y eps) (> z eps))
+     (when (and (> x *eps*) (> y *eps*) (> z *eps*))
        [x y z]))))
 
 (defn normalize
@@ -703,8 +851,8 @@ Put another way, the angle is measured following the 'right hand rule' around p2
   [p1 p2 p3]
   (let [v1 (v- p1 p2)
         v2 (v- p3 p2)
-        [v1nx v1ny] (normalize v1)
-        [v2nx v2ny] (normalize v2)
+        [v1nx _] (normalize v1)
+        [v2nx _] (normalize v2)
         l1 (distance p1 p2)
         l2 (distance p3 p2)
         n (dot* v1 v2)
@@ -719,7 +867,7 @@ Put another way, the angle is measured following the 'right hand rule' around p2
           (and (= "nnnn" quadrants) (< v2nx v1nx)) a
           (and (= "pnpn" quadrants) (< v2nx v1nx)) a
           ;; within same quadrant
-          (#{"p_p_" "ppp_" "_ppp" "p_pn"} quadrants) a 
+          (#{"p_p_" "ppp_" "_ppp" "p_pn"} quadrants) a
           (#{"_p_p" "np_p" "n_np"} quadrants) a
           (#{"n_n_" "nnn_" "_nnn"} quadrants) a
           (#{"_n_n" "pn_n" "pnp_"} quadrants) a
@@ -730,10 +878,10 @@ Put another way, the angle is measured following the 'right hand rule' around p2
           ;; 90 degrees away on axes
           (#{"_pp_" "n__p" "_nn_" "p__n"} quadrants) a
           ;; two quadrants away
-          (and (= "ppnn" quadrants) (> (Math/abs v1nx) (Math/abs v2nx))) a
-          (and (= "nnpp" quadrants) (> (Math/abs v1nx) (Math/abs v2nx))) a
-          (and (= "pnnp" quadrants) (< (Math/abs v1nx) (Math/abs v2nx))) a
-          (and (= "nppn" quadrants) (< (Math/abs v1nx) (Math/abs v2nx))) a
+          (and (= "ppnn" quadrants) (> (abs v1nx) (abs v2nx))) a
+          (and (= "nnpp" quadrants) (> (abs v1nx) (abs v2nx))) a
+          (and (= "pnnp" quadrants) (< (abs v1nx) (abs v2nx))) a
+          (and (= "nppn" quadrants) (< (abs v1nx) (abs v2nx))) a
           ;; 180 degrees away on axes
           (#{"p_n_" "_p_n" "n_p_" "_n_p"} quadrants) a
           :else (- 360 a))))))
@@ -743,6 +891,7 @@ Put another way, the angle is measured following the 'right hand rule' around p2
 ** intersection
 #+begin_src clojure :tangle ./src/svg_clj/utils.cljc
 (defn line-intersection
+  "Returns the intersection point between two 2D lines or `nil` if the lines are (close to) parallel. Assumes lines are infinite, so the intersection may lie beyond the line segments specified."
   [[pt-a pt-b] [pt-c pt-d]]
   (let [[ax ay] pt-a
         [bx by] pt-b
@@ -762,47 +911,53 @@ Put another way, the angle is measured following the 'right hand rule' around p2
 ** corners-tris
 #+begin_src clojure :tangle ./src/svg_clj/utils.cljc
 (defn colinear?
+  "`True` if points `a`, `b`, and `c` are along the same line."
   [a b c]
   (let [ba (v- a b)
-        bc (v- c b)
-        eps 0.000001]
-    (> eps (abs (cross*-k ba bc)))))
+        bc (v- c b)]
+    (> *eps* (abs (cross*-k ba bc)))))
 
 (defn corner-condition
+  "Returns the type of corner at point `b`, given `a` and `c` endpoints.
+  `:colinear` -> a b c form a line
+  `:reflex`   -> CCW angle from ab to bc is > 180 and < 360
+  `:convex`   -> CCW angle from ab to bc is < 180 and > 0"
   [a b c]
   (let [ba (v- a b)
         bc (v- c b)
-        eps 0.000001
         k (cross*-k ba bc)]
     (cond
-      (> eps (abs k)) :colinear
-      (< eps k) :reflex
-      (> (- eps) k) :convex)))
+      (> *eps* (abs k)) :colinear
+      (< *eps* k) :reflex
+      (> (- *eps*) k) :convex)))
 
 ;; https://youtu.be/hTJFcHutls8?t=1473
 ;; use k component from cross product to quickly check if vector
 ;; is on right or left of another vector
 ;; check each triangle edge vector against corner to pt vectors
 (defn pt-inside?
+  "`True` if point `pt` is inside the triangle formed by points `a`, `b`, and `c`."
   [[a b c] pt]
-  (let [ab (v- b a)
-        bc (v- c b)
-        ca (v- a c)
-        apt (v- pt a)
-        bpt (v- pt b)
-        cpt (v- pt c)]
-    (not
-     (or (<= (cross*-k ab apt) 0)
-         (<= (cross*-k bc bpt) 0)
-         (<= (cross*-k ca cpt) 0)))))
+  (when-not (colinear? a b c)
+    (let [ab (v- b a)
+          bc (v- c b)
+          ca (v- a c)
+          apt (v- pt a)
+          bpt (v- pt b)
+          cpt (v- pt c)]
+      (not
+        (or (<= (cross*-k ab apt) 0)
+            (<= (cross*-k bc bpt) 0)
+            (<= (cross*-k ca cpt) 0))))))
 
 #+end_src
 
 ** style
-Keep the style impl in utils, as it's a super simple fn anyway. Just re-def the transforms version to use utils/style.
+Keep the style impl in utils, as it's a super simple fn anyway. Just re-def the transforms version to use u/style.
 
 #+begin_src clojure :tangle ./src/svg_clj/utils.cljc
 (defn style
+  "Merge a style map into the given element."
   [[k props & content] style-map]
   (into [k (merge props style-map)] content))
 
@@ -837,6 +992,7 @@ Centroid of a list of points is used in a few places. Having it here keeps it ac
             [xmin ymax])))
 
 (defn bb-dims
+  "Returns the dimensions of the bounding box defined by `pts`."
   [pts]
   (let [[[xmin ymin] _ [xmax ymax] _] (bounds-of-pts pts)]
     [(- xmax xmin) (- ymax ymin)]))
@@ -846,6 +1002,7 @@ Centroid of a list of points is used in a few places. Having it here keeps it ac
 ** offset
 #+begin_src clojure :tangle ./src/svg_clj/utils.cljc
 (defn offset-edge
+  "Offset an edge defined by points `a` and `b` by distance `d` along the vector perpendicular to the edge."
   [[a b] d]
   (let [p (perpendicular (v- b a))
         pd (v* (normalize p) (repeat (- d)))
@@ -854,20 +1011,25 @@ Centroid of a list of points is used in a few places. Having it here keeps it ac
     [xa xb]))
 
 (defn- cycle-pairs
+  "Creates pairs of points for line segments, including a segment from the last to the first point."
   [pts]
   (let [n (count pts)]
     (vec (take n (partition 2 1 (cycle pts))))))
 
 (defn- wrap-list-once
+  "Shifts a list by one to the right.
+  [1 2 3] -> [3 1 2]"
   [s]
   (conj (drop-last s) (last s)))
 
 (defn- every-other
+  "Returns every even indexed element of the vector `v`."
   [v]
   (let [n (count v)]
     (map #(get v %) (filter even? (range n)))))
 
 (defn offset-pts
+  "Offset a polygon or polyline defined by points `pts` a distance of `d`. CCW point winding will result in an outward offset."
   [pts d]
   (let [edges (cycle-pairs pts)
         opts (mapcat #(offset-edge % d) edges)
@@ -880,6 +1042,7 @@ Centroid of a list of points is used in a few places. Having it here keeps it ac
 ** scale
 #+begin_src clojure :tangle ./src/svg_clj/utils.cljc
 (defn scale-pt-from-center
+  "Scales a point [`x` `y`] by [`sx` `sy`] as if it were centered at [`cx` `cy`]."
   [[x y] [sx sy] [cx cy]]
   [(+ (* (- x cx) sx) cx)
    (+ (* (- y cy) sy) cy)])
@@ -888,15 +1051,21 @@ Centroid of a list of points is used in a few places. Having it here keeps it ac
 
 ** easing-fns
 #+begin_src clojure :tangle ./src/svg_clj/utils.cljc
+;; easing functions are easier to understand with visuals:
+;; https://easings.net/
+
 (defn ease-in-sin
+  "Remaps value `t`, which is assumed to be between 0 and 1.0, to a sin curve, affecting values closer to 1."
   [t]
   (- 1 (Math/cos (/ (* Math/PI t) 2))))
 
 (defn ease-out-sin
+  "Remaps value `t`, which is assumed to be between 0 and 1.0, to a sin curve, affecting values closer to 0."
   [t]
   (Math/sin (/ (* Math/PI t) 2)))
 
 (defn ease-in-out-sin
+  "Remaps value `t`, which is assumed to be between 0 and 1.0, to a sin curve."
   [t]
   (/ (- (Math/cos (* Math/PI t)) 1) -2))
 
@@ -940,13 +1109,15 @@ The following snippet does create an XML string where the namespace prefixes are
 
 #+begin_src clojure :tangle ./src/svg_clj/utils.cljc
 (defn str->number
+  "Turns a string `s` into a number if possible, otherwise returns `s`."
   [s]
   (let [n (try (read-string s)
                (catch #?(:clj Exception
-                         :cljs js/Object) e s))]
+                         :cljs js/Object) _ s))]
     (if (number? n) n s)))
 
 (def numerical-attrs
+  "Set of SVG attributes which have numerical values."
   #{;; circle, ellipse
     :cx :cy :r :rx :ry
     ;; image, rect
@@ -981,6 +1152,7 @@ Attributes to be cast are defined in `numerical-attrs` and include `:cx`, `:cy`,
       t)))
 
 (defn xml->hiccup
+  "Convert XML to hiccup."
   [xml]
   (if-let [t (:tag xml)]
     (let [elem [(fix-ns-tag t)]
@@ -1014,22 +1186,24 @@ Attributes to be cast are defined in `numerical-attrs` and include `:cx`, `:cy`,
 (defn- elem-node?
   [loc key-set]
   (let [node (zip/node loc)]
-    (if (keyword? (first node))
-      (not (nil? (key-set (first node)))))))
+    (and (keyword? (first node))
+         (not (nil? (key-set (first node)))))))
 
 (defn- hiccup-zip
   [tree]
-  (let [branch? #(and (seqable? %) (not (map? %)) (not (string? %)))
-        children (fn [x]
-                   (let [c (remove map? (rest x))]
-                     (when-not (empty? c) c)))
-        make-node (fn [_ c] (when-not (empty? c) (vec c)))]
+  (let [branch? vector?
+        children (fn [s] (remove #(or (map? %) (not (seqable? %))) s))
+        make-node (fn [node c]
+                    (let [[k maybe-attrs] (take 2 node)]
+                      (into (if (map? maybe-attrs) [k maybe-attrs] [k]) c)))]
     (zip/zipper branch? children make-node tree)))
 
-(def svg-element-keys #{:circle :ellipse
-                        :line :rect
-                        :polygon :polyline :path
-                        :image :text :g})
+(def svg-element-keys
+  "Set of SVG elements as keys."
+  #{:circle :ellipse
+    :line :rect
+    :polygon :polyline :path
+    :image :text :g})
 
 (defn get-elems
   "Get SVG elements from `tree`, a Hiccup data structure.
@@ -1062,13 +1236,7 @@ Elements are "
 
   One notable element which is not provided is `path`. Since path elements have a more complex property specification, the [[svg-clj.path]] namespace is dedicated to path element generation."
   (:require [clojure.string :as str]
-            [svg-clj.utils :as utils]))
-
-#+END_SRC
-
-** element-keys
-#+BEGIN_SRC clojure :tangle ./src/svg_clj/elements.cljc
-(def svg-element-keys utils/svg-element-keys)
+            [svg-clj.utils :as u]))
 
 #+END_SRC
 
@@ -1119,7 +1287,7 @@ A shape is a hiccup data structure that represents one of the valild SVG element
   "Emits a polygon element with 2d points from vector or list `pts`.
   Polygon elements have a closed path."
   [pts]
-  [:polygon {:points (str/join " " (map utils/v->s pts))}])
+  [:polygon {:points (str/join " " (map u/v->s pts))}])
 #+end_src
 
 *** polyline
@@ -1128,7 +1296,7 @@ A shape is a hiccup data structure that represents one of the valild SVG element
   "Emits a polyline element with 2d points from vector or list `pts`.
   Polyline elements have an open path."
   [pts]
-  [:polyline {:points (str/join " " (map utils/v->s pts))}])
+  [:polyline {:points (str/join " " (map u/v->s pts))}])
 
 #+end_src
 
@@ -1150,7 +1318,7 @@ A shape is a hiccup data structure that represents one of the valild SVG element
 #+end_src
 
 *** text
-Text is a bit different. It is much more complicated to know text's centroid and thus local rotation/translation methods for all other shapes don't easily apply. 
+Text is a bit different. It is much more complicated to know text's centroid and thus local rotation/translation methods for all other shapes don't easily apply.
 
 So, like path, text is treated as a very simple wrapper, but has (will have) its own functions for better control/manipulation of text elements.
 
@@ -1182,7 +1350,6 @@ In particular, you cannot know the exact width and height of a text element with
     (into [:g {}] (filter (complement nil?) content))))
 
 #+end_src
-
 * path
 The path element has a small DSL to create compound curves. This includes the following (taken from [[https://www.w3schools.com/graphics/svg_path.asp]]):
 
@@ -1219,9 +1386,9 @@ The path element has a small DSL to create compound curves. This includes the fo
 
   This namespace handles paths by decomposing them into sequences of 'command' maps, which are considered an internal representation; users are not expected to construct paths using commands."
   (:require [clojure.string :as str]
-            [svg-clj.utils :as utils]
             [svg-clj.elements :as el]
-            [svg-clj.parametric :as p]))
+            [svg-clj.parametric :as p]
+            [svg-clj.utils :as u]))
 
 #+END_SRC
 
@@ -1272,7 +1439,7 @@ If the entire sequence has NO V or H, done.
 (defn- convert-first-vh-cmd
   [cmds]
   (let [icmd (first cmds)]
-    (cons icmd 
+    (cons icmd
           (->> cmds
                (partition 2 1)
                (map convert-vh)
@@ -1308,8 +1475,8 @@ If the entire sequence has NO V or H, done.
           xinput (if (= command "A")
                    (vec (concat
                          (drop-last 2 input)
-                         (utils/v+ (take-last 2 input) abs-cursor)))
-                   (vec (mapcat #(utils/v+ % abs-cursor) (partition 2 input))))
+                         (u/v+ (take-last 2 input) abs-cursor)))
+                   (vec (mapcat #(u/v+ % abs-cursor) (partition 2 input))))
           ncmd (-> ccmd
                    (assoc :coordsys :abs)
                    (assoc :input xinput)
@@ -1320,7 +1487,7 @@ If the entire sequence has NO V or H, done.
 (defn- convert-first-rel
   [cmds]
   (let [icmd (first cmds)]
-    (cons icmd 
+    (cons icmd
           (->> cmds
                (partition 2 1)
                (map convert-rel)
@@ -1353,8 +1520,8 @@ Convert T curve 'shortcut' commands to their full Q command. Run this after rel-
   (if (and (= "Q" (:command pcmd))
            (= "T" (:command ccmd)))
     (let [[cpt pt] (partition 2 (:input pcmd))
-          ncpt (utils/rotate-pt-around-center cpt 180.0 pt)
-          {:keys [command input coordsys]} ccmd
+          ncpt (u/rotate-pt-around-center cpt 180.0 pt)
+          {:keys [input]} ccmd
           xinput (vec (concat ncpt input))
           ncmd (-> ccmd
                    (assoc :command "Q")
@@ -1365,7 +1532,7 @@ Convert T curve 'shortcut' commands to their full Q command. Run this after rel-
 (defn- convert-first-t-cmd
   [cmds]
   (let [icmd (first cmds)]
-    (cons icmd 
+    (cons icmd
           (->> cmds
                (partition 2 1)
                (map convert-t)
@@ -1398,8 +1565,8 @@ Convert S curve 'shortcut' commands to their full C command. Run this after rel-
   (if (and (= "C" (:command pcmd))
            (= "S" (:command ccmd)))
     (let [[_ cpt pt] (partition 2 (:input pcmd))
-          ncpt (utils/rotate-pt-around-center cpt 180.0 pt)
-          {:keys [command input coordsys]} ccmd
+          ncpt (u/rotate-pt-around-center cpt 180.0 pt)
+          {:keys [input]} ccmd
           xinput (vec (concat ncpt input))
           ncmd (-> ccmd
                    (assoc :command "C")
@@ -1410,7 +1577,7 @@ Convert S curve 'shortcut' commands to their full C command. Run this after rel-
 (defn- convert-first-s-cmd
   [cmds]
   (let [icmd (first cmds)]
-    (cons icmd 
+    (cons icmd
           (->> cmds
                (partition 2 1)
                (map convert-s)
@@ -1465,7 +1632,7 @@ I'm going to make a few functions to split paths into commands and put them in a
   [cs]
   (let [i (str/split cs #"[A-DF-Za-df-z]")]
     (when (seq (rest i))
-      (apply utils/s->v (rest i)))))
+      (apply u/s->v (rest i)))))
 
 (defn- cmd-str->cmd
   "Transforms a command string `cs` into a map."
@@ -1601,9 +1768,9 @@ Convert list of pts into list of commands.
 (defn arc
   "Emits a path element with an arc starting at `pt-a` and ending at a point rotated by degrees, `deg`, around `ctr` in the counter-clockwise direction."
   [pt-a ctr deg]
-  (let [r (utils/distance pt-a ctr)
+  (let [r (u/distance pt-a ctr)
         angle 0
-        b (utils/rotate-pt-around-center pt-a deg ctr)
+        b (u/rotate-pt-around-center pt-a deg ctr)
         laf (if (<= deg 180) 0 1)]
      (build-arc r r angle laf 1 pt-a b)))
 
@@ -1714,7 +1881,7 @@ Convert list of pts into list of commands.
   [w h]
   (let [w2 (/ w 2.0)
         h2 (/ h 2.0)]
-    (polygon [ [(- w2) (- h2)] [w2 (- h2)] 
+    (polygon [ [(- w2) (- h2)] [w2 (- h2)]
                [w2 h2]          [(- w2) h2] ])))
 #+END_SRC
 
@@ -1725,23 +1892,24 @@ Path transforms have to be implemented here. They will be used in the transforms
 For transforms, it is necessary to extract basic point data from commands. In general, all commands have simple point data. The exception is arcs, which need some calculation.
 
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/path.cljc
-(defmulti cmd->pts :command)
+(defmulti cmd->pts
+  "Convert a path command map into a vector of points."
+  :command)
 
 (defmethod cmd->pts :default
   [{:keys [input]}]
   (mapv vec (partition 2 input)))
 
-;; this is not implemented correctly yet.
-;; just a 'stub' returning the end point of the arc
+;; todo: use some TDD to get this working
 (defmethod cmd->pts "A"
   [{:keys [input cursor]}]
-  (let [[rx ry deg laf sw x y] input
+  (let [[rx laf x y] input
         b [x y]
-        ctr (utils/v+ cursor [rx 0])
-        sa (utils/angle-from-pts cursor ctr b)
+        ctr (u/v+ cursor [rx 0])
+        sa (u/angle-from-pts cursor ctr b)
         angle (if (= 1 laf) (- 360 sa) sa)
-        mids (mapv #(utils/rotate-pt-around-center cursor % ctr) (rest (range 0 angle 90)))]
-    [cursor b] #_(conj mids b)))
+        mids (mapv #(u/rotate-pt-around-center cursor % ctr) (rest (range 0 angle 90)))]
+    (conj mids b)))
 
 #+END_SRC
 
@@ -1756,19 +1924,22 @@ Ideas to keep in mind:
 
 #+begin_src clojure :tangle ./src/svg_clj/path.cljc
 (defn centroid
-  [[_ props]]
-  (let [cmds (path-str->cmds (:d props))
+  "Calculates the arithmetic mean position of the path element by converting `path-str` to commands, finding all of the points for every command, and fidning the centroid of those points. May be innaccurate for paths with curved elements."
+  [[_ {path-str :d}]]
+  (let [cmds (path-str->cmds path-str)
         pts (mapcat cmd->pts cmds)]
-    (utils/centroid-of-pts (vec (into #{} pts)))))
+    (u/centroid-of-pts (vec (into #{} pts)))))
+
 #+end_src
 
 *** bounds
 #+begin_src clojure :tangle ./src/svg_clj/path.cljc
 (defn bounds
-  [[_ props]]
-  (let [cmds (path-str->cmds (:d props))
+  "Calculates the axis-aligned-bounding-box of the points that make up the path element's `path-str`."
+  [[_ {path-str :d}]]
+  (let [cmds (path-str->cmds path-str)
         pts (mapcat cmd->pts cmds)]
-    (utils/bounds-of-pts pts)))
+    (u/bounds-of-pts pts)))
 
 #+end_src
 
@@ -1776,44 +1947,45 @@ Ideas to keep in mind:
 I have a multimethod to handle different commands that can show up in a path string. Command data structures are produced using the path-dsl functions defined earlier.
 
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/path.cljc
-(defmulti translate-path-command
+(defmulti ^:private translate-path-command
+  "Translate the path command by [`x` `y`]."
   (fn [cmd _]
     (:command cmd)))
 
 (defmethod translate-path-command "M"
   [{:keys [:input] :as m} [x y]]
-  (assoc m :input (utils/v+ [x y] input)))
+  (assoc m :input (u/v+ [x y] input)))
 
 (defmethod translate-path-command "L"
   [{:keys [:input] :as m} [x y]]
-  (assoc m :input (utils/v+ [x y] input)))
+  (assoc m :input (u/v+ [x y] input)))
 
 (defmethod translate-path-command "H"
   [{:keys [:input] :as m} [x _]]
-  (assoc m :input (utils/v+ [x] input)))
+  (assoc m :input (u/v+ [x] input)))
 
 (defmethod translate-path-command "V"
   [{:keys [:input] :as m} [_ y]]
-  (assoc m :input (utils/v+ [y] input)))
+  (assoc m :input (u/v+ [y] input)))
 
 ;; x y x y x y because input will ahve the form:
 ;; [x1 y1 x2 y2 x y] (first two pairs are control points)
 (defmethod translate-path-command "C"
   [{:keys [:input] :as m} [x y]]
-  (assoc m :input (utils/v+ [x y x y x y] input)))
+  (assoc m :input (u/v+ [x y x y x y] input)))
 
 ;; similar approach to above, but one control point is implicit
 (defmethod translate-path-command "S"
   [{:keys [:input] :as m} [x y]]
-  (assoc m :input (utils/v+ [x y x y] input)))
+  (assoc m :input (u/v+ [x y x y] input)))
 
 (defmethod translate-path-command "Q"
   [{:keys [:input] :as m} [x y]]
-  (assoc m :input (utils/v+ [x y x y] input)))
+  (assoc m :input (u/v+ [x y x y] input)))
 
 (defmethod translate-path-command "T"
   [{:keys [:input] :as m} [x y]]
-  (assoc m :input (utils/v+ [x y] input)))
+  (assoc m :input (u/v+ [x y] input)))
 
 ;; [rx ry xrot laf swf x y]
 ;; rx, ry do not change
@@ -1833,6 +2005,7 @@ I have a multimethod to handle different commands that can show up in a path str
   [cmd a])
 
 (defn translate
+  "Translates the path by [`x` `y`]."
   [[k props] [x y]]
   (let [cmds (path-str->cmds (:d props))
         xcmds (map #(translate-path-command % [x y]) cmds)]
@@ -1846,24 +2019,25 @@ To complete the translate implementation, I have to make sure path elements can 
 To do this, I have a second multimethod to handle different commands that can show up in a path string. Command data structures are produced using the path-dsl functions defined earlier.
 
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/path.cljc
-(defmulti rotate-path-command
+(defmulti ^:private rotate-path-command
+  "Rotate the path command around the center point `ctr` by `deg` degrees."
   (fn [cmd _ _]
     (:command cmd)))
 
 (defmethod rotate-path-command "M"
   [{:keys [:input] :as m} ctr deg]
   (let [xpt (-> input
-                (utils/v- ctr)
-                (utils/rotate-pt deg)
-                (utils/v+ ctr))]
+                (u/v- ctr)
+                (u/rotate-pt deg)
+                (u/v+ ctr))]
     (assoc m :input xpt)))
 
 (defmethod rotate-path-command "L"
   [{:keys [:input] :as m} ctr deg]
   (let [xpt (-> input
-                (utils/v- ctr)
-                (utils/rotate-pt deg)
-                (utils/v+ ctr))]
+                (u/v- ctr)
+                (u/rotate-pt deg)
+                (u/v+ ctr))]
     (assoc m :input xpt)))
 
 (defmethod rotate-path-command "C"
@@ -1871,9 +2045,9 @@ To do this, I have a second multimethod to handle different commands that can sh
   (let [xinput (->> input
                     (partition 2)
                     (map vec)
-                    (map #(utils/v- % ctr))
-                    (map #(utils/rotate-pt % deg))
-                    (map #(utils/v+ % ctr))
+                    (map #(u/v- % ctr))
+                    (map #(u/rotate-pt % deg))
+                    (map #(u/v+ % ctr))
                     (apply concat))]
     (assoc m :input xinput)))
 
@@ -1882,9 +2056,9 @@ To do this, I have a second multimethod to handle different commands that can sh
   (let [xinput (->> input
                     (partition 2)
                     (map vec)
-                    (map #(utils/v- % ctr))
-                    (map #(utils/rotate-pt % deg))
-                    (map #(utils/v+ % ctr))
+                    (map #(u/v- % ctr))
+                    (map #(u/rotate-pt % deg))
+                    (map #(u/v+ % ctr))
                     (apply concat))]
     (assoc m :input xinput)))
 
@@ -1893,18 +2067,18 @@ To do this, I have a second multimethod to handle different commands that can sh
   (let [xinput (->> input
                     (partition 2)
                     (map vec)
-                    (map #(utils/v- % ctr))
-                    (map #(utils/rotate-pt % deg))
-                    (map #(utils/v+ % ctr))
+                    (map #(u/v- % ctr))
+                    (map #(u/rotate-pt % deg))
+                    (map #(u/v+ % ctr))
                     (apply concat))]
     (assoc m :input xinput)))
 
 (defmethod rotate-path-command "T"
   [{:keys [:input] :as m} ctr deg]
   (let [xpt (-> input
-                (utils/v- ctr)
-                (utils/rotate-pt deg)
-                (utils/v+ ctr))]
+                (u/v- ctr)
+                (u/rotate-pt deg)
+                (u/v+ ctr))]
     (assoc m :input xpt)))
 
 ;; [rx ry xrot laf swf x y]
@@ -1915,9 +2089,9 @@ To do this, I have a second multimethod to handle different commands that can sh
   [{:keys [:input] :as m} ctr deg]
   (let [[rx ry xrot laf swf ox oy] input
         [nx ny] (-> [ox oy]
-                    (utils/v- ctr)
-                    (utils/rotate-pt deg)
-                    (utils/v+ ctr))]
+                    (u/v- ctr)
+                    (u/rotate-pt deg)
+                    (u/v+ ctr))]
     (assoc m :input [rx ry (+ xrot deg) laf swf nx ny])))
 
 (defmethod rotate-path-command "Z"
@@ -1925,8 +2099,9 @@ To do this, I have a second multimethod to handle different commands that can sh
   cmd)
 
 (defn rotate
-  [[k props] deg]
-  (let [ctr (centroid [k props])
+  "Rotate the path `el` around its centroid by `deg` degrees."
+  [[k props :as el] deg]
+  (let [ctr (centroid el)
         cmds (path-str->cmds (:d props))
         xcmds (map #(rotate-path-command % ctr deg) cmds)]
     [k (assoc props :d (cmds->path-string xcmds))]))
@@ -1935,7 +2110,8 @@ To do this, I have a second multimethod to handle different commands that can sh
 
 *** scale
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/path.cljc
-(defmulti scale-path-command
+(defmulti ^:private scale-path-command
+  "Scale the path command by [`sx` `sy`] around the point `ctr`."
   (fn [cmd _ _]
     (:command cmd)))
 
@@ -1943,7 +2119,7 @@ To do this, I have a second multimethod to handle different commands that can sh
   [{:keys [:input] :as m} [sx sy] ctr]
   (let [pts (mapv vec (partition 2 input))
         xpts (->> pts
-                  (mapcat #(utils/scale-pt-from-center % [sx sy] ctr)))]
+                  (mapcat #(u/scale-pt-from-center % [sx sy] ctr)))]
     (assoc m :input (vec xpts))))
 
 ;; this is wrong. just a stub to get moving a bit
@@ -1951,12 +2127,13 @@ To do this, I have a second multimethod to handle different commands that can sh
   [{:keys [:input] :as m} [sx sy] ctr]
   (let [pts [(take-last 2 input)]
         xpts (->> pts
-                  (mapcat #(utils/scale-pt-from-center % [sx sy] ctr)))]
+                  (mapcat #(u/scale-pt-from-center % [sx sy] ctr)))]
     (assoc m :input (vec xpts))))
 
 (defn scale
-  [[k props] [sx sy]]
-  (let [ctr (centroid [k props])
+  "Scale the path `el` by [`sx` `sy`] scaling from its centroid."
+  [[k props :as el] [sx sy]]
+  (let [ctr (centroid el)
         cmds (path-str->cmds (:d props))
         xcmds (map #(scale-path-command % [sx sy] ctr) cmds)]
     [k (assoc props :d (cmds->path-string xcmds))]))
@@ -2025,8 +2202,7 @@ Path manipulations might be better in the path namespace.
                (empty? (remove #{"A" "Z"} cs)))
           (let [eps 0.00001
                 [rx ry] (take 2 (:input (second cmds)))
-                [x y] (take-last 2 (:input (second cmds)))
-                [cx cy] (utils/v* [1.0 1.0] (utils/centroid-of-pts (set (mapcat cmd->pts cmds))))]
+                [cx cy] (u/v* [1.0 1.0] (u/centroid-of-pts (set (mapcat cmd->pts cmds))))]
             (if (< (Math/abs (- rx ry)) eps)
               [:circle {:cx cx :cy cy :r rx}]
               [:ellipse {:cx cx :cy cy :rx rx :ry ry}]))
@@ -2057,7 +2233,7 @@ Path manipulations might be better in the path namespace.
               (empty? (remove #{"C" "Z"} cs)))
           (let [pts (mapcat bezier-cmd-pts (drop-last (rest cmds)))]
             (el/polygon pts))
-          
+
           :else
           (path (cmds->path-string cmds)))))))
 
@@ -2065,7 +2241,7 @@ Path manipulations might be better in the path namespace.
 
 *** merge-paths
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/path.cljc
-(defn- clean-m-cmds-threshold
+(defn- clean-m-cmds
   "Remove cmdb if it is an M command with the same position as the last input of cmda."
   [[cmda cmdb]]
   (let [merge-dist 1.0
@@ -2073,17 +2249,7 @@ Path manipulations might be better in the path namespace.
         [ca cb] (map :command [cmda cmdb])]
     (cond
       (= "M" ca) [] ;; discard M in first position always
-      (and (< (utils/distance pa pb) merge-dist) (= "M" cb)) [cmda]
-      :else [cmda cmdb])))
-
-(defn- clean-m-cmds
-  "Remove cmdb if it is an M command with the same position as the last input of cmda."
-  [[cmda cmdb]]
-  (let [[pa pb] (map (comp (partial take-last 2) :input) [cmda cmdb])
-        [ca cb] (map :command [cmda cmdb])]
-    (cond
-      (= "M" ca) [] ;; discard M in first position always
-      (and (= pa pb) (= "M" cb)) [cmda]
+      (and (< (u/distance pa pb) merge-dist) (= "M" cb)) [cmda]
       :else [cmda cmdb])))
 
 (defn merge-paths
@@ -2092,8 +2258,8 @@ Path manipulations might be better in the path namespace.
   (let [[_ props] (last paths)
         cmds (mapcat #(path-str->cmds (get-in % [1 :d])) paths)
         xf-cmds
-        (conj 
-         (remove nil? (mapcat clean-m-cmds-threshold (partition 2 1 (rest cmds))))
+        (conj
+         (remove nil? (mapcat clean-m-cmds (partition 2 1 (rest cmds))))
          (first cmds))]
     [:path (assoc props :d (cmds->path-string xf-cmds))]))
 
@@ -2130,6 +2296,7 @@ Path manipulations might be better in the path namespace.
               (el/line s e)))))))))
 
 (defn path->elements
+  "Convert a path element into a list of SVG elements that match the path's sub-elements as closely as possible."
   [[_ {:keys [d]}]]
   (->> d
        path-str->cmds
@@ -2142,6 +2309,7 @@ Path manipulations might be better in the path namespace.
 *** element->path
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/path.cljc
 (defmulti element->path
+  "Convert an SVG element into a path that matches the shape as closely as possible. When passed a list of elements, a list of paths is returned. To convert multiple elements into a single path, use `elements->path`."
   (fn [element]
     (if (keyword? (first element))
       (first element)
@@ -2155,37 +2323,37 @@ Path manipulations might be better in the path namespace.
   [[_ {:keys [cx cy r] :as props}]]
   (-> (circle r)
       (translate [cx cy])
-      (utils/style (dissoc props :cx :cy :r))))
+      (u/style (dissoc props :cx :cy :r))))
 
 (defmethod element->path :ellipse
   [[_ {:keys [cx cy rx ry] :as props}]]
   (-> (ellipse rx ry)
       (translate [cx cy])
-      (utils/style (dissoc props :cx :cy :rx :ry))))
+      (u/style (dissoc props :cx :cy :rx :ry))))
 
 (defmethod element->path :rect
   [[_ {:keys [width height x y] :as props}]]
-  (let [ctr (utils/v+ [x y] [(/ width 2.0) (/ height 2.0)])]
+  (let [ctr (u/v+ [x y] [(/ width 2.0) (/ height 2.0)])]
     (-> (rect width height)
         (translate ctr)
-        (utils/style (dissoc props :width :height :x :y)))))
+        (u/style (dissoc props :width :height :x :y)))))
 
 (defmethod element->path :line
   [[_ {:keys [x1 y1 x2 y2] :as props}]]
   (-> (line [x1 y1] [x2 y2])
-      (utils/style (dissoc props :x1 :y1 :x2 :y2))))
+      (u/style (dissoc props :x1 :y1 :x2 :y2))))
 
 (defmethod element->path :polyline
   [[_ {:keys [points] :as props}]]
-  (let [pts (partition 2 (utils/s->v points))]
+  (let [pts (partition 2 (u/s->v points))]
     (-> (polyline pts)
-        (utils/style (dissoc props :points)))))
+        (u/style (dissoc props :points)))))
 
 (defmethod element->path :polygon
   [[_ {:keys [points] :as props}]]
-  (let [pts (partition 2 (utils/s->v points))]
+  (let [pts (partition 2 (u/s->v points))]
     (-> (polygon pts)
-        (utils/style (dissoc props :points)))))
+        (u/style (dissoc props :points)))))
 
 (defmethod element->path :path
   [elem]
@@ -2214,11 +2382,12 @@ This is done to properly 'group' connected sub-paths, and handle the case where 
            drop-last
            (map element->path)
            (apply merge-paths)
-           (#(utils/style % props)))
+           (#(u/style % props)))
       (-> p
-          (utils/style props)))))
+          (u/style props)))))
 
 (defn elements->path
+  "Converts a list of SVG elements `elems` into a single path element that matches the original shapes as closely as possible."
   [elems]
   (apply merge-paths (map element->path elems)))
 
@@ -2229,6 +2398,7 @@ Turns any bezier or arc commands into approximated versions using straight segme
 
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/path.cljc
 (defn decurve
+  "Converts `path` element into a path with only straight segments."
   [path]
   (->> (path->elements path)
        (map element->path)
@@ -2251,10 +2421,9 @@ This leads to challenges with groups. Groups must have their centroid calculated
   The most common transformations include translate, rotate, style, and scale which all work on every element. Other transformations include merge, split, and explode and these only work on path elements.
 
   This namespace also provides `bounds`, and `centroid` functions which calculate the respective property for all elements provided by this library."
-  (:require [clojure.string :as str]   
-            [svg-clj.utils :as utils]
-            [svg-clj.elements :as el]
+  (:require [clojure.string :as str]
             [svg-clj.path :as path]
+            [svg-clj.utils :as u]
             #?(:cljs
                [cljs.reader :refer [read-string]])))
 
@@ -2265,8 +2434,9 @@ Style transforms allow the user to change any attributes of svg elements that af
 
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
 (defn style
+  "Merge a style map into the given element."
   [elem style-map]
-  (utils/style elem style-map))
+  (u/style elem style-map))
 
 #+END_SRC
 
@@ -2274,6 +2444,7 @@ Style transforms allow the user to change any attributes of svg elements that af
 *** centroid-elements
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
 (defmulti centroid
+  "Calculates the arithmetic mean position of the given `element`."
   (fn [element]
     (if (keyword? (first element))
       (first element)
@@ -2281,11 +2452,11 @@ Style transforms allow the user to change any attributes of svg elements that af
 
 (defmethod centroid :list
   [elems]
-  (utils/centroid-of-pts (into #{} (map centroid elems))))
+  (u/centroid-of-pts (into #{} (map centroid elems))))
 
 (defmethod centroid :circle
   [[_ props]]
-  [(:cx props) (:cy props)])  
+  [(:cx props) (:cy props)])
 
 (defmethod centroid :ellipse
   [[_ props]]
@@ -2295,17 +2466,17 @@ Style transforms allow the user to change any attributes of svg elements that af
   [[_ props]]
   (let [a (mapv #(get props %) [:x1 :y1])
         b (mapv #(get props %) [:x2 :y2])]
-    (utils/centroid-of-pts [a b])))
+    (u/centroid-of-pts [a b])))
 
 (defmethod centroid :polygon
   [[_ props]]
-  (let [pts (mapv utils/s->v (str/split (:points props) #" "))]
-    (utils/centroid-of-pts pts)))
+  (let [pts (mapv u/s->v (str/split (:points props) #" "))]
+    (u/centroid-of-pts pts)))
 
 (defmethod centroid :polyline
   [[_ props]]
-  (let [pts (mapv utils/s->v (str/split (:points props) #" "))]
-    (utils/centroid-of-pts pts)))
+  (let [pts (mapv u/s->v (str/split (:points props) #" "))]
+    (u/centroid-of-pts pts)))
 
 (defmethod centroid :rect
   [[_ props]]
@@ -2333,7 +2504,7 @@ Style transforms allow the user to change any attributes of svg elements that af
 (declare centroid)
 (defmethod centroid :g
   [[_ _ & content]]
-  (utils/centroid-of-pts (into #{} (map centroid content))))
+  (u/centroid-of-pts (into #{} (map centroid content))))
 
 #+END_SRC
 
@@ -2353,59 +2524,59 @@ Style transforms allow the user to change any attributes of svg elements that af
 
 (defmethod bounds :list
   [elems]
-  (utils/bounds-of-pts (mapcat bounds elems)))
+  (u/bounds-of-pts (mapcat bounds elems)))
 
 (defmethod bounds :circle
   [[_ props]]
   (let [c [(:cx props) (:cy props)]
         r (:r props)
-        pts (mapv #(utils/v+ c %) [[r 0]
+        pts (mapv #(u/v+ c %) [[r 0]
                              [0 r]
                              [(- r) 0]
                              [0 (- r)]])]
-    (utils/bounds-of-pts pts)))
+    (u/bounds-of-pts pts)))
 
 (defmethod bounds :ellipse
   [[_ props]]
-  (let [xf (utils/str->xf-map  (get props :transform "rotate(0 0 0)"))
+  (let [xf (u/str->xf-map  (get props :transform "rotate(0 0 0)"))
         deg (get-in xf [:rotate 0])
         mx (get-in xf [:rotate 1])
         my (get-in xf [:rotate 2])
         c [(:cx props) (:cy props)]
         rx (:rx props)
         ry (:ry props)
-        pts (mapv #(utils/v+ c %) [[rx 0]
-                                   [0 ry] 
+        pts (mapv #(u/v+ c %) [[rx 0]
+                                   [0 ry]
                                    [(- rx) 0]
                                    [0 (- ry)]])
-        bb (utils/bounds-of-pts pts)
-        obb (mapv #(utils/rotate-pt-around-center % deg [mx my]) bb)
-        xpts (mapv #(utils/rotate-pt-around-center % deg [mx my]) pts)
-        small-bb (utils/bounds-of-pts xpts)
-        large-bb (utils/bounds-of-pts obb)]
+        bb (u/bounds-of-pts pts)
+        obb (mapv #(u/rotate-pt-around-center % deg [mx my]) bb)
+        xpts (mapv #(u/rotate-pt-around-center % deg [mx my]) pts)
+        small-bb (u/bounds-of-pts xpts)
+        large-bb (u/bounds-of-pts obb)]
     ;; not accurate, but good enough for now
     ;; take the bb to be the average between the small and large
-    (utils/bounds-of-pts (mapv #(utils/centroid-of-pts [%1 %2]) small-bb large-bb))))
+    (u/bounds-of-pts (mapv #(u/centroid-of-pts [%1 %2]) small-bb large-bb))))
 
 (defmethod bounds :line
   [[_ props]]
   (let [a (mapv #(get props %) [:x1 :y1])
         b (mapv #(get props %) [:x2 :y2])]
-    (utils/bounds-of-pts [a b])))
+    (u/bounds-of-pts [a b])))
 
 (defmethod bounds :polygon
   [[_ props]]
-  (let [pts (mapv utils/s->v (str/split (:points props) #" "))]
-    (utils/bounds-of-pts pts)))
+  (let [pts (mapv u/s->v (str/split (:points props) #" "))]
+    (u/bounds-of-pts pts)))
 
 (defmethod bounds :polyline
   [[_ props]]
-  (let [pts (mapv utils/s->v (str/split (:points props) #" "))]
-    (utils/bounds-of-pts pts)))
+  (let [pts (mapv u/s->v (str/split (:points props) #" "))]
+    (u/bounds-of-pts pts)))
 
 (defmethod bounds :rect
   [[_ props]]
-  (let [xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
+  (let [xf (u/str->xf-map (get props :transform "rotate(0 0 0)"))
         deg (get-in xf [:rotate 0])
         mx (get-in xf [:rotate 1])
         my (get-in xf [:rotate 2])
@@ -2417,12 +2588,12 @@ Style transforms allow the user to change any attributes of svg elements that af
              [(+ x w) y]
              [(+ x w) (+ y h)]
              [x (+ y h)]]
-        xpts (mapv #(utils/rotate-pt-around-center % deg [mx my]) pts)]
-    (utils/bounds-of-pts xpts)))
+        xpts (mapv #(u/rotate-pt-around-center % deg [mx my]) pts)]
+    (u/bounds-of-pts xpts)))
 
 (defmethod bounds :image
   [[_ props]]
-  (let [xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
+  (let [xf (u/str->xf-map (get props :transform "rotate(0 0 0)"))
         deg (get-in xf [:rotate 0])
         mx (get-in xf [:rotate 1])
         my (get-in xf [:rotate 2])
@@ -2434,14 +2605,14 @@ Style transforms allow the user to change any attributes of svg elements that af
              [(+ x w) y]
              [(+ x w) (+ y h)]
              [x (+ y h)]]
-        xpts (mapv #(utils/rotate-pt-around-center % deg [mx my]) pts)]
-    (utils/bounds-of-pts xpts)))
+        xpts (mapv #(u/rotate-pt-around-center % deg [mx my]) pts)]
+    (u/bounds-of-pts xpts)))
 
 ;; this is not done yet. Text in general needs a redo.
 ;; Austin is a headless browser that may help with .getBBox???
 (defmethod bounds :text
   [[_ {:keys [x y font-size ] :as props} text]]
-  (let [xf (utils/str->xf-map (get props :transform "rotate(0 0 0)"))
+  (let [xf (u/str->xf-map (get props :transform "rotate(0 0 0)"))
         deg (get-in xf [:rotate 0])
         ar 0.6
         h (read-string (str font-size))
@@ -2451,13 +2622,13 @@ Style transforms allow the user to change any attributes of svg elements that af
              [(+ x hw) (- y hh)]
              [(+ x hw) (+ y hh)]
              [(- x hw) (+ y hh)] ]
-        xpts (mapv #(utils/rotate-pt-around-center % deg [x y]) pts)]
-    (utils/bounds-of-pts xpts)))
+        xpts (mapv #(u/rotate-pt-around-center % deg [x y]) pts)]
+    (u/bounds-of-pts xpts)))
 
 (defmethod bounds :path
   [elem]
   (path/bounds elem))
-  
+
 #+END_SRC
 
 *** bounds-group
@@ -2465,12 +2636,7 @@ Style transforms allow the user to change any attributes of svg elements that af
 (declare bounds)
 (defmethod bounds :g
   [[_ _ & content]]
-  (utils/bounds-of-pts (mapcat bounds content)))
-
-(defn bb-dims
-  [element]
-  (let [[[xmin ymin] _ [xmax ymax] _] (bounds element)]
-    [(- xmax xmin) (- ymax ymin)]))
+  (u/bounds-of-pts (mapcat bounds content)))
 
 #+END_SRC
 
@@ -2479,9 +2645,10 @@ Style transforms allow the user to change any attributes of svg elements that af
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
 (defn- get-props
   [props]
-  (merge {:rotate [0 0 0]} (utils/str->xf-map (get props :transform))))
+  (merge {:rotate [0 0 0]} (u/str->xf-map (get props :transform))))
 
 (defmulti translate
+  "Translates `element` by [`x` `y`]."
   (fn [element _]
     (if (keyword? (first element))
       (first element)
@@ -2500,7 +2667,7 @@ Style transforms allow the user to change any attributes of svg elements that af
                    (assoc-in [:rotate 1] (+ x cx))
                    (assoc-in [:rotate 2] (+ y cy)))
         new-props (-> props
-                      (assoc :transform (utils/xf-map->str new-xf))
+                      (assoc :transform (u/xf-map->str new-xf))
                       (update :cx + x)
                       (update :cy + y))]
     [k new-props]))
@@ -2514,7 +2681,7 @@ Style transforms allow the user to change any attributes of svg elements that af
                    (assoc-in [:rotate 1] (+ x cx))
                    (assoc-in [:rotate 2] (+ y cy)))
         new-props (-> props
-                      (assoc :transform (utils/xf-map->str new-xf))
+                      (assoc :transform (u/xf-map->str new-xf))
                       (update :cx + x)
                       (update :cy + y))]
     [k new-props]))
@@ -2530,18 +2697,18 @@ Style transforms allow the user to change any attributes of svg elements that af
 
 (defmethod translate :polygon
   [[k props] [x y]]
-  (let [pts (mapv utils/s->v (str/split (:points props) #" "))
+  (let [pts (mapv u/s->v (str/split (:points props) #" "))
         xpts (->> pts
-                  (map (partial utils/v+ [x y]))
-                  (map utils/v->s))]
+                  (map (partial u/v+ [x y]))
+                  (map u/v->s))]
     [k (assoc props :points (str/join " " xpts))]))
 
 (defmethod translate :polyline
   [[k props] [x y]]
-  (let [pts (mapv utils/s->v (str/split (:points props) #" "))
-        xpts (->> pts 
-                  (map (partial utils/v+ [x y]))
-                  (map utils/v->s))]
+  (let [pts (mapv u/s->v (str/split (:points props) #" "))
+        xpts (->> pts
+                  (map (partial u/v+ [x y]))
+                  (map u/v->s))]
     [k (assoc props :points (str/join " " xpts))]))
 
 (defmethod translate :rect
@@ -2552,7 +2719,7 @@ Style transforms allow the user to change any attributes of svg elements that af
                    (assoc-in [:rotate 1] (+ cx x))
                    (assoc-in [:rotate 2] (+ cy y)))
         new-props (-> props
-                      (assoc :transform (utils/xf-map->str new-xf))
+                      (assoc :transform (u/xf-map->str new-xf))
                       (update :x + x)
                       (update :y + y))]
     [k new-props]))
@@ -2565,7 +2732,7 @@ Style transforms allow the user to change any attributes of svg elements that af
                    (assoc-in [:rotate 1] (+ cx x))
                    (assoc-in [:rotate 2] (+ cy y)))
         new-props (-> props
-                      (assoc :transform (utils/xf-map->str new-xf))
+                      (assoc :transform (u/xf-map->str new-xf))
                       (update :x + x)
                       (update :y + y))]
     [k new-props]))
@@ -2577,7 +2744,7 @@ Style transforms allow the user to change any attributes of svg elements that af
                    (update-in [:rotate 1] + x)
                    (update-in [:rotate 2] + y))
         new-props (-> props
-                      (assoc :transform (utils/xf-map->str new-xf))
+                      (assoc :transform (u/xf-map->str new-xf))
                       (update :x + x)
                       (update :y + y))]
     [k new-props text]))
@@ -2614,10 +2781,11 @@ Consider refactor at some point.
   (let [xf (get-props props)
         new-xf (-> xf
                    (update-in [:rotate 0] + deg))
-        new-props (assoc props :transform (utils/xf-map->str new-xf))]
+        new-props (assoc props :transform (u/xf-map->str new-xf))]
     (vec (filter (complement nil?) [k new-props (when content content)]))))
 
 (defmulti rotate
+  "Rotate `element` by `deg` degrees around its centroid."
   (fn [element _]
     (if (keyword? (first element))
       (first element)
@@ -2639,33 +2807,33 @@ Consider refactor at some point.
   [[k props] deg]
   (let [pts [[(:x1 props) (:y1 props)] [(:x2 props) (:y2 props)]]
         [[x1 y1] [x2 y2]]  (->> pts
-                                (map #(utils/v- % (utils/centroid-of-pts pts)))
-                                (map #(utils/rotate-pt % deg))
-                                (map #(utils/v+ % (utils/centroid-of-pts pts))))
+                                (map #(u/v- % (u/centroid-of-pts pts)))
+                                (map #(u/rotate-pt % deg))
+                                (map #(u/v+ % (u/centroid-of-pts pts))))
         new-props (assoc props :x1 x1 :y1 y1 :x2 x2 :y2 y2)]
     [k new-props]))
 
 (defmethod rotate :polygon
   [[k props] deg]
   (let [ctr (centroid [k props])
-        pts (mapv utils/s->v (str/split (:points props) #" "))
+        pts (mapv u/s->v (str/split (:points props) #" "))
         xpts (->> pts
-                  (map #(utils/v- % ctr))
-                  (map #(utils/rotate-pt % deg))
-                  (map #(utils/v+ % ctr))
-                  (map utils/v->s))
+                  (map #(u/v- % ctr))
+                  (map #(u/rotate-pt % deg))
+                  (map #(u/v+ % ctr))
+                  (map u/v->s))
         xprops (assoc props :points (str/join " " xpts))]
     [k xprops]))
 
 (defmethod rotate :polyline
   [[k props] deg]
   (let [ctr (centroid [k props])
-        pts (mapv utils/s->v (str/split (:points props) #" "))
+        pts (mapv u/s->v (str/split (:points props) #" "))
         xpts (->> pts
-                  (map #(utils/v- % ctr))
-                  (map #(utils/rotate-pt % deg))
-                  (map #(utils/v+ % ctr))
-                  (map utils/v->s))
+                  (map #(u/v- % ctr))
+                  (map #(u/rotate-pt % deg))
+                  (map #(u/v+ % ctr))
+                  (map u/v->s))
         xprops (assoc props :points (str/join " " xpts))]
     [k xprops]))
 
@@ -2677,7 +2845,7 @@ Consider refactor at some point.
                    (update-in [:rotate 0] + deg)
                    (assoc-in  [:rotate 1] cx)
                    (assoc-in  [:rotate 2] cy))
-        new-props (assoc props :transform (utils/xf-map->str new-xf))]
+        new-props (assoc props :transform (u/xf-map->str new-xf))]
     [k new-props]))
 
 (defmethod rotate :image
@@ -2688,7 +2856,7 @@ Consider refactor at some point.
                    (update-in [:rotate 0] + deg)
                    (assoc-in  [:rotate 1] cx)
                    (assoc-in  [:rotate 2] cy))
-        new-props (assoc props :transform (utils/xf-map->str new-xf))]
+        new-props (assoc props :transform (u/xf-map->str new-xf))]
     [k new-props]))
 
 (defmethod rotate :text
@@ -2698,7 +2866,7 @@ Consider refactor at some point.
 (defmethod rotate :path
   [elem deg]
   (path/rotate elem deg))
-  
+
 #+END_SRC
 
 *** rotate-group
@@ -2714,17 +2882,17 @@ So,
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
 (defmethod rotate :g
   [[k props & content :as elem] deg]
-  (let [[gcx gcy] (utils/centroid-of-pts (bounds elem))
+  (let [[gcx gcy] (u/centroid-of-pts (bounds elem))
         xfcontent (for [child content]
                     (let [ch (translate child [(- gcx) (- gcy)])
                           ctr (if (= :g (first ch))
-                                (utils/centroid-of-pts (bounds ch))
+                                (u/centroid-of-pts (bounds ch))
                                 (centroid ch))
                           xfm (-> ctr
-                                  (utils/rotate-pt deg)
-                                  (utils/v+ [gcx gcy]))]
+                                  (u/rotate-pt deg)
+                                  (u/v+ [gcx gcy]))]
                       (-> ch
-                          (translate (utils/v* [-1 -1] ctr))
+                          (translate (u/v* [-1 -1] ctr))
                           (rotate deg)
                           (translate xfm))))]
     (into [k props] (filter (complement nil?) xfcontent))))
@@ -2739,14 +2907,17 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
 *** scale-elements
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
 (defn scale-by-transform
+  "Scale an element by using the SVG transform property.
+  This function is used to transform elements that cannot 'bake' the transform into their other geometric properties."
   [[k props & content] [sx sy]]
-  (let [xf (utils/str->xf-map (:transform props))
+  (let [xf (u/str->xf-map (:transform props))
         new-xf (-> xf
                    (update :scale (fnil #(map * [sx sy] %) [1 1])))
-        new-props (assoc props :transform (utils/xf-map->str new-xf))]
+        new-props (assoc props :transform (u/xf-map->str new-xf))]
     [k new-props] content))
 
 (defmulti scale
+  "Scale `element` by [`sx` `sy`] around its centroid."
   (fn [element _]
     (if (keyword? (first element))
       (first element)
@@ -2799,20 +2970,20 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
 
 (defmethod scale :polygon
   [[k props :as elem] [sx sy]]
-  (let [pts (map vec (partition 2 (utils/s->v (:points props))))
+  (let [pts (map vec (partition 2 (u/s->v (:points props))))
         ctr (centroid elem)
         xpts (->> pts
-                  (map #(utils/scale-pt-from-center % [sx sy] ctr))
-                  (map utils/v->s))]
+                  (map #(u/scale-pt-from-center % [sx sy] ctr))
+                  (map u/v->s))]
     [k (assoc props :points (str/join " " xpts))]))
 
 (defmethod scale :polyline
   [[k props :as elem] [sx sy]]
-  (let [pts (map vec (partition 2 (utils/s->v (:points props))))
+  (let [pts (map vec (partition 2 (u/s->v (:points props))))
         ctr (centroid elem)
         xpts (->> pts
-                  (map #(utils/scale-pt-from-center % [sx sy] ctr))
-                  (map utils/v->s))]
+                  (map #(u/scale-pt-from-center % [sx sy] ctr))
+                  (map u/v->s))]
     [k (assoc props :points (str/join " " xpts))]))
 
 (defmethod scale :rect
@@ -2852,7 +3023,7 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
                    (assoc-in [:rotate 1] (- x))
                    (assoc-in [:rotate 2] (- y)))
         new-props (-> props
-                      (assoc :transform (utils/xf-map->str new-xf))
+                      (assoc :transform (u/xf-map->str new-xf))
                       (assoc :x x)
                       (assoc :y y)
                       (update-in [:style :font-size] #(* % sx)))]
@@ -2868,30 +3039,30 @@ Scale should be 'baked into' all dimensions just like other transforms, where po
 For a group scale to work as expected, two things must happen:
 
  - scale each element of the group around its own centroid
- - translate each element of the group by (utils/v* sc velem)
-   - velem is (utils/v- elem-ctr group-ctr)
+ - translate each element of the group by (u/v* sc velem)
+   - velem is (u/v- elem-ctr group-ctr)
 
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
 #_(defmethod scale :g
   [[k props & content] [sx sy]]
-  (let [xf (utils/str->xf-map (:transform props))
+  (let [xf (u/str->xf-map (:transform props))
         new-xf (-> xf
                    (update :scale (fnil #(map * [sx sy] %) [1 1])))
-        new-props (assoc props :transform (utils/xf-map->str new-xf))]
+        new-props (assoc props :transform (u/xf-map->str new-xf))]
     (into [k new-props] content)))
 
 (defmethod scale :g
   [[k props & content :as elem] [sx sy]]
-  (let [g-ctr (utils/centroid-of-pts (bounds elem))
+  (let [g-ctr (u/centroid-of-pts (bounds elem))
         xfcontent (for [child content]
                     (let [elem-ctr (if (= :g (first child))
-                                     (utils/centroid-of-pts (bounds child))
+                                     (u/centroid-of-pts (bounds child))
                                      (centroid child))
                           ch (-> child
-                                 (translate (utils/v* [-1 -1] elem-ctr))
+                                 (translate (u/v* [-1 -1] elem-ctr))
                                  (scale [sx sy]))
-                          elem-v (utils/v- elem-ctr g-ctr)]
-                      (-> ch (translate (utils/v+ (utils/v* [sx sy] elem-v) g-ctr)))))]
+                          elem-v (u/v- elem-ctr g-ctr)]
+                      (-> ch (translate (u/v+ (u/v* [sx sy] elem-v) g-ctr)))))]
     (into [k props] (filter (complement nil?) xfcontent))))
 
 #+END_SRC
@@ -2900,6 +3071,8 @@ For a group scale to work as expected, two things must happen:
 *** offset-elements
 #+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
 (defmulti offset
+  "Offset the boundary of `element` by distance `d`.
+  The offset direction is always normal to the boundary, pointing outward if the path is wound in a CCW direction around the element's centroid."
   (fn [element _]
     (if (keyword? (first element))
       (first element)
@@ -2937,7 +3110,7 @@ For a group scale to work as expected, two things must happen:
 
 (defmethod offset :line
   [[k {:keys [x1 y1 x2 y2] :as props}] d]
-  (let [[[nx1 ny1] [nx2 ny2]] (utils/offset-edge [[x1 y1] [x2 y2]] d)
+  (let [[[nx1 ny1] [nx2 ny2]] (u/offset-edge [[x1 y1] [x2 y2]] d)
         new-props (-> props
                       (assoc :x1 nx1)
                       (assoc :y1 ny1)
@@ -2947,17 +3120,17 @@ For a group scale to work as expected, two things must happen:
 
 (defmethod offset :polygon
   [[k {:keys [points] :as props}] d]
-  (let [pts (map vec (partition 2 (utils/s->v points)))
-        opts (utils/offset-pts pts d)
-        npoints (str/join " " (map utils/v->s opts))
+  (let [pts (map vec (partition 2 (u/s->v points)))
+        opts (u/offset-pts pts d)
+        npoints (str/join " " (map u/v->s opts))
         new-props (assoc props :points npoints)]
     [k new-props]))
 
 (defmethod offset :polyline
   [[k {:keys [points] :as props}] d]
-  (let [pts (map vec (partition 2 (utils/s->v points)))
-        opts (utils/offset-pts pts d)
-        npoints (str/join " " (map utils/v->s opts))
+  (let [pts (map vec (partition 2 (u/s->v points)))
+        opts (u/offset-pts pts d)
+        npoints (str/join " " (map u/v->s opts))
         new-props (assoc props :points npoints)]
     [k new-props]))
 
@@ -2976,45 +3149,46 @@ For details.
 
 First, I have to split up the bezier. To split a bezier curve, you have to create 'de Casteljau's Skeleton' which is all of the straight line segments that 'build up' to create the Bezier Curve.
 
-#+BEGIN_SRC clojure
-(defmulti offset-path-command
+#+BEGIN_SRC clojure :tangle ./src/svg_clj/transforms.cljc
+(defmulti ^:private offset-path-command
+  "Offset the path command `cmd`."
   (fn [cmd _]
     (:command cmd)))
 
 (defmethod offset-path-command "M"
   [{:keys [:input] :as m} [x y]]
-  (assoc m :input (utils/v+ [x y] input)))
+  (assoc m :input (u/v+ [x y] input)))
 
 (defmethod offset-path-command "L"
   [{:keys [:input] :as m} [x y]]
-  (assoc m :input (utils/v+ [x y] input)))
+  (assoc m :input (u/v+ [x y] input)))
 
 (defmethod offset-path-command "H"
-  [{:keys [:input] :as m} [x y]]
-  (assoc m :input (utils/v+ [x] input)))
+  [{:keys [:input] :as m} [x _]]
+  (assoc m :input (u/v+ [x] input)))
 
 (defmethod offset-path-command "V"
-  [{:keys [:input] :as m} [x y]]
-  (assoc m :input (utils/v+ [y] input)))
+  [{:keys [:input] :as m} [_ y]]
+  (assoc m :input (u/v+ [y] input)))
 
-;; x y x y x y because input will ahve the form:
+;; x y x y x y because input will have the form:
 ;; [x1 y1 x2 y2 x y] (first two pairs are control points)
 (defmethod offset-path-command "C"
   [{:keys [:input] :as m} [x y]]
-  (assoc m :input (utils/v+ [x y x y x y] input)))
+  (assoc m :input (u/v+ [x y x y x y] input)))
 
 ;; similar approach to above, but one control point is implicit
 (defmethod offset-path-command "S"
   [{:keys [:input] :as m} [x y]]
-  (assoc m :input (utils/v+ [x y x y] input)))
+  (assoc m :input (u/v+ [x y x y] input)))
 
 (defmethod offset-path-command "Q"
   [{:keys [:input] :as m} [x y]]
-  (assoc m :input (utils/v+ [x y x y] input)))
+  (assoc m :input (u/v+ [x y x y] input)))
 
 (defmethod offset-path-command "T"
   [{:keys [:input] :as m} [x y]]
-  (assoc m :input (utils/v+ [x y] input)))
+  (assoc m :input (u/v+ [x y] input)))
 
 ;; [rx ry xrot laf swf x y]
 ;; rx, ry do not change
@@ -3033,10 +3207,10 @@ First, I have to split up the bezier. To split a bezier curve, you have to creat
   [cmd a]
   [cmd a])
 
-#_(defmethod offset :path
+;; todo: TDD this offset implementation
+(defmethod offset :path
   [[k props] d]
-  [k props])
-  #_(let [cmds (path/path-str->cmds (:d props))
+  (let [cmds (path/path-str->cmds (:d props))
         xcmds (map #(offset-path-command % d) cmds)]
     [k (assoc props :d (path/cmds->path-string xcmds))]))
 
@@ -3051,9 +3225,9 @@ Composites are drawing elements that are not represented in the base SVG element
 
   Additionally, the SVG container function is provided here as it relies on [[svg-clj.transforms]] to allow automatic veiwBox setup."
   (:require [clojure.string :as str]
-            [svg-clj.utils :as utils]
             [svg-clj.elements :as el]
-            [svg-clj.transforms :as tf]))
+            [svg-clj.transforms :as tf]
+            [svg-clj.utils :as u]))
 
 #+END_SRC
 
@@ -3063,7 +3237,7 @@ Composites are drawing elements that are not represented in the base SVG element
    "Wraps `content` in an SVG container element whose width, height, and viewBox properties are automatically calculated when `w`, `h`, and `sc` are omitted.
    The SVG container is optionally parameterized by width `w`, height `h`, and scale `sc`."
   ([content]
-   (let [[w h] (tf/bb-dims content)
+   (let [[w h] (u/bb-dims (tf/bounds content))
          [[x y] _ _ _] (tf/bounds content)]
      [:svg {:width  w
             :height h
@@ -3086,10 +3260,11 @@ Composites are drawing elements that are not represented in the base SVG element
 ** arrow
 To be added later:
 
-A 'arrow builder' function that lets you give a curve, a start-shape, and end-shape and it builds the appropriate group. This could be a basis for a bunch of utility arrows. Curves could be line, polyline, beziers, and arcs. 
+A 'arrow builder' function that lets you give a curve, a start-shape, and end-shape and it builds the appropriate group. This could be a basis for a bunch of utility arrows. Curves could be line, polyline, beziers, and arcs.
 
 #+begin_src clojure :tangle ./src/svg_clj/composites.cljc
 (defn arrow
+  "Draws an arrow from point `a` to point `b`, with the tip beign a triangle drawn at `b`."
   ([a b]
    (let [tip-pts [ [0 0] [5 0] [5 5] ]
          tip-shape (el/polygon tip-pts)]
@@ -3097,7 +3272,7 @@ A 'arrow builder' function that lets you give a curve, a start-shape, and end-sh
 
   ([a b tip-shape]
    (let [[mx my] (tf/centroid tip-shape)
-         r (utils/to-deg (apply #(Math/atan2 %1 %2) (utils/v- b a)))]
+         r (u/to-deg (apply #(Math/atan2 %1 %2) (u/v- b a)))]
      (->
       (el/g
        (el/line a b)
@@ -3119,9 +3294,11 @@ This is a helpful default for text elements. It expects a font size arg. This co
 
 #+begin_src clojure :tangle ./src/svg_clj/composites.cljc
 (defn label
+  "Draw a text element with `text` rendered with Verdana in `font-size` in pixels if passed as a number.
+  You can pass `font-size` as a string to specify other units. Eg. \"14pt\". You can use `svg-clj.transforms/style` to override any styles."
   [font-size text]
-  [:text 
-   {:x 0 :y 0 
+  [:text
+   {:x 0 :y 0
     :style {:font-family "Verdana"
             :text-anchor "middle"
             :dominant-baseline "middle"
@@ -3133,18 +3310,21 @@ Various useful algorithms, usually working on points.
 ** ns
 #+begin_src clojure :tangle ./src/svg_clj/algorithms.cljc
 (ns svg-clj.algorithms
-  (:require [svg-clj.utils :as utils]
-            [clojure.set :as set]))
+  (:require [clojure.set :as set]
+            [svg-clj.utils :as u]))
 
 #+end_src
 
 ** delaunay
 #+begin_src clojure :tangle ./src/svg_clj/algorithms.cljc
-(def abs #?(:clj #(Math/abs %) :cljs js/Math.abs))
-(def pow #?(:clj #(Math/pow %1 %2) :cljs js/Math.pow))
+
+;; todo: check if we need this fn here.
+(def pow
+  "Raise the first number to the power of the second number."
+  #?(:clj #(Math/pow %1 %2) :cljs js/Math.pow))
 
 ;; https://gist.github.com/mutoo/5617691
-(defn circumscribe-tri
+(defn- circumscribe-tri
   [[[ax ay] [bx by] [cx cy]]]
   (let [A (- bx ax)
         B (- by ay)
@@ -3161,41 +3341,44 @@ Various useful algorithms, usually working on points.
             r  (+ (pow dx 2) (pow dy 2))]
         {:x cx :y cy :radius-squared r}))))
 
-(defn edges
+(defn- edges
   [pts]
   (partition 2 1 (conj (vec pts) (first pts))))
 
-(defn contains-pt?
+(defn- contains-pt?
   [{:keys [x y radius-squared]} [px py]]
   (let [distance-squared (+ (pow (- x px) 2) (pow (- y py) 2))]
     (< distance-squared radius-squared)))
 
-(defn outer-edges
+(defn- outer-edges
   [tris]
   (let [all-edges (mapcat edges tris)
         matches (fn [edge] (filter #{edge (reverse edge)} all-edges))
         appears-once (fn [edge] (= (count (matches edge)) 1))]
     (filter appears-once all-edges)))
 
-(defn make-new-tris
+(defn- make-new-tris
   [containers pt]
   (->> containers
        outer-edges
        (map (fn [[p1 p2]] [p1 p2 pt]))
        set))
 
-(defn add-pt-to-tris
+(defn- add-pt-to-tris
   [tris pt]
-  (let [containers (filter #(contains-pt? (circumscribe-tri %) pt) tris)
+  (let [containers (set (filter #(contains-pt? (circumscribe-tri %) pt) tris))
         new-tris (make-new-tris containers pt)]
     (set/union (set/difference tris containers) new-tris)))
 
 ;; http://paulbourke.net/papers/triangulate/
+;; todo: Test this a bunch, see if I can get it to work with any arbitrary set of pts.
+;; todo: see where it fails (eg. concave pt sets?) and fix
 (defn delaunay
+  "Compute a delaunay triangulation of `pts`."
   [pts]
   (let [pts (map (fn [[x y]] [(float x) (float y)]) pts)
         pt-indices (zipmap pts (range 0 (count pts)))
-        [bl br tr tl] (map #(utils/v* % [2 2]) (utils/bounds-of-pts pts))
+        [bl br tr tl] (map #(u/v* % [2 2]) (u/bounds-of-pts pts))
         initial #{[tl tr bl] [bl tr br]}
         with-bounds (reduce add-pt-to-tris initial pts)
         tris (remove #(some #{tl tr bl br} %) with-bounds)
@@ -3210,10 +3393,12 @@ Various useful algorithms, usually working on points.
 ** clip-ears
 #+begin_src clojure :tangle ./src/svg_clj/algorithms.cljc
 (defn remove-colinears
+  "Removes all points from `pts` which are colinear with other corners from the list of points `pts`.
+  That is, any point that does not itself form a corner is removed."
   [pts]
   (let [indices (zipmap pts (range (count pts)))
         tris (partition 3 1 (concat pts (take 2 pts)))
-        clpts (set (map second (filter #(apply utils/colinear? %) tris)))
+        clpts (set (map second (filter #(apply u/colinear? %) tris)))
         xindices (vals (apply dissoc indices clpts))]
     (map #(get pts %) xindices)))
 
@@ -3224,15 +3409,17 @@ Various useful algorithms, usually working on points.
         corners (->> pts
                      (#(concat % (take 2 %)))
                      (partition 3 1)
-                     (filter #(#{:convex} (apply utils/corner-condition %))))
+                     (filter #(#{:convex} (apply u/corner-condition %))))
         clear? (fn [corner]
-                 (not (seq (filter #(utils/pt-inside? corner %) pts))))
+                 (not (seq (filter #(u/pt-inside? corner %) pts))))
         tri (first (filter clear? corners))]
     {:pts pts
      :npts (mapv #(get pts %) (sort (vals (dissoc indices (second tri)))))
      :tri tri}))
 
 (defn clip-ears
+  "Create a tessellation of the polygon defined by `pts`.
+  This algorithm works acceptably, but returns 'bad' tessellations often. That is, it will return a mesh with very thin triangles, it will slow down if there are many many points."
   ([pts] (clip-ears {:indices (zipmap pts (range (count pts)))} pts [] []))
   ([data pts tris indices]
    (if (< (count pts) 3)
@@ -3246,6 +3433,7 @@ Various useful algorithms, usually working on points.
 ** hull
 #+begin_src clojure :tangle ./src/svg_clj/algorithms.cljc
 (defn hull
+  "Compute the convex hull of `pts`."
   ([pts] (hull [{:pt (first (sort-by first pts))}] pts))
   ([acc pts]
    (if (or
@@ -3257,18 +3445,19 @@ Various useful algorithms, usually working on points.
      (map :pt (drop-last acc))
      (let [prev (:pt (last acc))
            dir (if (= 1 (count acc))
-                 (utils/v+ [0 1] prev)
+                 (u/v+ [0 1] prev)
                  (:pt (last (drop-last acc))))
            f (fn [pt]
                (let [a (when (= 3 (count (into #{} [dir prev pt])))
-                         (utils/angle-from-pts dir prev pt))]
+                         (u/angle-from-pts dir prev pt))]
                  {:pt pt :angle a}))
            sorted (->> (map f pts)
                        (remove #(nil? (:angle %)))
-                       (sort-by #(utils/abs (- (:angle %) 180))))]
+                       (sort-by #(abs (- (:angle %) 180))))]
        (recur (conj acc (first sorted)) pts)))))
 
 (defn nested-hull
+  "Compute the nested convex hull of `pts`."
   ([pts] (nested-hull [] pts))
   ([acc pts]
    (if (> 3 (count pts))
@@ -3311,8 +3500,8 @@ Finally, it must be true that (f 0) and (f 1) are valid points, not nil.
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (ns svg-clj.parametric
   "Provides functions that generate lists of points or return parametric curve functions."
-  (:require [svg-clj.utils :as utils]
-            [svg-clj.algorithms :as alg]))
+  (:require [svg-clj.algorithms :as alg]
+            [svg-clj.utils :as u]))
 #+end_src
 
 ** parametric-validator
@@ -3326,8 +3515,9 @@ This check does not determine yet if the implied function from :fn :input will b
 
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn check-parametric
+  "Utility fn to help diagnose parametric function issues."
   [f]
-  (let [fdata (try (f) (catch #?(:cljs :default :clj Exception) e))
+  (let [fdata (try (f) (catch #?(:cljs :default :clj Exception) _))
         [f0 f05 f1] (map f [0 0.5 1])
         t0 (if (seqable? f0) f0 [f0])
         t05 (if (seqable? f05) f05 [f05])
@@ -3350,6 +3540,7 @@ This check does not determine yet if the implied function from :fn :input will b
       (not t1-pred) (assoc-in [:error :invalid-t1] t1))))
 
 (defn valid-parametric?
+  "`True` if `f` is a properly built parametric function."
   [f]
   (nil? (:error (check-parametric f))))
 
@@ -3358,6 +3549,7 @@ This check does not determine yet if the implied function from :fn :input will b
 ** remap
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn- remap-within
+  "Shift the parameter range of `f` from 0 to 1 to `start` to `end`."
   [f [start end] x]
   (when (and (>= x start) (< x end))
     (let [step (- end start)
@@ -3371,6 +3563,8 @@ Arc-length is slow at the moment. I have to figure out how to optimize it, and i
 
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn arc-length
+  "Calculate the arc length of `curve`, being exact where possible and estimating otherwise.
+  For example, bezier curves are estimated, but circles and arcs have exact results (barring rounding)."
   ([curve] (arc-length curve 0 1))
   ([curve t] (arc-length curve 0 t))
   ([curve ta tb]
@@ -3380,19 +3574,20 @@ Arc-length is slow at the moment. I have to figure out how to optimize it, and i
      (->> (range start end (/ 1 seg))
           (map curve)
           (partition 2 1)
-          (map #(apply utils/distance %))
+          (map #(apply u/distance %))
           (reduce +)
-          (#(utils/round % 5))))))
+          (#(u/round % 5))))))
 
 #+end_src
 
 ** regular-polygons
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn regular-polygon-pts
+  "Return a list of points making up a polygon with distance to the points `r` and `n` edges."
   [r n]
   (let [angle (* 2 Math/PI (/ 1 n))]
-    (map #(vector (utils/round (* r (Math/cos (* % angle))) 5)
-                  (utils/round (* r (Math/sin (* % angle))) 5))
+    (map #(vector (u/round (* r (Math/cos (* % angle))) 5)
+                  (u/round (* r (Math/sin (* % angle))) 5))
          (range n))))
 
 #+end_src
@@ -3400,6 +3595,8 @@ Arc-length is slow at the moment. I have to figure out how to optimize it, and i
 ** rectilinear-grid
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn rect-grid
+  "Build a rectilinear grid with `nx`, `ny` points in x and y directions, with `x-spacing` and `y-spacing` between each point in the x and y directions respectively.
+  Returned as a flat list of points from [0 0] in a 'Z' pattern to [(* nx x-spacing) (* ny y-spacing)]."
   [nx ny x-spacing y-spacing]
   (for [b (range ny)
         a (range nx)]
@@ -3409,7 +3606,9 @@ Arc-length is slow at the moment. I have to figure out how to optimize it, and i
 
 ** hex-grid
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
+;; todo: make this work. it's broken.
 (defn hex-grid
+  "Build a hexagonal grid. Doesn't work yet."
   [nx ny w]
   (let [a-offset (/ w 2)
         h (/ w 0.8660254)]
@@ -3420,7 +3619,7 @@ Arc-length is slow at the moment. I have to figure out how to optimize it, and i
      (for [x (range 0 nx)
            y (range 1 (Math/ceil (/ ny 2)))]
        [(* w x) (+ h (* 2 h y))]))))
-  
+
 #+end_src
 
 ** line
@@ -3432,23 +3631,27 @@ This was observed to have noticable improvement on estimating arc-length of a be
 
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn line
+  "Create a parametric function representing a straight line.
+  The returned function takes a parameter `t` between 0 and 1, where t 0 = `a` and t 1 = `b`."
   [a b]
   (fn
     ([] {:fn `line
          :input [a b]
-         :origin (utils/centroid-of-pts [a b])
+         :origin (u/centroid-of-pts [a b])
          :vertex-params [0 1]
-         :length (utils/distance a b)})
+         :length (u/distance a b)})
     ([t]
      (cond
        (= (float t) 0.0) a
        (= (float t) 1.0) b
        :else
-       (utils/v+ a (utils/v* (utils/v- b a) (repeat t)))))))
+       (u/v+ a (u/v* (u/v- b a) (repeat t)))))))
 
 (defn fastline
-  [[ax ay :as a] [bx by :as b]]
-  (let [[vx vy] (utils/v- b a)]
+  "Create a parametric function representing a straight line, with no checks and slightly faster implementation meant primarily for use in the bezier implementation.
+  The returned function takes a parameter `t` between 0 and 1, where t 0 = `a` and t 1 = `b`."
+  [[ax ay :as a] b]
+  (let [[vx vy] (u/v- b a)]
     (fn [t]
       [(+ ax (* vx t))
        (+ ay (* vy t))])))
@@ -3458,9 +3661,10 @@ This was observed to have noticable improvement on estimating arc-length of a be
 ** polyline
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn polyline
+  "Create a parametric function representing a polyline with straight segments defined by `pts`.
+  The returned function takes a parameter `t` between 0 and 1, where t 0 = (first `pts`) and t 1 = (last `pts`)."
   [pts]
-  (let [step (/ 1.0 (dec (count pts)))
-        lines (map (partial apply line) (partition 2 1 pts))
+  (let [lines (map (partial apply line) (partition 2 1 pts))
         length (reduce + (map #(:length (%)) lines))
         intervals (->> lines
                        (map #(:length (%)))
@@ -3471,7 +3675,7 @@ This was observed to have noticable improvement on estimating arc-length of a be
     (fn
       ([] {:fn `polyline
            :input [pts]
-           :origin (utils/centroid-of-pts pts)
+           :origin (u/centroid-of-pts pts)
            :vertex-params (concat [0] (mapv second intervals))
            :length length})
       ([t]
@@ -3488,9 +3692,10 @@ This was observed to have noticable improvement on estimating arc-length of a be
 ** polygon
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn polygon
+  "Create a parametric function representing a polygon with straight segments defined by `pts`.
+  The returned function takes a parameter `t` between 0 and 1, where t 0 and 1 = (first `pts`)."
   [pts]
   (let [pts (concat (vec pts) [(first pts)])
-        step (/ 1.0 (dec (count pts)))
         lines (map (partial apply line) (partition 2 1 pts))
         length (reduce + (map #(:length (%)) lines))
         intervals (->> lines
@@ -3502,7 +3707,7 @@ This was observed to have noticable improvement on estimating arc-length of a be
     (fn
       ([] {:fn `polygon
            :input [pts]
-           :origin (utils/centroid-of-pts pts)
+           :origin (u/centroid-of-pts pts)
            :vertex-params (concat [0] (mapv second intervals))
            :length (reduce + (map #(:length (%)) lines))})
       ([t]
@@ -3521,9 +3726,9 @@ This was observed to have noticable improvement on estimating arc-length of a be
 (defn- radius-from-pts
   "compute the radius of an arc defined by 3 points"
   [p1 p2 p3]
-  (let [a (utils/distance p3 p2)
-        b (utils/distance p3 p1)
-        c (utils/distance p2 p1)
+  (let [a (u/distance p3 p2)
+        b (u/distance p3 p1)
+        c (u/distance p2 p1)
         s (/ (+ a b c) 2)
         sa ( - s a)
         sb ( - s b)
@@ -3535,23 +3740,25 @@ This was observed to have noticable improvement on estimating arc-length of a be
 (defn- center-from-pts
   "compute the center point of an arc through 3 points"
   [p1 p2 p3]
-  (let [u1 (utils/v- p2 p1)
-        u2 (utils/v- p3 p1)
-        w1 (utils/cross* (utils/v- p3 p1) u1)
-        u (utils/normalize u1)
-        w (utils/normalize w1)
-        v (utils/cross* w u)
-        [bx _] [(utils/dot* u1 u) 0]
-        [cx cy] [(utils/dot* u2 u) (utils/dot* u2 v)]
-        h (/ (+ (Math/pow (- cx (/ bx 2)) 2) 
+  (let [u1 (u/v- p2 p1)
+        u2 (u/v- p3 p1)
+        w1 (u/cross* (u/v- p3 p1) u1)
+        u (u/normalize u1)
+        w (u/normalize w1)
+        v (u/cross* w u)
+        [bx _] [(u/dot* u1 u) 0]
+        [cx cy] [(u/dot* u2 u) (u/dot* u2 v)]
+        h (/ (+ (Math/pow (- cx (/ bx 2)) 2)
                 (Math/pow cy 2)
-                (- (Math/pow (/ bx 2) 2))) 
+                (- (Math/pow (/ bx 2) 2)))
              (* 2 cy))]
-    (utils/v+ p1
-              (utils/v* (repeat (/ bx 2)) u) 
-              (utils/v* (repeat h) v))))
+    (u/v+ p1
+          (u/v* (repeat (/ bx 2)) u)
+          (u/v* (repeat h) v))))
 
 (defn circle
+  "Create a parametric function representing a circle with radius `r` centered at the origin, or circumscribing points `a`, `b`, and `c`, as long as the three points are not colinear.
+  The returned function takes a parameter `t` between 0 and 1, where t 0 and 1 = [r 0] or centroid + calcuated radius."
   ([r]
    (fn
      ([] {:fn `circle
@@ -3566,55 +3773,59 @@ This was observed to have noticable improvement on estimating arc-length of a be
         [x y]))))
 
   ([a b c]
-   (let [[a b c] (map #(conj % 0) [a b c])
-         n (utils/normalize (utils/normal a b c))
-         r (radius-from-pts a b c)
-         cp (center-from-pts a b c)
-         u (utils/normalize (utils/v- a cp))
-         v (utils/cross* n u)]
-     (fn
-       ([] {:fn `circle
-            :input [a b c]
-            :origin cp
-            :vertex-params [0]
-            :length (* Math/PI 2 r)
-            :radius r})
-       ([t]
-       (cond
-         (or (< t 0.0) (> t 1.0)) nil
-         (= (float t) 0.0) (vec (drop-last a))
-         (= (float t) 1.0) (vec (drop-last a))
-         :else
-         (let [t (* 2 Math/PI t)]
-           (mapv 
-            #(utils/round % 5)
-            (drop-last 
-             (utils/v+ cp
-                       (utils/v* (repeat (* r (Math/cos t))) u)
-                       (utils/v* (repeat (* r (Math/sin t))) v)))))))))))
+   (when-not (u/colinear? a b c)
+     (let [[a b c] (map #(conj % 0) [a b c])
+           n (u/normalize (u/normal a b c))
+           r (radius-from-pts a b c)
+           cp (center-from-pts a b c)
+           u (u/normalize (u/v- a cp))
+           v (u/cross* n u)]
+       (fn
+         ([] {:fn `circle
+              :input [a b c]
+              :origin cp
+              :vertex-params [0]
+              :length (* Math/PI 2 r)
+              :radius r})
+         ([t]
+          (cond
+            (or (< t 0.0) (> t 1.0)) nil
+            (= (float t) 0.0) (vec (drop-last a))
+            (= (float t) 1.0) (vec (drop-last a))
+            :else
+            (let [t (* 2 Math/PI t)]
+              (mapv
+                #(u/round % 5)
+                (drop-last
+                  (u/v+ cp
+                        (u/v* (repeat (* r (Math/cos t))) u)
+                        (u/v* (repeat (* r (Math/sin t))) v))))))))))))
 
 #+end_src
 
 ** arc
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn arc
+  "Create a parametric function representing an arc drawn from `a` through `b` and ending at `c`, as long as the three points are not colinear.
+  The returned function takes a parameter `t` between 0 and 1, where t 0 = `a` and t 1 = `c`."
   [a b c]
-  (let [[a b c] (map #(conj % 0) [a b c])
-        f (circle a b c)
-        cp (center-from-pts a b c)
-        angle (utils/angle-from-pts a cp c)
-        r (radius-from-pts a b c)]
-    (fn
-      ([] {:fn `arc
-           :input [a b c]
-           :origin cp
-           :vertex-params [0 1]
-           :length (* Math/PI 2 r (/ angle 360))
-           :radius r
-           :center cp})
-      ([t]
-       (let [t (* t (/ angle 360.0))]
-         (f t))))))
+  (when-not (u/colinear? a b c)
+    (let [[a b c] (map #(conj % 0) [a b c])
+          f (circle a b c)
+          cp (center-from-pts a b c)
+          angle (u/angle-from-pts a cp c)
+          r (radius-from-pts a b c)]
+      (fn
+        ([] {:fn `arc
+             :input [a b c]
+             :origin cp
+             :vertex-params [0 1]
+             :length (* Math/PI 2 r (/ angle 360))
+             :radius r
+             :center cp})
+        ([t]
+         (let [t (* t (/ angle 360.0))]
+           (f t)))))))
 
 #+end_src
 
@@ -3623,6 +3834,7 @@ This was observed to have noticable improvement on estimating arc-length of a be
 ;; https://www.mathsisfun.com/geometry/ellipse-perimeter.html
 ;; uses 'Infinite Series 2' exact calc. using 4 terms.
 (defn- ellipse-perimeter
+  "Estimate the perimeter of an ellipse with radii `rx` and `ry`."
   [rx ry]
   (let [h (/ (Math/pow (- rx ry) 2)
              (Math/pow (+ rx ry) 2))]
@@ -3633,8 +3845,10 @@ This was observed to have noticable improvement on estimating arc-length of a be
           (* h h h (/ 1 256))))))
 
 (defn ellipse
+  "Create a parametric function representing an ellipse with radii `rx`, `ry` centered at the origin.
+  The returned function takes a parameter `t` between 0 and 1, where t 0 and 1 = [rx 0]."
   [rx ry]
-  (fn 
+  (fn
     ([] {:fn `ellipse
          :input [rx ry]
          :origin [0 0]
@@ -3668,23 +3882,26 @@ Splitting is needed as part of approximating bezier curve offsets with 'chains' 
   [pts]
   (if (= 3 (count pts))
     (apply quadratic-bezier pts)
-    (let [lines (map #(apply fastline %) (partition 2 1 pts))] 
+    (let [lines (map #(apply fastline %) (partition 2 1 pts))]
       (fn
         [t]
         (let [npts (map #(% t) lines)]
           ((bezier* npts) t))))))
 
 (defn bezier
+  "Create a parametric function representing a bezier curve with control points `pts`, as long as there are at least 3 points.
+  The returned function takes a parameter `t` between 0 and 1, where t 0 = (first `pts`) and t 1 = (last `pts`)."
   [pts]
-  (let [curve (bezier* pts)
-        length (arc-length curve)]
-    (fn
-      ([] {:fn `bezier
-           :input [pts]
-           :origin (utils/centroid-of-pts pts)
-           :vertex-params [0 1]
-           :length length})
-      ([t] (curve t)))))
+  (when (> (count pts) 2)
+    (let [curve (bezier* pts)
+          length (arc-length curve)]
+      (fn
+        ([] {:fn `bezier
+             :input [pts]
+             :origin (u/centroid-of-pts pts)
+             :vertex-params [0 1]
+             :length length})
+        ([t] (curve t))))))
 
 #+end_src
 
@@ -3710,37 +3927,42 @@ Splitting is needed as part of approximating bezier curve offsets with 'chains' 
   (let [n (dec (count ws))
         poly (partial polynomial n)
         bi (partial binomial n)]
-    (reduce + (map-indexed 
+    (reduce + (map-indexed
                (fn [i w]
                  (* (bi i) (poly i t) w))
                ws))))
 
-(defn rational-bezier*
+(defn- rational-bezier*
   [pts wts]
   (let [xs (map #(* (first %1) %2) pts wts)
         ys (map #(* (second %1) %2) pts wts)
         dn (partial half-bezier wts)]
     (fn [t]
-      [(/ (half-bezier xs t) (dn t)) 
+      [(/ (half-bezier xs t) (dn t))
        (/ (half-bezier ys t) (dn t))])))
 
+;; todo: write tests to see if this actually works properly.
 (defn rational-bezier
+  "Create a parametric function representing a rational bezier curve with control points `pts` and weights `wts`, as long as there are at least 3 points and 3 wts.
+  The returned function takes a parameter `t` between 0 and 1, where t 0 = (first `pts`) and t 1 = (last `pts`)."
   [pts wts]
   (let [curve (rational-bezier* pts wts)
         length (arc-length curve)]
     (fn
       ([] {:fn `rational-bezier
            :input [pts wts]
-           :origin (utils/centroid-of-pts pts)
+           :origin (u/centroid-of-pts pts)
            :vertex-params [0 1]
            :length length})
       ([t] (curve t)))))
 
 #+end_src
 
-*** piecewise-curve
+** piecewise-curve
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn piecewise-curve
+  "Create a parametric function representing compound curve composed of `curves`.
+  The returned function takes a parameter `t` between 0 and 1, where t 0 = the start of the first curve  and t 1 = the end of the last curve."
   [curves]
   (let [step (/ 1.0 (count curves))
         intervals (partition 2 1 (range 0 (+ 1 step) step))
@@ -3749,7 +3971,7 @@ Splitting is needed as part of approximating bezier curve offsets with 'chains' 
                        sc (- end start)]
                    (map #(+ start (* sc %)) vertex-params)))
         vertex-params (vec (distinct (mapcat remapf curves intervals)))
-        origin (utils/centroid-of-pts (map #(:origin (%)) curves))
+        origin (u/centroid-of-pts (map #(:origin (%)) curves))
         length (reduce + (map #(:length (%)) curves))
         sample-curve (first curves)]
     (fn
@@ -3770,7 +3992,7 @@ Splitting is needed as part of approximating bezier curve offsets with 'chains' 
 
 #+end_src
 
-** WIP splitting-beziers
+** splitting-beziers
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn split-bezier
   "Returns the Control Point 'de Casteljau Skeleton', used to derive split Bezier Curve Control Points."
@@ -3778,7 +4000,7 @@ Splitting is needed as part of approximating bezier curve offsets with 'chains' 
    (let [pts (-> (curve) :input first)]
      (split-bezier {:a [(first pts)]
                     :b [(last pts)]} pts t)))
- 
+
   ([{:keys [a b]} pts t]
    (let [cs (map #(apply line  %) (partition 2 1 pts))
          npts (map #(% t) cs)]
@@ -3801,8 +4023,8 @@ Splitting is needed as part of approximating bezier curve offsets with 'chains' 
            n 0]
         (let [next-t (+ t (/ (- target-l (arc-length curve t)) target-l))]
           (if (or
-               (= (utils/round t 4) (utils/round next-t 4))
-               (< (utils/abs (- target-l (arc-length curve t))) eps)
+               (= (u/round t 4) (u/round next-t 4))
+               (< (abs (- target-l (arc-length curve t))) eps)
                (< 300 n))
             next-t
             (recur next-t (inc n)))))))
@@ -3813,6 +4035,7 @@ Splitting is needed as part of approximating bezier curve offsets with 'chains' 
     (get-t curve target-lp)))
 
 (defn split-bezier-between
+  "Split the given bezier curve `curve` between parameters `ta` and `tb`, where each is between 0 and 1."
   [curve ta tb]
   (let [da (arc-length curve ta)
         split1 (split-bezier curve tb)
@@ -3822,15 +4045,16 @@ Splitting is needed as part of approximating bezier curve offsets with 'chains' 
     (merge (split-bezier curve1 ta1) partial-result)))
 
 (defn multi-split-bezier
+  "Split the given bezier curve `curve` at each parameter in `ts`, where each is between 0 and 1."
   ([curve ts]
    (let [ds (map #(arc-length curve %) (sort ts))]
      (multi-split-bezier [] curve (reverse ds))))
   ([acc curve ds]
    (if (< 1 (count ds))
-     (let [remapped-t (get-t-at-distance curve (first ds)) 
+     (let [remapped-t (get-t-at-distance curve (first ds))
            {:keys [a b]} (split-bezier curve remapped-t)]
        (recur (conj acc b) (bezier a) (rest ds)))
-     (let [remapped-t (get-t-at-distance curve (first ds)) 
+     (let [remapped-t (get-t-at-distance curve (first ds))
            {:keys [a b]} (split-bezier curve remapped-t)]
        (-> acc
            (conj b)
@@ -3838,6 +4062,7 @@ Splitting is needed as part of approximating bezier curve offsets with 'chains' 
            reverse)))))
 
 (defn uniform-split-bezier
+  "Split the given bezier curve `curve` evenly into `n` segments."
   [curve n-segments]
   (let [l (arc-length curve)
         step (/ l n-segments)
@@ -3846,10 +4071,13 @@ Splitting is needed as part of approximating bezier curve offsets with 'chains' 
       (split-bezier curve 0.5)
       (multi-split-bezier [] curve (reverse (sort ds))))))
 
+;; todo: test/fix all bezier splitting functions
 #+end_src
 
 ** WIP b-spline
-#+begin_src clojure tangle ./src/svg_clj/parametric.cljc
+#+begin_src clojure
+;; todo: make b-splines work.
+
 (defn- domain
   [degree knots]
   (let [knots (vec knots)]
@@ -3877,12 +4105,12 @@ Splitting is needed as part of approximating bezier curve offsets with 'chains' 
 ;; degree example: quadratic b-spline = degree 2, cubic degree 3
 ;; order is (inc degree) and is the number of knots needed for any one section
 ;; order, k, is called 'knot interval'
-;; n is number of control points. 
+;; n is number of control points.
 ;; NOTE: for b-splines, the degree and n_cpts are NOT related.
 
 
 ;; current issue is index out of bounds. Seems like it's probably related to
-;; incorrect s or i value, so (get knots i...) fails in some cases. 
+;; incorrect s or i value, so (get knots i...) fails in some cases.
 (defn- b-spline-inner
   [[pts degree knots]
    [l v]
@@ -3897,7 +4125,7 @@ Splitting is needed as part of approximating bezier curve offsets with 'chains' 
               denominator (- (get knots (+ i (- l) order))
                              (get knots i))
               alpha (/ numerator denominator)
-              new-vi (utils/v+ (map #(* alpha %) vi)
+              new-vi (u/v+ (map #(* alpha %) vi)
                                (map #(* (- 1 alpha) %) (get v (dec i))))
               new-v (assoc v i new-vi)]
           (recur new-v (dec i)))
@@ -3928,7 +4156,7 @@ Splitting is needed as part of approximating bezier curve offsets with 'chains' 
                             denominator (- (get knots (+ i (- l) order))
                                            (get knots i))
                             alpha (/ numerator denominator)
-                            new-vi (utils/v+ (map #(* alpha %) vi)
+                            new-vi (u/v+ (map #(* alpha %) vi)
                                              (map #(* (- 1 alpha) %) (get v (dec i))))
                             new-v (assoc v i new-vi)]
                         (recur new-vi (dec i)))
@@ -3949,11 +4177,14 @@ Splitting is needed as part of approximating bezier curve offsets with 'chains' 
 ** blend
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn sinwave
+  "Creates a parametric function of a sinwave with amplitude `amp`, and frequency `freq`."
   [amp freq]
   (fn [t]
     (* amp (Math/sin (* t freq Math/PI)))))
 
 (defn blend
+  "Buildsa a parametric function that is a blend of parametric functions `fa` `fb` by `alpha` between 0 and 1 where 0 is 100% `fa`, and 1 is 100% `fb`.
+  Optionally pass an `easefn` to apply to the alpha."
   ([fa fb alpha]
    (fn [t]
      (let [line (line (fa t) (fb t))]
@@ -3964,9 +4195,9 @@ Splitting is needed as part of approximating bezier curve offsets with 'chains' 
        (line (easefn alpha))))))
 
 (defn eased-polyline
+  "Create a parametric function which is a smoothed polyline using an easing function `easefn`."
   [pts easefn]
-  (let [step (/ 1.0 (dec (count pts)))
-        lines (map (partial apply line) (partition 2 1 pts))
+  (let [lines (map (partial apply line) (partition 2 1 pts))
         length (reduce + (map #(:length (%)) lines))
         intervals (->> lines
                        (map #(:length (%)))
@@ -3976,8 +4207,8 @@ Splitting is needed as part of approximating bezier curve offsets with 'chains' 
                        (partition 2 1))
         easedlines (map #(fn [t] (% (easefn t))) lines)]
     (fn
-      ([] {:fn `polyline
-           :input [pts]
+      ([] {:fn `eased-polyline
+           :input [pts easefn]
            :length length})
       ([t]
        (cond
@@ -3988,7 +4219,9 @@ Splitting is needed as part of approximating bezier curve offsets with 'chains' 
           (filter some?
                   (map #(remap-within %1 %2 t) easedlines intervals))))))))
 
+;; todo: turn this into a proper parametric fn (add 0-arity, test, etc.)
 (defn multiblend
+  "Blend multiple parametric curves `fs` together with `alpha` and an optional `easefn`."
   ([fs alpha]
    (fn [t]
      (let [line (polyline (map #(% t) fs))]
@@ -3998,16 +4231,18 @@ Splitting is needed as part of approximating bezier curve offsets with 'chains' 
      (let [line (eased-polyline (map #(% t) fs) easefn)]
        (line alpha)))))
 
+;; todo: turn this into a proper parametric fn (add 0-arity, test, etc.)
 (defn fn-offset
+  "Offset the parametric curve `curve` with an offsetting function `f`, which modfies the paramter t in some way."
   [curve f]
-  (let [eps 0.000001]
+  (let [eps u/*eps*]
     (fn [t]
       (let [t (cond (<= (- 1 eps) t) (- 1 eps)
                     (> eps t) eps
                     :else t)
-            n (utils/normalize (utils/normal (curve (- t eps)) (curve (+ t eps))))
+            n (u/normalize (u/normal (curve (- t eps)) (curve (+ t eps))))
             tpt (curve t)
-            l (line tpt (utils/v+ tpt n))]
+            l (line tpt (u/v+ tpt n))]
         (l (f t))))))
 #+end_src
 
@@ -4030,31 +4265,32 @@ This does not guarantee that input pts are preserved in the output."
   (let [c (polygon pts)]
     (mapv #(c (/ % (inc n))) (range n))))
 
-;; not certain if this is a great design idea yet
-(defn remove-colinears [pts] (alg/remove-colinears pts))
 #+end_src
 
 ** stroke-pts
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
-(defn- pline
-  [line]
-  (let [[_ {:keys [x1 y1 x2 y2]}] line]
-    (line [x1 y1] [x2 y2])))
-
 (defn stroke-pts
+  "Return a list of points that define a constant `width` stroke with `n-segments` along the `curve`."
   [curve width n-segments]
-  (let [of (fn [_] (* 0.5 width))
-        tcurve (fn-offset curve #(* 0.5 width))
+  (let [tcurve (fn-offset curve #(* 0.5 width))
         bcurve (fn-offset curve #(* -0.5 width))]
     (concat [(curve 0)]
             (map #(tcurve (/ % n-segments)) (range (inc n-segments)))
             [(curve 1)]
             (map #(bcurve (/ % n-segments)) (reverse (range (inc n-segments)))))))
 
+;; todo: rework this implementation to remove need for 'pline'
+#_(defn- pline
+  [line]
+  (let [[_ {:keys [x1 y1 x2 y2]}] line]
+    (line [x1 y1] [x2 y2])))
+
 #_(defn tapered-stroke-pts
+  "Return a list of points that define a maximum `width` stroke with `n-segments` along the `curve`, where the points are tapered from both ends up to the parameter `taper-t` on the curve.
+  The max. `taper-t` can be is 0.5 to have the stroke taper up to maximum width at the center of the curve down again to the end of the curve."
   [curve width n-segments taper-t]
   (let [taper-n (int (* n-segments taper-t))
-        taper (map #(ease-out-sin (/ % taper-n)) (range taper-n))
+        taper (map #(u/ease-out-sin (/ % taper-n)) (range taper-n))
         dist (concat taper (repeat (- n-segments (* 2 (count taper))) 1) (reverse taper))
         tlns (->> (el/line [0 0] [0 (* 0.5 width)])
                   (repeat (inc n-segments))
@@ -4074,22 +4310,24 @@ This does not guarantee that input pts are preserved in the output."
 ** fillet-chamfer-pts
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn fillet-pts
+  "Return a list of points defining an approximation of the shaped defined by `pts` with fillets of radius `r` at all of the corners."
   [pts r]
   (let [fillet (regular-polygon-pts r 50)
-        ipts (utils/offset-pts pts (- r))
-        f (fn [pt] (map #(utils/v+ pt %) fillet))
+        ipts (u/offset-pts pts (- r))
+        f (fn [pt] (map #(u/v+ pt %) fillet))
         npts (mapcat f ipts)]
     (alg/hull npts)))
 
 (defn chamfer-pts
+  "Return a list of points defining a new shape derived from the shape made by `pts` with chamfers of radius `r` at all of the corners."
   [pts r]
   (let [fillet (regular-polygon-pts r 50)
-        ipts (utils/offset-pts pts (- r))
-        f (fn [pt] (map #(utils/v+ pt %) fillet))
+        ipts (u/offset-pts pts (- r))
+        f (fn [pt] (map #(u/v+ pt %) fillet))
         npts (mapcat f ipts)]
     (->> (alg/hull npts)
          (partition 2 1)
-         (sort-by #(apply utils/distance %))
+         (sort-by #(apply u/distance %))
          reverse
          (take (count pts))
          (apply concat)
@@ -4100,21 +4338,23 @@ This does not guarantee that input pts are preserved in the output."
 ** translate
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn translate
+  "Translate the parametric function `f` by [`x` `y`]."
   [f [x y]]
   (let [data (f)]
     (fn
       ([] (merge data
                  {:fn `translate
-                  :origin (utils/v+ (:origin data) [x y])
+                  :origin (u/v+ (:origin data) [x y])
                   :input [f [x y]]}))
       ([t]
-       (utils/v+ (f t) [x y])))))
+       (u/v+ (f t) [x y])))))
 
 #+end_src
 
 ** rotate
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn rotate
+  "Rotate the parametric function `f` by `deg` around its origin."
   [f deg]
   (let [data (f)
         ctr (:origin data)]
@@ -4122,13 +4362,14 @@ This does not guarantee that input pts are preserved in the output."
       ([] {:fn `rotate
            :input [f deg]})
       ([t]
-       (utils/rotate-pt-around-center (f t) deg ctr)))))
+       (u/rotate-pt-around-center (f t) deg ctr)))))
 
 #+end_src
 
 ** scale
 #+begin_src clojure :tangle ./src/svg_clj/parametric.cljc
 (defn scale
+  "Scale the parametric function `f` by [`sx` `sy`] around its origin."
   [f [sx sy]]
   (let [data (f)
         ctr (:origin data)]
@@ -4137,7 +4378,7 @@ This does not guarantee that input pts are preserved in the output."
                  {:fn `scale
                   :input [f [sx sy]]}))
       ([t]
-       (utils/scale-pt-from-center (f t) [sx sy] ctr)))))
+       (u/scale-pt-from-center (f t) [sx sy] ctr)))))
 
 #+end_src
 
@@ -4147,8 +4388,8 @@ This does not guarantee that input pts are preserved in the output."
 (ns svg-clj.layout
   "Provides functions for layout control of elements."
   (:require [svg-clj.elements :as el]
-            [svg-clj.utils :as utils]
-            [svg-clj.transforms :as tf]))
+            [svg-clj.transforms :as tf]
+            [svg-clj.utils :as u]))
 
 #+end_src
 
@@ -4165,40 +4406,43 @@ Distribute has a few options:
 
 #+begin_src clojure :tangle ./src/svg_clj/layout.cljc
 (defn distribute-linear
-  [axis-key gap items]
-  (let [dir (axis-key {:x first :y second})
+  "Distribute `elems` along the `axis` (either :x or :y) with a `gap` distance between each item."
+  [elems axis gap]
+  (let [getfn (axis {:x first :y second})
         distances
         (reductions +
-                    (map #(+ (/ (dir (tf/bb-dims %1)) 2)
-                             (/ (dir (tf/bb-dims %2)) 2) gap)
-                         items (rest items)))]
+                    (map #(+ (/ (getfn (u/bb-dims %1)) 2)
+                             (/ (getfn (u/bb-dims %2)) 2) gap)
+                         elems (rest elems)))]
     (el/g
-     (conj 
+     (conj
       (map
-       #(tf/translate %1 (if (= axis-key :x) 
+       #(tf/translate %1 (if (= axis :x)
                            [%2 0]
-                           [0 %2])) (rest items) distances)
-      (first items)))))
+                           [0 %2])) (rest elems) distances)
+      (first elems)))))
 
 (defn distribute-on-pts
-  [items pts]
-  (el/g (map #(-> %1 (tf/translate %2)) items pts)))
+  "Distribute the `elems` along the given `pts`. Each element is centered on its point."
+  [elems pts]
+  (el/g (map #(-> %1 (tf/translate %2)) elems pts)))
 
 (defn distribute-on-curve
-  [items curve]
-  (let [eps 0.000001
-        n (if (> (count items) 1) (dec (count items)) 1)
-        xf (fn [item t]
+  "Distribute the `elems` evenly along the given `curve`."
+  [elems curve]
+  (let [eps u/*eps*
+        n (if (> (count elems) 1) (dec (count elems)) 1)
+        xf (fn [elem t]
              (let [t (cond (<= (- 1 eps) t) (- 1 eps)
                            (> eps t) eps
                            :else t)
-                   n (utils/normal (curve (- t eps)) (curve (+ t eps)))
-                   a (utils/angle-from-pts n [0 0] [0 1])
-                   o (map #(utils/round % 4) (utils/rotate-pt (tf/centroid item) a))]
-               (-> item
+                   n (u/normal (curve (- t eps)) (curve (+ t eps)))
+                   a (u/angle-from-pts n [0 0] [0 1])
+                   o (map #(u/round % 4) (u/rotate-pt (tf/centroid elem) a))]
+               (-> elem
                    (tf/rotate a)
-                   (tf/translate (utils/v- (curve t) o (tf/centroid item))))))]
-    (map #(xf %1 (float (/ %2 n))) items (range 0 (inc n)))))
+                   (tf/translate (u/v- (curve t) o (tf/centroid elem))))))]
+    (map #(xf %1 (float (/ %2 n))) elems (range 0 (inc n)))))
 
 #+end_src
 
@@ -4207,13 +4451,15 @@ Pattern and distribute are so similar, I wonder if I should remove one of them? 
 
 #+begin_src clojure :tangle ./src/svg_clj/layout.cljc
 (defn pattern-on-pts
-  [item pts]
-  (el/g (map #(-> item (tf/translate %)) pts)))
+  "Repeat `elem`, centering on each point of `pts`."
+  [elem pts]
+  (el/g (map #(-> elem (tf/translate %)) pts)))
 
 (defn pattern-on-curve
-  [item curve n]
+  "Repeat `elem` evenly along `curve` `n` times."
+  [elem curve n]
   (let [step (/ 1.0 n)]
-    (map #(-> item (tf/translate (curve %))) (range 0 1.0 step))))
+    (map #(-> elem (tf/translate (curve %))) (range 0 1.0 step))))
 
 #+end_src
 
@@ -4223,16 +4469,16 @@ Pattern and distribute are so similar, I wonder if I should remove one of them? 
 (ns svg-clj.tools
   (:require [clojure.java.browse]
             [clojure.java.io]
-            [hiccup.core :refer [html]]
-            [svg-clj.composites :refer [svg]]
-            [svg-clj.elements :as el]
-            [svg-clj.utils :as utils]))
+            [hiccup.core :as hiccup :refer [html]]
+            [svg-clj.composites :as comp :refer [svg]]
+            [svg-clj.utils :as u]))
 
 #+end_src
 
 ** save-load
 #+begin_src clojure :tangle ./src/svg_clj/tools.clj
 (defn save-svg
+  "Save hiccup-style `svg-data` to file `fname`."
   [svg-data fname]
   (let [data (if (= (first svg-data) :svg)
                svg-data
@@ -4245,17 +4491,17 @@ Use this function to load the SVG without throwing away any nodes, for example, 
   [fname]
   (-> fname
       slurp
-      utils/svg-str->hiccup))
+      u/svg-str->hiccup))
 
 (defn load-svg-elems
   "Loads the SVG `fname`, parses the XML into hiccup, and returns a sequence of the SVG elements in the file.
 Use this function to pull elements from an SVG that can be used directly with the other functions in this library."
-  ([fname] (load-svg-elems fname el/svg-element-keys))
+  ([fname] (load-svg-elems fname u/svg-element-keys))
   ([fname key-set]
    (-> fname
        slurp
-       utils/svg-str->hiccup
-       (utils/get-elems key-set))))
+       u/svg-str->hiccup
+       (u/get-elems key-set))))
 
 #+end_src
 
@@ -4273,12 +4519,14 @@ Or, permanently enable the setting by placing this somewhere in your emacs init 
 
 #+begin_src clojure :tangle ./src/svg_clj/tools.clj
 (defn cider-show
+  "Show hiccup-style `svg-data` in a CIDER REPL. Creates `_tmp.svg` in the project's root folder."
   [svg-data]
   (let [fname "_tmp.svg"]
     (save-svg svg-data fname)
     (clojure.java.io/file fname)))
 
 (defn show
+  "Show hiccup-style `svg-data` in the browser. Creates `_tmp.svg.html` in the project's root folder."
   [svg-data]
   (let [fname "_tmp.svg.html"]
     (save-svg svg-data fname)
@@ -4300,7 +4548,7 @@ clj -M:test
 *** ns
 #+BEGIN_SRC clojure :tangle ./test/svg_clj/utils_test.cljc
 (ns svg-clj.utils-test
-  (:require [svg-clj.utils :as utils]
+  (:require [svg-clj.utils :as u]
             [svg-clj.parametric :as p]
             [svg-clj.transforms :as tf]
             [clojure.test :as test :refer [deftest testing is]]))
@@ -4311,14 +4559,25 @@ clj -M:test
 #+BEGIN_SRC clojure :tangle ./test/svg_clj/utils_test.cljc
 (deftest zeroish-test
   (testing "Zero is zerosih."
-    (is (= true (utils/zeroish? 0)))
-    (is (= true (utils/zeroish? 0.0))))
+    (is (= true (u/zeroish? 0)))
+    (is (= true (u/zeroish? 0.0))))
   (testing "0.1 is not zerosih."
-    (is (= false (utils/zeroish? 0.1)))
-    (is (= false (utils/zeroish? -0.1))))
+    (is (= false (u/zeroish? 0.1)))
+    (is (= false (u/zeroish? -0.1))))
   (testing "Really small is zerosih."
-    (is (= true (utils/zeroish? 0.000001)))
-    (is (= true (utils/zeroish? 1e-10)))))
+    (is (= true (u/zeroish? 0.000001)))
+    (is (= true (u/zeroish? 1e-10)))))
+
+#+END_SRC
+
+*** round
+#+BEGIN_SRC clojure :tangle ./test/svg_clj/utils_test.cljc
+(deftest rounding-test
+  (testing "Default rounding is 5 decimal places."
+    (is (= 5.0 (u/round 4.999999999)))
+    (is (= 5.0 (u/round 4.999995)))
+    (is (= 4.99999 (u/round 4.999991)))
+    (is (= 4.99999 (u/round 4.999994)))))
 
 #+END_SRC
 
@@ -4326,7 +4585,7 @@ clj -M:test
 #+BEGIN_SRC clojure :tangle ./test/svg_clj/utils_test.cljc
 (deftest angle-from-pts
   (let [angles (map
-                #(utils/angle-from-pts [10 0] [0 0] %)
+                #(u/angle-from-pts [10 0] [0 0] %)
                 (p/regular-polygon-pts 10 20))
         sorted-angles (reverse (sort angles))]
     (is (= (rest (map #(Math/round %) angles)) ;; first angle is 0, rest are in decreasing order
@@ -4334,7 +4593,7 @@ clj -M:test
 
 (deftest angle-first-quadrant
   (let [eps 0.00001
-        a (utils/angle-from-pts [0 10] [0 0] [10 0])]
+        a (u/angle-from-pts [0 10] [0 0] [10 0])]
     (is (< (Math/abs (- 90.0 a)) eps))))
 
 #+END_SRC
@@ -4343,19 +4602,19 @@ clj -M:test
 #+begin_src clojure :tangle ./test/svg_clj/utils_test.cljc
 (deftest cast-numerical-attrs-test
   (let [attrs {:cx "10" :cy "20" :width "200" :height "200px"}
-        {:keys [cx cy width height] :as res} (utils/cast-numerical-attrs attrs)]
+        {:keys [cx cy width height] :as res} (u/cast-numerical-attrs attrs)]
     (is (= cx 10))
     (is (= cy 20))
     (is (= width 200))
     (is (= height "200px"))))
- 
+
 #+end_src
 
 *** svg-str->elems
 #+begin_src clojure :tangle ./test/svg_clj/utils_test.cljc
 (deftest basic-string-to-elements
   (let [s "<rect width=\"10\" height=\"40\" x=\"50\" y=\"60\" />"
-        res (utils/svg-str->elems s)
+        res (u/svg-str->elems s)
         [k props] (first res)]
     (is (= 1 (count res)))
     (is (= k :rect))
@@ -4367,7 +4626,7 @@ clj -M:test
 *** ns
 #+begin_src clojure :tangle ./test/svg_clj/elements_test.cljc
 (ns svg-clj.elements-test
-  (:require [svg-clj.utils :as utils]
+  (:require [svg-clj.utils :as u]
             [svg-clj.elements :as el]
             [svg-clj.transforms :as tf]
             [clojure.test :refer [deftest is]]))
@@ -4406,9 +4665,9 @@ clj -M:test
   (is (= test-polygon [:polygon {:points "0,0 10,20 40,50 20,10"}]))
   (is (= test-polyline [:polyline {:points "0,0 10,20 40,50 20,10"}]))
   (is (= test-rect [:rect {:x -30.0 :y -15.0 :width 60 :height 30}]))
-  (is (= test-image [:image 
+  (is (= test-image [:image
                      {:href "https://www.fillmurray.com/g/200/300"
-                      :x -100.0 :y -150.0 
+                      :x -100.0 :y -150.0
                       :width 200 :height 300}])))
 #+end_src
 
@@ -4498,7 +4757,7 @@ clj -M:test
 *** ns
 #+BEGIN_SRC clojure :tangle ./test/svg_clj/path_test.cljc
 (ns svg-clj.path-test
-  (:require 
+  (:require
    [svg-clj.elements :as el]
    [svg-clj.path :as path]
    [svg-clj.transforms :as tf]
@@ -4622,7 +4881,7 @@ These basic tests are brittle, as I manually copied path strings from the REPL. 
 #+BEGIN_SRC clojure :tangle ./test/svg_clj/tools_test.cljc
 (ns svg-clj.tools-test
   (:require [clojure.string :as str]
-            [svg-clj.utils :as utils]
+            [svg-clj.utils :as u]
             [svg-clj.path :as path]
             [svg-clj.transforms :as tf]
             [svg-clj.elements :as el]
@@ -4651,18 +4910,18 @@ These basic tests are brittle, as I manually copied path strings from the REPL. 
 This is a WIP file for a more complex drawing to be used in tests. This will use all transforms, all shapes, etc.
 
 ** basics
-#+begin_src clojure :tangle ./examples/basics.cljc
+#+begin_src clojure :tangle ./examples/basics.clj
 (ns examples.basics
-  (:require [clojure.string :as str]
-            [hiccup.core :refer [html]]
-            [svg-clj.utils :as utils]
+  "Showing the basic elements and transforms of svg-clj."
+  (:require [hiccup.core :refer [html]]
+            [svg-clj.composites :refer [svg]]
+            [svg-clj.elements :as el]
             [svg-clj.path :as path]
             [svg-clj.transforms :as tf]
-            [svg-clj.elements :as el]
-            [svg-clj.composites :refer [svg]]
-            [svg-clj.tools :refer [show cider-show]]))
+            [svg-clj.utils :as u]))
 
 (defn show-debug-geom
+  "Add some useful debugging geometry to `elem`."
   [elem]
   (let [ctr (tf/centroid elem)
         bds (tf/bounds elem)]
@@ -4688,9 +4947,9 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
   (-> (for [a (range 0 12)]
         (-> (el/circle (+ 5 (* a 4)))
             (tf/translate [(/ (+ 5 (* a 4)) 2) 0])
-            (tf/translate (utils/rotate-pt [20 0] (* a -40)))
-            (tf/style {:stroke 
-                       (str "rgba(163,190,140," 
+            (tf/translate (u/rotate-pt [20 0] (* a -40)))
+            (tf/style {:stroke
+                       (str "rgba(163,190,140,"
                             (/ (inc a) 10.0) ")")
                        :stroke-width "2px"
                        :fill "none"})))
@@ -4710,7 +4969,7 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
              (path/polygon [ [0 0] [30 0] [30 20] [15 10] [0 20] ])
              (el/text "this is text")
              (el/image "https://www.fillmurray.com/300/200" 100 67)
-             (tf/merge-paths (path/rect 100 100) (path/rect 80 80))
+             (path/merge-paths (path/rect 100 100) (path/rect 80 80))
              basic-group
              circles])
 
@@ -4730,10 +4989,10 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
    (partition-all 3)
    (interpose [:br])))
 
-(spit 
+(spit
  "examples/basics.html"
- (html 
-  [:html 
+ (html
+  [:html
    [:body
     [:h1 "Basic Geometry Examples"]
     doc]]))
@@ -4741,19 +5000,14 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
 #+end_src
 
 ** layout
-#+begin_src clojure :tangle ./examples/layout.cljc
+#+begin_src clojure :tangle ./examples/layout.clj
 (ns examples.layout
-  (:require [clojure.string :as str]
-            [clojure.java.shell :refer [sh]]
-            [hiccup.core :refer [html]]
-            [svg-clj.composites :as cp :refer [svg]]
-            [svg-clj.utils :as utils]
+  (:require [hiccup.core :refer [html]]
+            [svg-clj.composites :as comp :refer [svg]]
             [svg-clj.elements :as el]
-            [svg-clj.path :as path]
-            [svg-clj.transforms :as tf]
             [svg-clj.layout :as lo]
             [svg-clj.parametric :as p]
-            #?(:clj [svg-clj.tools :as tools])))
+            [svg-clj.transforms :as tf]))
 
 (defn show-debug-geom
   [elem]
@@ -4770,7 +5024,7 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
 
 (defn rand-rect
   []
-  (let [w (+ 5 (rand-int 20)) 
+  (let [w (+ 5 (rand-int 20))
         h (+ 5 (rand-int 20))
         origin [0 (/ h 2)]]
     (-> (el/rect w h)
@@ -4796,7 +5050,7 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
 ;; Works like map, so whichever runs out first (elements or points) is the limiter.
 
 (def grid-dist
- (lo/distribute-on-pts 
+ (lo/distribute-on-pts
   (repeatedly rand-rect)
   (p/rect-grid 10 10 30 30)))
 
@@ -4827,7 +5081,7 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
 ;; Distribute on any curve available in parametric.cljc
 (def bez-curve (p/bezier [ [70 -20] [10 70] [200 -300] [300 0]]))
 
-(def bezier-curve-dist 
+(def bezier-curve-dist
  (lo/distribute-on-curve
   (repeatedly 20 rand-rect)
   bez-curve))
@@ -4850,10 +5104,10 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
    (partition-all 3)
    (interpose [:br])))
 
-(spit 
+(spit
  "examples/layout.html"
- (html 
-  [:html 
+ (html
+  [:html
    [:body
     [:h1 "Layout Examples"]
     doc]]))
@@ -4861,18 +5115,14 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
 #+end_src
 
 ** bezier
-#+begin_src clojure :tangle ./examples/bezier.cljc
+#+begin_src clojure :tangle ./examples/bezier.clj
 (ns examples.bezier
-  (:require [clojure.string :as str]
-            [hiccup.core :refer [html]]
-            [svg-clj.composites :as cp :refer [svg]]
-            [svg-clj.utils :as utils]
+  (:require [hiccup.core :refer [html]]
+            [svg-clj.composites :refer [svg]]
             [svg-clj.elements :as el]
-            [svg-clj.path :as path]
-            [svg-clj.transforms :as tf]
-            [svg-clj.layout :as lo]
             [svg-clj.parametric :as p]
-            #?(:clj [svg-clj.tools :as tools])))
+            [svg-clj.path :as path]
+            [svg-clj.transforms :as tf]))
 
 (def pts [ [0 0] [100 -300] [200 -300] [300 0]])
 #_(def pts [ [110 150] [25 190] [210 250] [210 30]])
@@ -4881,12 +5131,12 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
 (def curve (p/bezier pts))
 (def curve2 (p/rational-bezier pts [1 2.5 0.5 1]))
 
-(def cols ["blue" "cyan" "purple" "pink" "blue" "skyblue" "slategray" "gold" "orange" "red"]) 
+(def cols ["blue" "cyan" "purple" "pink" "blue" "skyblue" "slategray" "gold" "orange" "red"])
 
 ;; runs slow due to arc-length calc
-#_(def curves
+(def curves
   (let [cpts (p/uniform-split-bezier curve 6) #_(p/multi-split-bezier curve ts)]
-    (map-indexed #(el/g 
+    (map-indexed #(el/g
                    (-> (apply path/bezier %2)
                        (tf/style {:fill "none"
                                   :stroke-width "3px"
@@ -4896,7 +5146,7 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
                        (tf/style {:fill "red"})))
                    cpts)))
 
-#_(def split-curve (p/uniform-split-bezier curve 4))
+(def split-curve (p/uniform-split-bezier curve 4))
 
 (def a (-> (apply path/bezier pts)
            (tf/style {:fill "none"
@@ -4943,10 +5193,10 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
    (partition-all 3)
    (interpose [:br])))
 
-(spit 
+(spit
  "examples/bezier.html"
- (html 
-  [:html 
+ (html
+  [:html
    [:body
     [:h1 "Bezier Curve Examples"]
     doc]]))
@@ -4954,18 +5204,14 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
 #+end_src
 
 ** offset
-#+begin_src clojure :tangle ./examples/offset.cljc
+#+begin_src clojure :tangle ./examples/offset.clj
 (ns examples.offset
-  (:require [clojure.string :as str]
-            [hiccup.core :refer [html]]
-            [svg-clj.composites :as cp :refer [svg]]
-            [svg-clj.utils :as utils]
+  (:require [hiccup.core :refer [html]]
+            [svg-clj.composites :as comp :refer [svg]]
             [svg-clj.elements :as el]
             [svg-clj.parametric :as p]
-            [svg-clj.path :as path]
             [svg-clj.transforms :as tf]
-            [svg-clj.layout :as lo]
-            #?(:clj [svg-clj.tools :as tools])))
+            [svg-clj.utils :as u]))
 
 (def a (-> (p/regular-polygon-pts 120 10)
            (el/polygon)
@@ -4998,7 +5244,7 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
                       :stroke-width "3px"})))
 
 (def f (-> (map curve (range 0 1.05 0.05))
-           (tf/offset-pts 20)
+           (u/offset-pts 20)
            (el/polyline)
            (tf/style {:fill "none"
                       :stroke "limegreen"
@@ -5024,35 +5270,31 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
    (partition-all 3)
    (interpose [:br])))
 
-(spit 
+(spit
  "examples/offset.html"
- (html 
-  [:html 
+ (html
+  [:html
    [:body
     [:h1 "Offset Examples"]
     doc]]))
 #+end_src
 
 ** algorithms
-#+begin_src clojure :tangle ./examples/offset.cljc
+#+begin_src clojure :tangle ./examples/algorithms.clj
 (ns examples.algorithms
-  (:require [clojure.string :as str]
-            [hiccup.core :refer [html]]
-            [svg-clj.composites :as cp :refer [svg]]
-            [svg-clj.utils :as utils]
+  (:require [hiccup.core :refer [html]]
+            [svg-clj.algorithms :as alg]
+            [svg-clj.composites :as comp :refer [svg]]
             [svg-clj.elements :as el]
             [svg-clj.parametric :as p]
-            [svg-clj.path :as path]
             [svg-clj.transforms :as tf]
-            [svg-clj.layout :as lo]
-            [svg-clj.algorithms :as alg]
-            #?(:clj [svg-clj.tools :as tools])))
+            [svg-clj.utils :as u]))
 
 (defn inside-pt-example
   []
   (let [deg (rand-int 361)
         tri (->> (p/regular-polygon-pts 100 3)
-                 (map #(utils/rotate-pt % deg)))
+                 (map #(u/rotate-pt % deg)))
         rand-pt (fn [] [(- 100 (rand-int 200))
                         (- 100 (rand-int 200))])
         pts (repeatedly 1400 rand-pt)]
@@ -5061,7 +5303,7 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
          (tf/style {:fill "none" :stroke "black"}))
      (into [:g {}]
            (for [pt pts]
-             (if (utils/pt-inside? tri pt)
+             (if (u/pt-inside? tri pt)
                (-> (el/circle 2)
                    (tf/translate pt)
                    (tf/style {:fill "green"}))
@@ -5072,7 +5314,7 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
 (def remove-colinears-example
   (let [pts (-> (p/regular-polygon-pts 100 4)
                 (p/simplify 160))
-        xpts (p/remove-colinears pts)]
+        xpts (alg/remove-colinears pts)]
     (el/g
      (into [:g {}]
            (for [pt pts]
@@ -5115,10 +5357,10 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
    (partition-all 3)
    (interpose [:br])))
 
-(spit 
+(spit
  "examples/algorithms.html"
- (html 
-  [:html 
+ (html
+  [:html
    [:body
     [:h1 "Algorithms Examples"]
     doc]]))
@@ -5126,31 +5368,29 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
 #+end_src
 
 ** blossom
-#+begin_src clojure :tangle ./examples/blossom.cljc
+#+begin_src clojure :tangle ./examples/blossom.clj
 (ns examples.blossom
-  (:require [svg-clj.utils :as utils]
-            [svg-clj.elements :as el]
-            [svg-clj.transforms :as tf]
-            [svg-clj.composites :as comp :refer [svg]]
-            [svg-clj.path :as path]
-            [svg-clj.parametric :as p]
+  (:require [svg-clj.elements :as el]
             [svg-clj.layout :as lo]
+            [svg-clj.parametric :as p]
+            [svg-clj.path :as path]
             [svg-clj.tools :as tools]
-            #?(:clj [svg-clj.tools :as tools])))
-            
+            [svg-clj.transforms :as tf]
+            [svg-clj.utils :as u]))
+
 (defn flip-y
   [pts]
-  (mapv #(utils/v* % [1 -1]) pts))
+  (mapv #(u/v* % [1 -1]) pts))
 
 (defn petal
   [cpts]
   (let [beza (apply path/bezier cpts)
         bezb (apply path/bezier (flip-y cpts))
-        shape (tf/merge-paths beza bezb)
+        shape (path/merge-paths beza bezb)
         ctr (tf/centroid shape)]
     (-> shape
         (tf/rotate -90)
-        (tf/translate (utils/v* ctr [-1 -1])))))
+        (tf/translate (u/v* ctr [-1 -1])))))
 
 (defn petal-ring
   [petal r n]
@@ -5172,7 +5412,7 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
                  :stroke "none"})))
 
 (def petal-03
-  (-> (tf/merge-paths petal-01 petal-02)
+  (-> (path/merge-paths petal-01 petal-02)
       (tf/style {:fill "#a8e6cf"})))
 
 (def petal-ring-01 (petal-ring petal-01 120 12))
@@ -5224,22 +5464,23 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
 * scratch
 Play around with code here.
 
+** loading existing svgs
 #+begin_src clojure
 (ns svg-clj.scratch
   (:require [clojure.string :as str]
             [hiccup.core :refer [html]]
-            [svg-clj.utils :as utils]
-            [svg-clj.path :as path]
-            [svg-clj.transforms :as tf]
-            [svg-clj.elements :as el]
-            [svg-clj.composites :refer [svg]]
-            [svg-clj.parametric :as p]
-            [svg-clj.layout :as lo]
             [svg-clj.algorithms :as alg]
-            [svg-clj.tools :as tools :refer [show cider-show]]))
+            [svg-clj.composites :refer [svg]]
+            [svg-clj.elements :as el]
+            [svg-clj.layout :as lo]
+            [svg-clj.parametric :as p]
+            [svg-clj.path :as path]
+            [svg-clj.tools :as tools :refer [show cider-show]]
+            [svg-clj.transforms :as tf]
+            [svg-clj.utils :as u]))
 
 (def sk (slurp "/Users/adam/dev/forge/sk.svg"))
-(def sk-elems (utils/svg-str->elems sk))
+(def sk-elems (u/svg-str->elems sk))
 (tools/cider-show sk-elems)
 
 ;; manual test of scaling groups
@@ -5256,7 +5497,7 @@ Play around with code here.
 (defn show-parametric
   [f]
   (let [eps 0.00005
-        closed? (< (utils/distance (f 0) (f 1)) eps)
+        closed? (< (u/distance (f 0) (f 1)) eps)
         pts (map f (range 0 1 0.01))
         draw-fn (if closed? el/polygon el/polyline)]
     (-> (draw-fn pts)
@@ -5264,7 +5505,933 @@ Play around with code here.
                    :stroke "limegreen"
                    :stroke-width 3})
         tools/cider-show)))
-        
 
 (def a (p/bezier [[0 0] [10 20] [40 90] [120 230]]))
+#+end_src
+
+* draw-app
+The key thing I need to understand is the Viewers API. What is the shape of the data that goes in/out of each: ~:pred :transform-fn :render-fn~ and how can I build viewers that actually work reliably?
+
+What I think is the case:
+
+- you can overwrite named viewers by using ~:name :some-clerk-key~ inside a viewer map.
+- viewers work recursively, so you can build a viewer that should return other viewers. So something like ~:pred number?~ should cause all numbers, even in other viewers, to be transformed/rendered accordingly.
+
+The important ones to understand for sure are ~:clerk/notebook~ and ~:clerk/code-block~
+
+The notebook viewer can be used to transform the entire 'document' by altering the sequence inside :blocks
+The code-block viewer can be used to alter how the actual code is rendered in the browser
+- I believe that it'll be inside here that I have to wire up values to a global state atom to be rendered.
+
+** shadow-cljs.edn
+To run a build:
+
+~npm install -g shadow-cljs~
+~shadow-cljs watch svg-clj-browser~
+
+#+begin_src clojure :tangle ./shadow-cljs.edn
+{:deps true
+ :builds {:svg-clj-browser
+          {:asset-path "out"
+           :compiler-options
+           {:optimizations :advanced
+            :output-wrapper false
+            :source-map false}
+           :devtools {:http-root ".", :http-port 9000}
+
+           :modules
+           {:main
+            {:entries
+             [svg-clj.viewers
+              nextjournal.clerk.sci-viewer
+              nextjournal.clerk.static-app]}}
+
+           :output-dir "out"
+           :target :browser}}}
+#+end_src
+** viewers
+I have to build a js bundle with the svg-clj namespaces to pass into the sci context so that I can do stuff like ~(el/circle 9)~ on the frontend -> will allow for reactive components.
+
+[[https://github.com/sicmutils/sicmutils-clerk/blob/38a52a608c31e3efd5a26c6e5400f0bfa61affe1/src/demo/viewers.cljs]] -> good place to start (they do custom sci env stuff)
+
+*** ns
+#+begin_src clojure :tangle ./src/svg_clj/viewers.cljs
+(ns svg-clj.viewers
+  (:require [nextjournal.clerk.sci-viewer :as sv]
+            [sci.core :as sci]
+            [reagent.core :as r]
+            [svg-clj.utils :as utils]
+            [svg-clj.elements :as el]
+            [svg-clj.transforms :as tf]
+            [svg-clj.composites :as comp :refer [svg]]
+            [svg-clj.path :as path]
+            [svg-clj.parametric :as p]
+            [svg-clj.layout :as lo]))
+
+;; Here is the existing context:
+;; https://github.com/nextjournal/clerk/blob/d08c26043efe19a92fe33dd9eb4499e304e4cff7/src/nextjournal/clerk/sci_viewer.cljs#L1013-L1023
+
+(sci/require-cljs-analyzer-api)
+
+#+end_src
+
+*** utils
+#+begin_src clojure :tangle ./src/svg_clj/viewers.cljs
+(defn- get-parent-svg
+  [node]
+  (let [parent (.-parentElement node)
+        tag (.-tagName parent)]
+    (when (not (#{"div" "span" "body" "html"} tag))
+      (if (= tag "svg")
+        parent
+        (recur parent)))))
+
+(defn- element-offset
+  [el]
+  {:x (-> el .getBoundingClientRect .-left int)
+   :y (-> el .getBoundingClientRect .-top int)
+   #_#_:a (-> js/window .-scrollY)})
+#+end_src
+
+*** mouse-pos
+#+begin_src clojure :tangle ./src/svg_clj/viewers.cljs
+;; https://cljdoc.org/d/reagent/reagent/1.1.1/doc/tutorials/creating-reagent-components
+(defn mouse-pos
+  ([] (mouse-pos js/document))
+  ([el]
+   (r/with-let [pointer (r/atom nil)
+                handler #(reset! pointer
+                                 (merge-with -
+                                             {:x (.-clientX %)
+                                              :y (.-clientY %)}
+                                             (when (not= el js/document)
+                                               (element-offset el))))
+                _ (.addEventListener el "mousemove" handler)]
+     @pointer
+     (finally
+       (.removeEventListener el "mousemove" handler)))))
+
+#+end_src
+
+*** number-input
+#+begin_src clojure :tangle ./src/svg_clj/viewers.cljs
+(defn number-input
+  ([state-target]
+   (number-input state-target nil))
+  ([state-target on-change-fn]
+   (let [number-input-class
+         (apply str
+                (interpose " " ["dark:bg-[#1f2937]" "dark:text-[#cbd5e1]" "form-control" "w-16" "px-1" "py-1" "text-gray-500" "bg-clip-padding" "border-gray-300" "rounded" "transition" "ease-in-out" "focus:text-gray-700" "focus:bg-white" "focus:border-gray-600" "focus:outline-none"]))]
+     [:input (merge
+               {:class (str "inspected-value " number-input-class)
+                :style {:margin 6
+                        :text-align "center"}
+                :type :number
+                :placeholder @state-target
+                :value @state-target
+                :on-input #(reset! state-target (.. % -target -value))}
+               {:on-change on-change-fn})])))
+#+end_src
+
+*** movable-pt-prototypes
+#+begin_src clojure :tangle ./src/svg_clj/viewers.cljs
+(defn movable-pt-1
+  [w h]
+  (r/with-let [down-pt (r/atom {:x 0 :y 0})
+               old-local-pt (r/atom {:x 10 :y 10})
+               local-pt (r/atom {:x 10 :y 10})
+               move! (r/atom false)
+               refa (r/atom nil)]
+    [:<>
+     [:span "Mouse Pos: " (str @(r/track mouse-pos))] [:br]
+     [:span "Local Mouse Pos: " (when @refa (str @(r/track mouse-pos @refa)))] [:br]
+     [:span "Down Pt: " (str @down-pt)] [:br]
+     [:span "Local Pt: " (str @local-pt)] [:br]
+
+     [:svg {:width w
+            :height h
+            :style {:background "honeydew"}
+            :ref (fn [el] (reset! refa el))
+            :on-mouse-move #(when @move!
+                              (reset! local-pt (merge-with + @old-local-pt
+                                                           (merge-with - @(r/track mouse-pos @refa)
+                                                                       @down-pt))))
+            :on-mouse-up #(reset! move! false)}
+      (let [pt (r/atom (vec (vals @local-pt)))]
+        (-> (el/circle 5)
+            (tf/translate @pt)
+            (tf/style {:on-mouse-down #(do (reset! down-pt @(r/track mouse-pos @refa))
+                                           (reset! old-local-pt {:x (first @pt)
+                                                                 :y (second @pt)})
+                                           (reset! move! true))})))]]))
+
+(defn movable-pt-2
+  [parent-el r]
+  (r/with-let [down-pt (r/atom {:x 0 :y 0})
+               old-local-pt (r/atom {:x 10 :y 10})
+               local-pt (r/atom {:x 10 :y 10})
+               move! (r/atom false)
+               el-pt (r/track mouse-pos parent-el)]
+    (let [pt (r/atom (vec (vals @local-pt)))
+          handler1 #(when @move!
+                      (reset! local-pt (merge-with + @old-local-pt (merge-with - @el-pt @down-pt))))
+          handler2 #(reset! move! false)
+          handler3 #(do (reset! down-pt @el-pt)
+                        (reset! old-local-pt {:x (first @pt)
+                                              :y (second @pt)})
+                        (reset! move! true))]
+      (.addEventListener parent-el "mousemove" handler1)
+      (.addEventListener parent-el "mouseup" handler2)
+      (el/g
+        (-> (el/text (str @el-pt))
+            (tf/style {:display "none"}))
+        (-> (el/circle r)
+            (tf/translate @pt)
+            (tf/style {:on-mouse-down handler3}))))))
+
+(defn movable-pt-3
+  [r]
+  (let [parent-el! (r/atom nil)]
+    (r/create-class
+      {:display-name "movable-pt"
+       :component-did-mount (fn [this] (let [node (reagent.dom/dom-node this)
+                                             parent (get-parent-svg node)]
+                                         (js/console.log (.-tagName parent))
+                                         (reset! parent-el! parent)))
+       :reagent-render
+       (fn [r]
+         (el/g
+           (when @parent-el!
+             (r/with-let [parent-el @parent-el!
+                          down-pt (r/atom {:x 0 :y 0})
+                          old-local-pt (r/atom {:x 10 :y 10})
+                          local-pt (r/atom {:x 10 :y 10})
+                          move! (r/atom false)
+                          el-pt (r/track mouse-pos parent-el)]
+               (let [pt (r/atom (vec (vals @local-pt)))
+                       handler1 #(when @move!
+                                   (reset! local-pt (merge-with + @old-local-pt (merge-with - @el-pt @down-pt))))
+                       handler2 #(reset! move! false)
+                       handler3 #(do (reset! down-pt @el-pt)
+                                     (reset! old-local-pt {:x (first @pt)
+                                                           :y (second @pt)})
+                                     (reset! move! true))]
+                   (.addEventListener parent-el "mousemove" handler1)
+                   (.addEventListener parent-el "mouseup" handler2)
+                   [:<>
+                     (-> (el/text (str @el-pt))
+                         (tf/style {:display "none"}))
+                     (-> (el/circle r)
+                         (tf/translate @pt)
+                         (tf/style {:on-mouse-down handler3}))])))))})))
+#+end_src
+
+*** movable-svg-elems
+#+begin_src clojure :tangle ./src/svg_clj/viewers.cljs
+(defn movable-pt
+  [pt! r]
+  (let [parent-el! (r/atom nil)]
+    (r/create-class
+      {:display-name "movable-pt"
+       :component-did-mount (fn [this] (let [node (reagent.dom/dom-node this)
+                                             parent (get-parent-svg node)]
+                                         (reset! parent-el! parent)))
+       :reagent-render
+       (fn [pt! r]
+         (el/g
+           (when @parent-el!
+             (r/with-let [parent-el @parent-el!
+                          [x y] @pt!
+                          down-pt (r/atom {:x 0 :y 0})
+                          old-local-pt (r/atom {:x 0 :y 0})
+                          local-pt (r/atom {:x x :y y})
+                          move! (r/atom false)
+                          el-pt (r/track mouse-pos parent-el)]
+               (let [pt (r/atom (vec (vals @local-pt)))
+                     handler1 #(when @move!
+                                 (do (reset! local-pt (merge-with + @old-local-pt (merge-with - @el-pt @down-pt)))
+                                     (reset! pt! @pt)))
+                     handler2 #(reset! move! false)
+                     handler3 #(do (reset! down-pt @el-pt)
+                                   (reset! old-local-pt {:x (first @pt)
+                                                         :y (second @pt)})
+                                   (reset! move! true))]
+                 (.addEventListener parent-el "mousemove" handler1)
+                 (.addEventListener parent-el "mouseup" handler2)
+                 [:<>
+                  (-> (el/text (str @el-pt))
+                      (tf/style {:display "none"}))
+                  (-> (el/circle r)
+                      (tf/translate @pt)
+                      (tf/style {:on-mouse-down handler3}))])))))})))
+
+(defn moveable
+  [pt! el]
+  (let [parent-el! (r/atom nil)]
+    (r/create-class
+      {:display-name "movable-pt"
+       :component-did-mount (fn [this] (let [node (reagent.dom/dom-node this)
+                                             parent (get-parent-svg node)]
+                                         (reset! parent-el! parent)))
+       :reagent-render
+       (fn [pt! r]
+         (el/g
+           (when @parent-el!
+             (r/with-let [parent-el @parent-el!
+                          [x y] @pt!
+                          down-pt (r/atom {:x 0 :y 0})
+                          old-local-pt (r/atom {:x 0 :y 0})
+                          local-pt (r/atom {:x x :y y})
+                          move! (r/atom false)
+                          el-pt (r/track mouse-pos parent-el)]
+               (let [pt (r/atom (vec (vals @local-pt)))
+                     handler1 #(when @move!
+                                 (do (reset! local-pt (merge-with + @old-local-pt (merge-with - @el-pt @down-pt)))
+                                     (reset! pt! @pt)))
+                     handler2 #(reset! move! false)
+                     handler3 #(do (reset! down-pt @el-pt)
+                                   (reset! old-local-pt {:x (first @pt)
+                                                         :y (second @pt)})
+                                   (reset! move! true))]
+                 (.addEventListener parent-el "mousemove" handler1)
+                 (.addEventListener parent-el "mouseup" handler2)
+                 [:<>
+                  (-> (el/text (str @el-pt))
+                      (tf/style {:display "none"}))
+                  (-> el
+                      (tf/translate @pt)
+                      (tf/style {:on-mouse-down handler3}))])))))})))
+
+;; example usage
+#_(svg
+    (r/with-let [pts (r/atom (vec (p/regular-polygon-pts 40 8)))
+                 el (-> (el/circle 6) (tf/style {:fill "red"}))]
+      (el/g
+        (-> (el/rect 400 400) (tf/style {:fill "honeydew"}))
+        (-> (el/polygon @pts)
+            (tf/style {:stroke "green" :fill "none" :stroke-width 2}))
+        (into [:<>]
+              (map (fn [idx]
+                     (let [pt! (r/cursor pts [idx])] [movable pt! el])) (range (count @pts)))))))
+#+end_src
+
+*** slider-render-fn
+#+begin_src clojure :tangle ./src/svg_clj/viewers.cljs
+(def slider-render-fn
+  (let [base-style {:margin-right 8
+                    :display "inline-block"
+                    :text-align "end"
+                    :min-width 20}]
+    (fn [global-state k sync-fn]
+      (r/with-let [state (r/cursor global-state [k])
+                   tmp (r/atom 1)
+                   minv (r/atom 1)
+                   maxv (r/atom 100)
+                   refa (r/atom nil)]
+        [:<>
+         ;; var name
+         [:span {:class "inspected-value"
+                 :style (merge base-style {:text-align "end"})} (str (name k) " ")]
+         ;; var value
+         [:span {:class "inspected-value"
+                 :style base-style} @state]
+         ;; minimum input
+         [number-input minv]
+         ;; slider input
+         [:input {:style {:height "0.5em"}
+                  :type :range
+                  #_#_:value @state
+                  :min @minv
+                  :max @maxv
+                  :on-change #(reset! state (js/parseInt (.. % -target -value)))
+                  :on-touch-end sync-fn
+                  :on-mouse-up sync-fn}]
+         ;; maximum input
+         [number-input maxv]
+         ;; var value input
+         [number-input tmp sync-fn]]))))
+#+end_src
+
+*** moveable-pt-render-fn
+#+begin_src clojure :tangle ./src/svg_clj/viewers.cljs
+(def moveable-pt-render-fn
+  (let [base-style {:margin-right 8
+                    :display "inline-block"
+                    :text-align "end"
+                    :min-width 20}]
+    (fn [global-state k sync-fn]
+      (r/with-let [state (r/cursor global-state [k])
+                   elem (-> (el/circle 6) (tf/style {:fill "red"
+                                                     :on-mouse-up sync-fn}))]
+        [:<>
+         ;; var name
+         [:span {:class "inspected-value"
+                 :style (merge base-style {:text-align "end"})} (str (name k) " ")]
+         ;; var value
+         [:span {:class "inspected-value"
+                 :style base-style} (str @state)]
+         ;; moveable-pt input
+         (svg
+           (el/g
+             (-> (el/rect 200 200) (tf/style {:stroke "black" :fill "none"}))
+             (-> (el/line [0 -100] [0 100]) (tf/style {:stroke "red" :fill "none"}))
+             (-> (el/line [-100 0] [100 0]) (tf/style {:stroke "green" :fill "none"}))
+             (-> (el/line [0 (second @state)] @state) (tf/style {:stroke "gray" :fill "none"}))
+             (-> (el/line [(first @state) 0] @state) (tf/style {:stroke "gray" :fill "none"}))
+             [:<> [moveable state elem]]))]))))
+
+#+end_src
+
+*** moveable-pts-render-fn
+#+begin_src clojure :tangle ./src/svg_clj/viewers.cljs
+(def moveable-pts-render-fn
+  (let [base-style {:margin-right 8
+                    :display "inline-block"
+                    :text-align "end"
+                    :min-width 20}]
+    (fn [global-state k sync-fn]
+      (r/with-let [state (r/cursor global-state [k])
+                   elem (-> (el/circle 6) (tf/style {:fill "red"
+                                                     :on-mouse-up sync-fn}))]
+        [:<>
+         ;; var name
+         [:span {:class "inspected-value"
+                 :style (merge base-style {:text-align "end"})} (str (name k) " ")]
+         ;; var value
+         [:span {:class "inspected-value"
+                 :style base-style} (str @state)]
+         ;; moveable-pt input
+         (svg
+           (el/g
+             (-> (el/rect 200 200) (tf/style {:stroke "black" :fill "none"}))
+             (-> (el/line [0 -100] [0 100]) (tf/style {:stroke "red" :fill "none"}))
+             (-> (el/line [-100 0] [100 0]) (tf/style {:stroke "green" :fill "none"}))
+             (-> (el/polygon @state) (tf/style {:stroke "blue" :fill "none"}))
+             (into [:<>]
+              (map (fn [idx]
+                     (let [pt! (r/cursor state [idx])] [moveable pt! elem])) (range (count @state))))))]))))
+
+#+end_src
+*** sci-ctx
+#+begin_src clojure :tangle ./src/svg_clj/viewers.cljs
+(swap! sv/!sci-ctx
+       sci/merge-opts
+       {:namespaces
+        {'svg-clj.viewers {'slider-render-fn slider-render-fn
+                           'moveable-pt-render-fn moveable-pt-render-fn
+                           'moveable-pts-render-fn moveable-pts-render-fn}
+         'svg-clj.utils (sci/copy-ns svg-clj.utils (sci/create-ns 'svg-clj.utils))
+         'svg-clj.elements (sci/copy-ns svg-clj.elements (sci/create-ns 'svg-clj.elements))
+         'svg-clj.transforms (sci/copy-ns svg-clj.transforms (sci/create-ns 'svg-clj.transforms))
+         'svg-clj.composites (sci/copy-ns svg-clj.composites (sci/create-ns 'svg-clj.composites))
+         'svg-clj.path (sci/copy-ns svg-clj.path (sci/create-ns 'svg-clj.path))
+         'svg-clj.parametric (sci/copy-ns svg-clj.parametric (sci/create-ns 'svg-clj.parametric))
+         'svg-clj.layout (sci/copy-ns svg-clj.layout (sci/create-ns 'svg-clj.layout))}
+
+        :aliases {'sv 'svg-clj.viewers
+                  'utils 'svg-clj.utils
+                  'el 'svg-clj.elements
+                  'tf 'svg-clj.transforms
+                  'c 'svg-clj.composites
+                  'path 'svg-clj.path
+                  'p 'svg-clj.parametric
+                  'lo 'svg-clj.layout}})
+
+#+end_src
+
+** draw
+To continue:
+
+- make 'remove metadata' actually work -> it breaks comments at the moment, so it's no good yet
+- re-inject the namespace in the correct place if there's stuff before it. (that is, don't assume NS at the top of the doc necessasrily
+- get my transforming viewer working correctly and safely. for all cases
+- have the sliders show up in a more space-efficient way
+- build an ~(interact val component)~ function
+  - use this to allow the user to more explicitly set up their interactivity
+  - use this to prototype stuff like a position picker for ~(def pos [1 2])~ (and other cool things later)
+  - build interactions for elements too (eg. a circle interaction has a draggable radius)
+- get eval inside markdown code snippets working
+- fallback to server-side eval for forms that have unknown fns in the frontend
+- have a global element that holds all of the interactive components that you can pop open anywhere in the doc (for easy access)
+
+*** ns
+#+begin_src clojure
+(ns svg-clj.draw
+  (:require [clojure.data :as data]
+            [clojure.java.io :as io]
+            [clojure.pprint :as pprint]
+            [clojure.string :as str]
+            [clojure.walk :as w]
+            [nextjournal.markdown :as md]
+            [nextjournal.markdown.transform :as md.transform]
+            [nextjournal.clerk :as clerk]
+            [nextjournal.clerk.config :as config]
+            [nextjournal.clerk.hashing :as hashing]
+            [nextjournal.clerk.view :as view]
+            [nextjournal.clerk.viewer :as v]
+            [nextjournal.clerk.webserver :as webserver]
+            [svg-clj.composites :as comp :refer [svg]]
+            [svg-clj.elements :as el]
+            [svg-clj.layout :as lo]
+            [svg-clj.parametric :as p]
+            [svg-clj.path :as path]
+            [svg-clj.tools :as tools]
+            [svg-clj.transforms :as tf]
+            [svg-clj.utils :as u]))
+#+end_src
+
+*** defconnect
+#+begin_src clojure
+(defn def-form? [form]
+  (boolean
+    (when (seq? form)        ;; <1>
+      (let [[op & _] form]
+        (and
+         op
+         (symbol? op)
+         (or                 ;; <2>
+          (= op 'def)
+          (= op 'clojure.core/def)))))))
+
+(defn find-defs [expr]
+  (if (coll? expr)
+    (->> expr
+         w/macroexpand-all
+         (tree-seq coll? seq)
+         (filter def-form?)
+         (map rest)
+         (map (juxt #(keyword (first %)) last))
+         (mapv vec)
+         (into {}))
+    {}))
+
+(defn make-def-form [[k v]]
+  (list 'def (symbol k) v))
+
+(defn- source-map [source-string]
+  (find-defs (read-string (str "[" source-string "]"))))
+
+(defn- src-string-watcher [_ _ o n]
+  (when (not= o n)
+    (do (println "writing changes")
+        (spit (:file n)
+              (:string n)))))
+
+(defn- src-state-watcher [src-string-atom]
+  (fn [_ _ o n]
+    (let [[ina inb both :as changes] (data/diff o n)]
+      (case (mapv (complement nil?) [ina inb])
+        [false false]
+        (println "no changes")
+
+        [false true]
+        (println "additive changes. Add def form alphabetically near top of file???")
+
+        [true false]
+        (println "subtractive changes. Disallow change IF the def is used elsewhere -> may be tough inside lets?")
+
+        [true true]
+        (let [old-forms (into {} (map (juxt first make-def-form) o))
+              new-forms (into {} (map (juxt first make-def-form) n))]
+          (println "changes. updating src.")
+          (loop [s (:string @src-string-atom)
+                 [[os ns] & rest] (vals (merge-with (comp #(mapv str %) list) old-forms new-forms))]
+            (if ns
+              (recur (str/replace s os ns) rest)
+              (swap! src-string-atom assoc :string s))))
+
+        (println "TBD")))))
+
+(defmacro connect [file]
+  `(let [s# (slurp ~file)
+         string-state# (atom {:file ~file :string s#})
+         src-state# (atom (source-map s#))]
+     (add-watch string-state# :save src-string-watcher)
+     (add-watch src-state# :save (src-state-watcher string-state#))
+     src-state#))
+
+(defmacro defconnect [name file]
+  (let [sn# (symbol (str name "-string"))]
+    `(let [s# (slurp ~file)]
+       (do
+         (def ~sn# (atom {:file ~file :string s#}))
+         (add-watch ~sn# :save src-string-watcher)
+
+         (def ~name (atom (source-map s#)))
+         (add-watch ~name :save (src-state-watcher ~sn#))))))
+#+end_src
+
+*** global-state-viewer
+#+begin_src clojure
+(def global-state-viewer
+  {:transform-fn
+   (comp clerk/mark-presented
+         (clerk/update-val (fn [v] {:state-map (deref (get @svg-clj.draw/files (svg-clj.draw/file->key v)))
+                                    :file-key (svg-clj.draw/file->key v)})))
+   :render-fn
+   '(fn [{:keys [state-map file-key]}]
+      ;; set up the state browser side
+      (defonce global-state (reagent/atom state-map))
+      ;; make sure that browser side state always reflects the file state (eg if defs are added/removed)
+      (when (not= (set (keys @global-state)) (set (keys state-map))) (reset! global-state state-map))
+      ;; render some html so Clerk doesn't complain
+      (v/html
+        [:<>
+         #_[(sv/mouse-pos-comp)]]
+        #_[:div {:class "inspected-value"} "Mouse Position: " (str [sv/mouse-pos-comp])]
+        #_[:div {:class "select-none fixed flex flex-col top-2 left-2 md:left-auto md:right-8"}
+           #_[:input {:type :button
+                      :class "inspected-value border border-green-400 bg-green-400 text-white max-w-min rounded-md px-3 py-1.5 m-2 transition duration-500 ease select-none hover:bg-green-600 focus:outline-none focus:shadow-outline"
+                      :value "Save"
+                      :on-click #(v/clerk-eval `(reset! (get @svg-clj.draw/files ~file-key)
+                                                        (quote ~(deref global-state))))}]
+           [:span {:class "inspected-value max-w-min"}
+            (str (keys @global-state))
+            #_(into [:table] (map (fn [[k v]] [:tr [:td k] [:td (str v)]])) @global-state)]]))})
+#+end_src
+
+*** inject-blocks
+#+begin_src clojure
+(defn- hidden-block
+  [s]
+  {:type :code
+   :text (str "^{:nextjournal.clerk/visibility :hide\n  :nextjournal.clerk/viewer :hide-result}\n" s)})
+
+(def add-viewers-block (hidden-block "(nextjournal.clerk/add-viewers! [svg-clj.draw/block-updater])"))
+(defn state-block [file]
+  {:type :code
+   :text (format "^{:nextjournal.clerk/visibility :hide}(nextjournal.clerk/with-viewer svg-clj.draw/global-state-viewer \"%s\")" file)})
+
+(defn injections [file]
+  [add-viewers-block
+   (state-block file)])
+
+(defn inject [injections blocks]
+  (let [[ns-form blocks] ((juxt #(filter :ns? %) #(remove :ns? %)) blocks)]
+    (vec (concat ns-form injections blocks))))
+
+#+end_src
+
+*** custom-show
+#+begin_src clojure
+(defn file->key
+  [file]
+  (-> file keyword name keyword))
+
+(defn key->file
+  [key]
+  (-> key str (str/replace-first #":" "./")))
+
+(def files (atom {}))
+
+(defn show!
+  "Evaluates the Clojure source in `file` and makes the webserver show it."
+  [file]
+  (if config/*in-clerk*
+    ::ignored
+    (try
+      (reset! clerk/!last-file file)
+      ;; add file-state atom to svg-clj.draw/files
+      (swap! svg-clj.draw/files assoc (file->key file) (connect file))
+      (let [doc (-> (clerk/parse-file file)
+                    ;; inject svg-clj stuff
+                    (update :blocks (partial inject (injections file))))
+            {:keys [blob->result]} @webserver/!doc
+            {:keys [result time-ms]} (clerk/time-ms (clerk/+eval-results blob->result doc))]
+        (println (str "SVG-CLJ.DRAW evaluated: '" file "' in " time-ms "ms."))
+        (def doc doc)
+        (def res result)
+        (webserver/update-doc! result))
+      (catch Exception e
+        (webserver/show-error! e)
+        (throw e)))))
+
+;; todo: make this clean? with-redefs?
+(alter-var-root (var clerk/show!) (fn [f] show!))
+(add-watch #'show! :redef (fn [& _]
+                            (println "fn 'show!' redefined. Restarting Clerk Server.")
+                            (alter-var-root (var clerk/show!) (fn [f] show!))
+                            (server-start!)))
+#_(remove-watch #'show! :redef)
+#+end_src
+
+*** server
+#+begin_src clojure
+(defn server-start! []
+  (clerk/clear-cache!)
+  (swap! nextjournal.clerk.config/!resource->url
+       assoc
+       "/js/viewer.js"
+       "http://adams-macbook-pro.local:9000/out/main.js")
+  (clerk/serve! {:browse true
+                 :port 8910
+                 :watch-paths ["."]
+                 :show-filter-fn #(do
+                                    (println %)
+                                    (clojure.string/includes? % "drawing"))})
+  (clerk/clear-cache!))
+
+(defn start!
+  []
+  (server-start!))
+
+#+end_src
+
+*** stateful-element-viewers
+It's a bit confusing, but svg-clj.viewers holds most of the reagent component code for render-fns, but that functionality still needs to be wired up here. So, the render functions here serve to collect the proper value(s) and call the svg-clj.viewers (aliased as sv).
+
+**** slider
+#+begin_src clojure
+(def slider
+  {:transform-fn (comp nextjournal.clerk/mark-presented
+                       (nextjournal.clerk/update-val identity))
+   :render-fn
+   '(fn [{:keys [k file-key]}]
+      (let [sync-fn #(v/clerk-eval
+                       `(reset! (get @svg-clj.draw/files ~file-key) (quote ~(deref global-state))))]
+        (v/html (sv/slider-render-fn global-state k sync-fn))))})
+
+#+end_src
+
+**** moveable-pt
+#+begin_src clojure
+(def moveable-pt
+  {:transform-fn (comp nextjournal.clerk/mark-presented
+                       (nextjournal.clerk/update-val identity))
+   :render-fn
+   '(fn [{:keys [k file-key]}]
+      (let [sync-fn #(v/clerk-eval
+                       `(reset! (get @svg-clj.draw/files ~file-key) (quote ~(deref global-state))))]
+        (v/html (sv/moveable-pt-render-fn global-state k sync-fn))))})
+
+#+end_src
+
+**** moveable-pts
+#+begin_src clojure
+(def moveable-pts
+  {:transform-fn (comp nextjournal.clerk/mark-presented
+                       (nextjournal.clerk/update-val identity))
+   :render-fn
+   '(fn [{:keys [k file-key]}]
+      (let [sync-fn #(v/clerk-eval
+                       `(reset! (get @svg-clj.draw/files ~file-key) (quote ~(deref global-state))))]
+        (v/html (sv/moveable-pts-render-fn global-state k sync-fn))))})
+
+#+end_src
+
+*** transforming-viewer
+#+begin_src clojure
+
+;; block -> block transforms
+
+;; this breaks ;; comments!!!
+(defn remove-viewer-meta-text
+  [{:keys [text] :as block}]
+  (assoc block :text (str/replace text #"\^\{.+clerk/viewer.+\}[\n\space]?" "")))
+
+(defn xf-block [block]
+  ((comp
+     remove-viewer-meta-text)
+   block))
+
+;; block -> [block ...] transforms
+
+(defn- eval-block
+  [block]
+  (let [doc (clerk/eval-doc {:blocks [block]})]
+    (first (:blocks doc))))
+
+(defn- stateful-block
+  [block name viewer]
+  (let [new-block (assoc-in block [:result :nextjournal/viewer] :hide-result)
+        result-block (-> {:type :code,
+                          :text (format "(nextjournal.clerk/with-viewer %s %s)" viewer {:k (keyword name)
+                                                                                        :file-key (file->key (:file block))})}
+                         eval-block
+                         (assoc-in [:result :nextjournal/visibility] :hide))]
+    [new-block result-block]))
+
+(defn- form-block
+  [{:keys [file form] :as block} name]
+  (let [new-block (assoc-in block [:result :nextjournal/viewer] :hide-result)
+        state-text (str (get @(get @files (file->key file)) (keyword name)))
+        result-block (-> {:type :code,
+                          :text state-text}
+                         eval-block
+                         (assoc-in [:result :nextjournal/visibility] :hide))]
+    [new-block result-block]))
+
+#_(defn build-derefs
+  [expr keys]
+  (apply list (into []
+                    (for [el expr]
+                      (if (contains? keys (keyword el))
+                        (list (keyword el) '(deref global-state))
+                        el)))))
+
+(declare build-derefs)
+(defn build-deref-symbol
+  [el file]
+  (let [state-map @(get @files (file->key file))
+        val (get state-map (keyword el))]
+    (cond
+      ;; element is some value, so we don't need to deref
+      (not (symbol? el))
+      el
+
+      ;; element is not in the global-state, so we don't want to deref
+      (not (contains? (set (keys state-map)) (keyword el)))
+      el
+
+      ;; element's value is a sequence of some kind, so may need to deref what's inside it
+      (seq? val)
+      (build-derefs val file)
+
+      ;; the element's value is a symbol, we may need to deref
+      (symbol? val)
+      (build-deref-symbol val)
+
+      ;; the element is a symbol, so we deref that
+      :else
+      (list (keyword el) '(deref global-state)))))
+
+(defn build-derefs
+  [expr file]
+  (w/postwalk #(build-deref-symbol % file) expr))
+
+(defn build-deref-expr-viewer
+  [expr file]
+  (let [expr (build-derefs expr file)
+        simple-vec? (and (vector? expr) (not (keyword? (first expr))))]
+    (format (if simple-vec?
+              "(nextjournal.clerk/with-viewer {:render-fn '#(v/html [:span {:class \"inspected-value\"} (str %s)])} nil)"
+              "(nextjournal.clerk/with-viewer {:render-fn '#(v/html
+             (reagent/with-let [fix? (reagent/atom false)]
+               [:div {:style (if @fix?
+                                 {:position \"absolute\" :top 50
+                                  :pointer-events \"none\"
+                                  :opacity 0.75}
+                                 {})}
+                [:span {:class \"inspected-value\"} %s]
+                [:span [:input {:type \"checkbox\"
+                         :style {:pointer-events \"auto\"
+                                 :margin 7}
+                         :on-change (fn [el] (reset! fix?  (.. el -target -checked)))}]
+                 [:span \"POP\"]]]))} nil)") expr)))
+
+(defn- reactive-form-block
+  [{:keys [file form] :as block}]
+  (let [[op name expr] (if (seq? form) form [nil nil form])
+        expr-viewer (build-deref-expr-viewer expr file)
+        new-block (assoc-in block [:result :nextjournal/viewer] :hide-result)
+        result-block (-> {:type :code
+                          :form (read-string expr-viewer)
+                          :text expr-viewer}
+                         eval-block)]
+    [new-block result-block]))
+
+(def symbol-blacklist
+  #{"with-viewer"
+    "add-viewers!"
+    "ns"})
+
+(defn pt?
+  [v]
+  (and (vector? v) (= (count v) 2)))
+
+(defn vector-of-pts?
+  [v]
+  (every? pt? v))
+
+
+(defn add-stateful-elem
+  [{:keys [text form] :as block}]
+  (cond
+    (seq? form)
+    (let [[op nm expr] form]
+      (cond
+        ;; eg: (def a 2)
+        (and (= 'def op) (not (seq? expr)) (not (vector? expr)) (not (symbol? expr)))
+        (do (println "LOOKS LIKE: (def a 2) FORM: " form)
+            (stateful-block block nm 'svg-clj.draw/slider))
+
+        ;; eg: (def b a)
+        #_#_(and (= 'def op) (symbol? expr))
+        (do (println "LOOKS LIKE: (def b a)")
+            (reactive-form-block block))
+
+        ;; eg: (def c (* a b))
+        (and (= 'def op) (not (vector? expr)))
+        (do (println "LOOKS LIKE: (def b a) or (def c (* a b)) FORM: " form)
+            (reactive-form-block block))
+
+        ;; eg: (def pts [[1 2] [2 3] [4 5]])
+        (and (= 'def op) (vector-of-pts? expr))
+        (do (println "LOOKS LIKE: (def pts [[1 2] [2 3] [4 5]]) FORM: " form)
+            (stateful-block block nm 'svg-clj.draw/moveable-pts))
+
+        ;; eg: (def pt [1 2])
+        (and (= 'def op) (pt? expr))
+        (do (println "LOOKS LIKE: (def pt [1 2]) FORM: " form)
+            (stateful-block block nm 'svg-clj.draw/moveable-pt))
+
+        ;; eg: (def pt [1 2 a])
+        (and (= 'def op) (vector? expr))
+        (do (println "LOOKS LIKE: (def pt [1 2 a]) FORM: " form)
+            (reactive-form-block block))
+
+        (not (contains? symbol-blacklist (name op)))
+        (do (println "LOOKS LIKE: any non-def form FORM: " form)
+            (reactive-form-block (assoc block :form (list nil nil form))))
+
+        :else
+        [block]))
+
+    (symbol? form)
+    (do (println "LOOKS LIKE: a symbol FORM: " form)
+        (reactive-form-block (assoc block :form form)))
+
+    :else
+    [block]))
+
+(defn add-stateful-elems
+  [blocks]
+  (mapcat add-stateful-elem blocks))
+
+;; this runs in browser, can't run in REPL
+(def default-notebook-viewer (first (filter #(= :clerk/notebook (:name %)) v/default-viewers)))
+(def block-updater
+  (merge
+    default-notebook-viewer
+    {:transform-fn
+     (fn [{:as wrapped-value :nextjournal/keys [viewers]}]
+       (-> wrapped-value
+           v/mark-presented
+           (update :nextjournal/value
+                   (fn [{:as doc :keys [ns]}]
+                     (-> doc
+                         (update :blocks add-stateful-elems)
+                         (update :blocks
+                                 (partial into [] (comp #_(map xf-block)
+                                                        (mapcat (partial v/with-block-viewer doc))
+                                                        (map (comp #(vector (v/->ViewerEval 'v/inspect) %)
+                                                                   v/process-wrapped-value
+                                                                   v/apply-viewers*
+                                                                   (partial v/ensure-wrapped-with-viewers viewers))))))
+                         (select-keys [:blocks :toc :title])
+                         (cond-> ns (assoc :scope (v/datafy-scope ns))))))))}))
+#+end_src
+*** in-comment-code-eval
+#+begin_src clojure
+(def md-eval-viewers
+  [{:name :nextjournal.markdown/monospace
+    :transform-fn (comp eval read-string nextjournal.markdown.transform/->text v/->value)}])
+
+#_(def viewers-with-md-eval
+  (v/update-viewers (v/get-default-viewers) {(comp #{:markdown} :name)
+                                             (custom-md/update-child-viewers #(v/add-viewers % md-eval-viewers))}))
+
+#_^{::clerk/viewer clerk/hide-result}
+(v/reset-viewers! viewers-with-md-eval)
+
 #+end_src

@@ -1,5 +1,5 @@
 (ns svg-clj.elements-test
-  (:require [svg-clj.utils :as utils]
+  (:require [svg-clj.utils :as u]
             [svg-clj.elements :as el]
             [svg-clj.transforms :as tf]
             [clojure.test :refer [deftest is]]))
@@ -34,9 +34,9 @@
   (is (= test-polygon [:polygon {:points "0,0 10,20 40,50 20,10"}]))
   (is (= test-polyline [:polyline {:points "0,0 10,20 40,50 20,10"}]))
   (is (= test-rect [:rect {:x -30.0 :y -15.0 :width 60 :height 30}]))
-  (is (= test-image [:image 
+  (is (= test-image [:image
                      {:href "https://www.fillmurray.com/g/200/300"
-                      :x -100.0 :y -150.0 
+                      :x -100.0 :y -150.0
                       :width 200 :height 300}])))
 
 (deftest basic-translate-test

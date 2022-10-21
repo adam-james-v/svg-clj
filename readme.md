@@ -25,7 +25,7 @@ This blossom is produced with the following code:
             [svg-clj.parametric :as p]
             [svg-clj.layout :as lo]
             #?(:clj [svg-clj.tools :as tools])))
-            
+
 (defn flip-y
   [pts]
   (mapv #(utils/v* % [1 -1]) pts))
@@ -145,7 +145,7 @@ NOTE: check that you're grabbing the version you want.
 ## Design
 The library uses hiccup syntax to represent the SVG diagrams being created. The user writes functional code to define various elements of the SVG and has access to transformations via utility functions.
 
-Since the library functions emit hiccup data structures, the user can extend and manipulate their data using other clojure libraries or their own functions. 
+Since the library functions emit hiccup data structures, the user can extend and manipulate their data using other clojure libraries or their own functions.
 
 The library has two main categories of functions:
 
@@ -162,7 +162,7 @@ The library has two main categories of functions:
   - text
   - g
   - composites (custom functions using shapes.. eg. arrow)
-  
+
 - transforms and property calcs
   - centroid
   - bounds
@@ -182,16 +182,16 @@ I've annotated a ns declaration to help make sense of where you can find various
   (:require
     ;; math helpers, simple data manip helpers
     [svg-clj.utils :as utils]
-    
+
     ;; all of the shape functions like rect, circle, polygon, etc.
     [svg-clj.elements :as el]
-    
+
     ;; all of the transforms, including path specific fns
     [svg-clj.transforms :as tf]
-    
+
     ;; shapes built from other shapes, AND the svg container fn
     [svg-clj.composites :as comp :refer [svg]]
-    
+
     ;; draw elements using path instead, and has the 'commands' path DSL
     ;; also has arc and bezier drawing fns
     [svg-clj.path :as path]
@@ -228,12 +228,12 @@ This is not quite a straight wrapper for SVG functionality. I have altered the d
 
 For example, a rectangle is drawn centered around the orgin by default. Plain SVG rectangles draw with the first corner located at the origin by default.
 
-All rotations are applied to shapes locally by default. This means that a circle at [10 0] rotated by 90 deg will not appear to move using svg-clj; the shape itself is being spun around it's center, but that center point is not moving. Default SVG behaviour rotates around the origin by default. So, any elements offset from the orgin will move large distances away from their starting positions. 
+All rotations are applied to shapes locally by default. This means that a circle at [10 0] rotated by 90 deg will not appear to move using svg-clj; the shape itself is being spun around it's center, but that center point is not moving. Default SVG behaviour rotates around the origin by default. So, any elements offset from the orgin will move large distances away from their starting positions.
 
 This choice was made because it feels more intuitive (to me, at least) to draw with local transformation operations in mind.
 
 ## Threading
-Greencoder (one of my Twitch viewers) sent several twitter DMs with some criticisms/feedback. All have been appropriately addressed, but I wanted to highlight his thoughts regarding my use of threading macros. 
+Greencoder (one of my Twitch viewers) sent several twitter DMs with some criticisms/feedback. All have been appropriately addressed, but I wanted to highlight his thoughts regarding my use of threading macros.
 
 "thread last macro should be kept for stream operations to compose better with other fns. I think that translate-element should take elem as first argument."
 - GreenCoder (Twitch handle)

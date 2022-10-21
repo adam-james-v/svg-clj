@@ -1,5 +1,5 @@
 (ns svg-clj.path-test
-  (:require 
+  (:require
    [svg-clj.elements :as el]
    [svg-clj.path :as path]
    [svg-clj.transforms :as tf]

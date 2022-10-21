@@ -1,48 +1,57 @@
 (ns svg-clj.utils
-  (:require [clojure.string :as str]
-            [clojure.data.xml :as xml]
-            [clojure.walk :refer [postwalk]]
+  (:require [clojure.data.xml :as xml]
+            [clojure.string :as str]
             [clojure.zip :as zip]
-            #_[same :refer [zeroish?]]
             #?(:cljs
                [cljs.reader :refer [read-string]])))
 
+(def ^:dynamic *eps*
+  "Epsilon Value where any floating point value less than `*eps*` will be considered zero."
+  0.00001)
+
 (defn zeroish?
+  "`True` if the absolute value of number `x` is less than `*eps*`, which is 0.00001 by default."
   [x]
-  (let [eps 0.00001]
-    (< (Math/abs x) eps)))
+  (< (abs x) *eps*))
 
-(def ^:dynamic *rounding* nil)
+(def ^:dynamic *rounding-decimal-places*
+  "The number of decimal places the `round` funciton will round to."
+  5)
 
-(def abs #?(:clj #(Math/abs %)  :cljs js/Math.abs))
-(def pow #?(:clj #(Math/pow %1 %2) :cljs js/Math.pow))
+(def pow
+  "Implementation for clj/cljs `pow` function."
+  #?(:clj #(Math/pow %1 %2)
+     :cljs js/Math.pow))
 
 (defn round
   "Rounds a non-integer number `num` to `places` decimal places."
   ([num]
-   (round num *rounding*))
+   (round num *rounding-decimal-places*))
   ([num places]
    (if places
      (let [d #?(:clj (bigdec (Math/pow 10 places))
                 :cljs (Math/pow 10 places))]
-       (double (/ (Math/round (* num d)) d)))
+       (double (/ (Math/round (* (double num) d)) d)))
      num)))
 
 ;; vector arithmetic helpers
-(def v+ (partial mapv +))
-(def v- (partial mapv -))
-(def v* (partial mapv *))
+(def v+ "Add vectors element-wise." (partial mapv +))
+(def v- "Subtract vectors element-wise." (partial mapv -))
+(def v* "Multiply vectors element-wise." (partial mapv *))
 
 ;; simple calcs
 (defn to-deg
+  "Convert `rad` radians to degrees."
   [rad]
   (round (* rad (/ 180 Math/PI))))
 
 (defn to-rad
+  "Convert `deg` degrees to radians."
   [deg]
   (round (* deg (/ Math/PI 180))))
 
 (defn average
+  "Compute the average of `numbers`."
   [& numbers]
   (let [n (count numbers)]
     (round (/ (apply + numbers) n))))
@@ -62,11 +71,19 @@
       (#(filter (complement empty?) %))
       (#(mapv read-string %))))
 
-(defn xf-kv->str
+(defn- xf-kv->str
+  "Formats a key value pair [`k` `v`] from a transform map into an inline-able string.
+  Example:
+
+  [:rotate [0 90 0]] -> \"rotate(0 90 0)\""
   [[k v]]
   (str (symbol k) (apply list v)))
 
-(defn str->xf-kv
+(defn- str->xf-kv
+  "Formats an SVG transform string `s` into a key value pair. The opposite of `xf-kv->str`.
+  Example:
+
+  \"rotate(0 90 0)\" -> [:rotate [0 90 0]]"
   [s]
   (let [split (str/split s #"\(")
         key (keyword (first split))
@@ -74,16 +91,15 @@
     [key val]))
 
 (defn xf-map->str
-  "Turn transform maps from an element's properties into a string properly formatted for use inline in an svg element tag.
-
-  Consider this an internal tool."
+  "Turn transform maps from an element's properties into a string properly formatted for use inline in an svg element tag. Consider this an internal tool."
   [m]
   (str/join "\n" (map xf-kv->str m)))
 
 (defn str->xf-map
+  "Turn inline SVG transform strings from an element's properties into a map in a form which the transforms namespace expects. Consider this an internal tool."
   [s]
   (if-let [s s]
-    (into {} 
+    (into {}
           (->> s
                (#(str/replace % #"\)" ")\n"))
                str/split-lines
@@ -116,19 +132,19 @@
     (round (Math/sqrt ^double v2))))
 
 (defn distance-squared
+  "Computes the squared distance between two points `a` and `b`. Avoids a square-root calculation, so this can be used in some cases for optimization."
   [a b]
   (let [v (v- b a)]
     (reduce + (v* v v))))
 
 (defn determinant
-  [a b]
-  (- (* (first a) (second b))
-     (* (second a) (first b))))
+  "Computes the determinant between two 2D points `a` and `b`."
+  [[a b] [c d]]
+  (- (* a d)
+     (* b c)))
 
-;; this fn name doesn't make sense? It inverts y, which is not
-;; the same as giving a perpendicular line
-;; maybe call it 'invert-y' or 'vertical-flip'
 (defn perpendicular
+  "Returns a vector perpendicular to the vector [`x` `y`]."
   [[x y]]
   [(- y) x])
 
@@ -163,11 +179,10 @@
          dy (- y2 y1)]
      [(- dy) dx]))
   ([a b c]
-   (let [eps 0.00001
-         ab (v- a b)
+   (let [ab (v- a b)
          ac (v- a c)
          [x y z] (cross* ab ac)]
-     (when (and (> x eps) (> y eps) (> z eps))
+     (when (and (> x *eps*) (> y *eps*) (> z *eps*))
        [x y z]))))
 
 (defn normalize
@@ -200,8 +215,8 @@ Put another way, the angle is measured following the 'right hand rule' around p2
   [p1 p2 p3]
   (let [v1 (v- p1 p2)
         v2 (v- p3 p2)
-        [v1nx v1ny] (normalize v1)
-        [v2nx v2ny] (normalize v2)
+        [v1nx _] (normalize v1)
+        [v2nx _] (normalize v2)
         l1 (distance p1 p2)
         l2 (distance p3 p2)
         n (dot* v1 v2)
@@ -216,7 +231,7 @@ Put another way, the angle is measured following the 'right hand rule' around p2
           (and (= "nnnn" quadrants) (< v2nx v1nx)) a
           (and (= "pnpn" quadrants) (< v2nx v1nx)) a
           ;; within same quadrant
-          (#{"p_p_" "ppp_" "_ppp" "p_pn"} quadrants) a 
+          (#{"p_p_" "ppp_" "_ppp" "p_pn"} quadrants) a
           (#{"_p_p" "np_p" "n_np"} quadrants) a
           (#{"n_n_" "nnn_" "_nnn"} quadrants) a
           (#{"_n_n" "pn_n" "pnp_"} quadrants) a
@@ -227,15 +242,16 @@ Put another way, the angle is measured following the 'right hand rule' around p2
           ;; 90 degrees away on axes
           (#{"_pp_" "n__p" "_nn_" "p__n"} quadrants) a
           ;; two quadrants away
-          (and (= "ppnn" quadrants) (> (Math/abs v1nx) (Math/abs v2nx))) a
-          (and (= "nnpp" quadrants) (> (Math/abs v1nx) (Math/abs v2nx))) a
-          (and (= "pnnp" quadrants) (< (Math/abs v1nx) (Math/abs v2nx))) a
-          (and (= "nppn" quadrants) (< (Math/abs v1nx) (Math/abs v2nx))) a
+          (and (= "ppnn" quadrants) (> (abs v1nx) (abs v2nx))) a
+          (and (= "nnpp" quadrants) (> (abs v1nx) (abs v2nx))) a
+          (and (= "pnnp" quadrants) (< (abs v1nx) (abs v2nx))) a
+          (and (= "nppn" quadrants) (< (abs v1nx) (abs v2nx))) a
           ;; 180 degrees away on axes
           (#{"p_n_" "_p_n" "n_p_" "_n_p"} quadrants) a
           :else (- 360 a))))))
 
 (defn line-intersection
+  "Returns the intersection point between two 2D lines or `nil` if the lines are (close to) parallel. Assumes lines are infinite, so the intersection may lie beyond the line segments specified."
   [[pt-a pt-b] [pt-c pt-d]]
   (let [[ax ay] pt-a
         [bx by] pt-b
@@ -251,41 +267,47 @@ Put another way, the angle is measured following the 'right hand rule' around p2
         [x y]))))
 
 (defn colinear?
+  "`True` if points `a`, `b`, and `c` are along the same line."
   [a b c]
   (let [ba (v- a b)
-        bc (v- c b)
-        eps 0.000001]
-    (> eps (abs (cross*-k ba bc)))))
+        bc (v- c b)]
+    (> *eps* (abs (cross*-k ba bc)))))
 
 (defn corner-condition
+  "Returns the type of corner at point `b`, given `a` and `c` endpoints.
+  `:colinear` -> a b c form a line
+  `:reflex`   -> CCW angle from ab to bc is > 180 and < 360
+  `:convex`   -> CCW angle from ab to bc is < 180 and > 0"
   [a b c]
   (let [ba (v- a b)
         bc (v- c b)
-        eps 0.000001
         k (cross*-k ba bc)]
     (cond
-      (> eps (abs k)) :colinear
-      (< eps k) :reflex
-      (> (- eps) k) :convex)))
+      (> *eps* (abs k)) :colinear
+      (< *eps* k) :reflex
+      (> (- *eps*) k) :convex)))
 
 ;; https://youtu.be/hTJFcHutls8?t=1473
 ;; use k component from cross product to quickly check if vector
 ;; is on right or left of another vector
 ;; check each triangle edge vector against corner to pt vectors
 (defn pt-inside?
+  "`True` if point `pt` is inside the triangle formed by points `a`, `b`, and `c`."
   [[a b c] pt]
-  (let [ab (v- b a)
-        bc (v- c b)
-        ca (v- a c)
-        apt (v- pt a)
-        bpt (v- pt b)
-        cpt (v- pt c)]
-    (not
-     (or (<= (cross*-k ab apt) 0)
-         (<= (cross*-k bc bpt) 0)
-         (<= (cross*-k ca cpt) 0)))))
+  (when-not (colinear? a b c)
+    (let [ab (v- b a)
+          bc (v- c b)
+          ca (v- a c)
+          apt (v- pt a)
+          bpt (v- pt b)
+          cpt (v- pt c)]
+      (not
+        (or (<= (cross*-k ab apt) 0)
+            (<= (cross*-k bc bpt) 0)
+            (<= (cross*-k ca cpt) 0))))))
 
 (defn style
+  "Merge a style map into the given element."
   [[k props & content] style-map]
   (into [k (merge props style-map)] content))
 
@@ -310,11 +332,13 @@ Put another way, the angle is measured following the 'right hand rule' around p2
             [xmin ymax])))
 
 (defn bb-dims
+  "Returns the dimensions of the bounding box defined by `pts`."
   [pts]
   (let [[[xmin ymin] _ [xmax ymax] _] (bounds-of-pts pts)]
     [(- xmax xmin) (- ymax ymin)]))
 
 (defn offset-edge
+  "Offset an edge defined by points `a` and `b` by distance `d` along the vector perpendicular to the edge."
   [[a b] d]
   (let [p (perpendicular (v- b a))
         pd (v* (normalize p) (repeat (- d)))
@@ -323,20 +347,25 @@ Put another way, the angle is measured following the 'right hand rule' around p2
     [xa xb]))
 
 (defn- cycle-pairs
+  "Creates pairs of points for line segments, including a segment from the last to the first point."
   [pts]
   (let [n (count pts)]
     (vec (take n (partition 2 1 (cycle pts))))))
 
 (defn- wrap-list-once
+  "Shifts a list by one to the right.
+  [1 2 3] -> [3 1 2]"
   [s]
   (conj (drop-last s) (last s)))
 
 (defn- every-other
+  "Returns every even indexed element of the vector `v`."
   [v]
   (let [n (count v)]
     (map #(get v %) (filter even? (range n)))))
 
 (defn offset-pts
+  "Offset a polygon or polyline defined by points `pts` a distance of `d`. CCW point winding will result in an outward offset."
   [pts d]
   (let [edges (cycle-pairs pts)
         opts (mapcat #(offset-edge % d) edges)
@@ -345,30 +374,39 @@ Put another way, the angle is measured following the 'right hand rule' around p2
     (wrap-list-once (map #(apply line-intersection %) edge-pairs))))
 
 (defn scale-pt-from-center
+  "Scales a point [`x` `y`] by [`sx` `sy`] as if it were centered at [`cx` `cy`]."
   [[x y] [sx sy] [cx cy]]
   [(+ (* (- x cx) sx) cx)
    (+ (* (- y cy) sy) cy)])
 
+;; easing functions are easier to understand with visuals:
+;; https://easings.net/
+
 (defn ease-in-sin
+  "Remaps value `t`, which is assumed to be between 0 and 1.0, to a sin curve, affecting values closer to 1."
   [t]
   (- 1 (Math/cos (/ (* Math/PI t) 2))))
 
 (defn ease-out-sin
+  "Remaps value `t`, which is assumed to be between 0 and 1.0, to a sin curve, affecting values closer to 0."
   [t]
   (Math/sin (/ (* Math/PI t) 2)))
 
 (defn ease-in-out-sin
+  "Remaps value `t`, which is assumed to be between 0 and 1.0, to a sin curve."
   [t]
   (/ (- (Math/cos (* Math/PI t)) 1) -2))
 
 (defn str->number
+  "Turns a string `s` into a number if possible, otherwise returns `s`."
   [s]
   (let [n (try (read-string s)
                (catch #?(:clj Exception
-                         :cljs js/Object) e s))]
+                         :cljs js/Object) _ s))]
     (if (number? n) n s)))
 
 (def numerical-attrs
+  "Set of SVG attributes which have numerical values."
   #{;; circle, ellipse
     :cx :cy :r :rx :ry
     ;; image, rect
@@ -403,6 +441,7 @@ Attributes to be cast are defined in `numerical-attrs` and include `:cx`, `:cy`,
       t)))
 
 (defn xml->hiccup
+  "Convert XML to hiccup."
   [xml]
   (if-let [t (:tag xml)]
     (let [elem [(fix-ns-tag t)]
@@ -432,22 +471,24 @@ Attributes to be cast are defined in `numerical-attrs` and include `:cx`, `:cy`,
 (defn- elem-node?
   [loc key-set]
   (let [node (zip/node loc)]
-    (if (keyword? (first node))
-      (not (nil? (key-set (first node)))))))
+    (and (keyword? (first node))
+         (not (nil? (key-set (first node)))))))
 
 (defn- hiccup-zip
   [tree]
-  (let [branch? #(and (seqable? %) (not (map? %)) (not (string? %)))
-        children (fn [x]
-                   (let [c (remove map? (rest x))]
-                     (when-not (empty? c) c)))
-        make-node (fn [_ c] (when-not (empty? c) (vec c)))]
+  (let [branch? vector?
+        children (fn [s] (remove #(or (map? %) (not (seqable? %))) s))
+        make-node (fn [node c]
+                    (let [[k maybe-attrs] (take 2 node)]
+                      (into (if (map? maybe-attrs) [k maybe-attrs] [k]) c)))]
     (zip/zipper branch? children make-node tree)))
 
-(def svg-element-keys #{:circle :ellipse
-                        :line :rect
-                        :polygon :polyline :path
-                        :image :text :g})
+(def svg-element-keys
+  "Set of SVG elements as keys."
+  #{:circle :ellipse
+    :line :rect
+    :polygon :polyline :path
+    :image :text :g})
 
 (defn get-elems
   "Get SVG elements from `tree`, a Hiccup data structure.

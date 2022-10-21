@@ -3,15 +3,15 @@
 
   Additionally, the SVG container function is provided here as it relies on [[svg-clj.transforms]] to allow automatic veiwBox setup."
   (:require [clojure.string :as str]
-            [svg-clj.utils :as utils]
             [svg-clj.elements :as el]
-            [svg-clj.transforms :as tf]))
+            [svg-clj.transforms :as tf]
+            [svg-clj.utils :as u]))
 
 (defn svg
    "Wraps `content` in an SVG container element whose width, height, and viewBox properties are automatically calculated when `w`, `h`, and `sc` are omitted.
    The SVG container is optionally parameterized by width `w`, height `h`, and scale `sc`."
   ([content]
-   (let [[w h] (tf/bb-dims content)
+   (let [[w h] (u/bb-dims (tf/bounds content))
          [[x y] _ _ _] (tf/bounds content)]
      [:svg {:width  w
             :height h
@@ -30,6 +30,7 @@
    (svg [:g {:transform (str "scale(" sc ")")} content] w h)))
 
 (defn arrow
+  "Draws an arrow from point `a` to point `b`, with the tip beign a triangle drawn at `b`."
   ([a b]
    (let [tip-pts [ [0 0] [5 0] [5 5] ]
          tip-shape (el/polygon tip-pts)]
@@ -37,7 +38,7 @@
 
   ([a b tip-shape]
    (let [[mx my] (tf/centroid tip-shape)
-         r (utils/to-deg (apply #(Math/atan2 %1 %2) (utils/v- b a)))]
+         r (u/to-deg (apply #(Math/atan2 %1 %2) (u/v- b a)))]
      (->
       (el/g
        (el/line a b)
@@ -54,9 +55,11 @@
            (tf/translate b)))))))
 
 (defn label
+  "Draw a text element with `text` rendered with Verdana in `font-size` in pixels if passed as a number.
+  You can pass `font-size` as a string to specify other units. Eg. \"14pt\". You can use `svg-clj.transforms/style` to override any styles."
   [font-size text]
-  [:text 
-   {:x 0 :y 0 
+  [:text
+   {:x 0 :y 0
     :style {:font-family "Verdana"
             :text-anchor "middle"
             :dominant-baseline "middle"
