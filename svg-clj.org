@@ -18,7 +18,7 @@
   org.clojure/clojurescript      {:mvn/version "RELEASE"}
   thheller/shadow-cljs           {:mvn/version "RELEASE"}
   applied-science/js-interop     {:mvn/version "0.3.3"}
-  org.babashka/sci               {:mvn/version "0.3.5"}
+  org.babashka/sci               {:mvn/version "RELEASE"}
   reagent/reagent                {:mvn/version "1.1.1"}
   io.github.babashka/sci.configs {:git/sha "fcd367c6a6115c5c4e41f3a08ee5a8d5b3387a18"}
   io.github.nextjournal/viewers  {:git/sha "c88c97c9ad008b0c214e44523488fcfa0605e6d9"}
@@ -612,16 +612,17 @@ So, to keep the mental model the same, I have designed my transform fns to alway
 ** ns
 #+begin_src clojure :tangle ./src/svg_clj/utils.cljc
 (ns svg-clj.utils
-  (:require [clojure.data.xml :as xml]
-            [clojure.string :as str]
-            [clojure.zip :as zip]
-            #?(:cljs
-               [cljs.reader :refer [read-string]])))
+  (:require [clojure.string :as str]
+            #?(:cljs [cljs.reader :refer [read-string]])))
 
 #+end_src
 
 ** zeroish
 #+begin_src clojure :tangle ./src/svg_clj/utils.cljc
+(defn abs
+  [x]
+  (Math/abs x))
+
 (def ^:dynamic *eps*
   "Epsilon Value where any floating point value less than `*eps*` will be considered zero."
   0.00001)
@@ -1071,6 +1072,9 @@ Centroid of a list of points is used in a few places. Having it here keeps it ac
 
 #+end_src
 
+* jvm-only-utils
+I think I should remove use of data.xml and instead parse svg strings with another library that I can trust to work in clj, cljs, bb, nbb.
+
 ** xml->hiccup
 The xml->hiccup function causes some issues down the line when it comes to properly displaying SVGs. It works fine if no namespaces are used in the SVG's definition, but will potentially break if they do exist. This becomes an issue when importing from third party sources, such as Inkscape.
 
@@ -1107,7 +1111,13 @@ The following snippet does create an XML string where the namespace prefixes are
 #+end_src
 
 
-#+begin_src clojure :tangle ./src/svg_clj/utils.cljc
+#+begin_src clojure :tangle ./src/svg_clj/jvm_utils.clj
+(ns svg-clj.jvm-utils
+  (:require [clojure.string :as str]
+            [clojure.zip :as zip]
+            [clojure.data.xml :as xml]
+            #?(:cljs [cljs.reader :refer [read-string]])))
+
 (defn str->number
   "Turns a string `s` into a number if possible, otherwise returns `s`."
   [s]
@@ -1170,7 +1180,7 @@ Attributes to be cast are defined in `numerical-attrs` and include `:cx`, `:cy`,
 #+end_src
 
 ** get-elems
-#+begin_src clojure :tangle ./src/svg_clj/utils.cljc
+#+begin_src clojure tangle ./src/svg_clj/jvm_utils.cljc
 (defn- get-nodes
   "Returns a list of nodes from `zipper` that return `true` from the `matcher` predicate fn.
   The `matcher` fn expects a zipper location, `loc`, and returns `true` (or some value) or `false` (or nil)."
@@ -1213,6 +1223,14 @@ Optionally, pass in a set of keys  as `key-set` to use when matching nodes from 
    (let [zipper (hiccup-zip tree)]
     (apply list (get-nodes zipper #(elem-node? % key-set))))))
 
+(defn svg-str->hiccup
+  "Parses an SVG string into hiccup, keping all elements."
+  ([svg-str] (svg-str->elems svg-str svg-element-keys))
+  ([svg-str key-set]
+   (-> svg-str
+       (xml/parse-str :namespace-aware false)
+       xml->hiccup)))
+
 (defn svg-str->elems
   "Parses an SVG string into a sequence of SVG elements compatible with this library.
 Elements are "
@@ -1222,6 +1240,25 @@ Elements are "
        (xml/parse-str :namespace-aware false)
        xml->hiccup
        (get-elems key-set))))
+
+(defn load-svg
+  "Loads the SVG `fname` and parses the XML into a hiccup data structure, keeping all elements.
+Use this function to load the SVG without throwing away any nodes, for example, if you want to keep meta and def tags."
+  [fname]
+  (-> fname
+      slurp
+      svg-str->hiccup))
+
+(defn load-svg-elems
+  "Loads the SVG `fname`, parses the XML into hiccup, and returns a sequence of the SVG elements in the file.
+Use this function to pull elements from an SVG that can be used directly with the other functions in this library."
+  ([fname] (load-svg-elems fname u/svg-element-keys))
+  ([fname key-set]
+   (-> fname
+       slurp
+       u/svg-str->hiccup
+       (get-elems key-set))))
+
 
 #+end_src
 
@@ -3333,7 +3370,7 @@ Various useful algorithms, usually working on points.
         E (+ (* A (+ ax bx)) (* B (+ ay by)))
         F (+ (* C (+ ax cx)) (* D (+ ay cy)))
         G (* 2 (- (* A (- cy by)) (* B (- cx bx))))]
-    (when (> (abs G) 0.000001)
+    (when (> (Math/abs G) 0.000001)
       (let [cx (/ (- (* D E) (* B F)) G)
             cy (/ (- (* A F) (* C E)) G)
             dx (- cx ax)
@@ -3453,7 +3490,7 @@ Various useful algorithms, usually working on points.
                  {:pt pt :angle a}))
            sorted (->> (map f pts)
                        (remove #(nil? (:angle %)))
-                       (sort-by #(abs (- (:angle %) 180))))]
+                       (sort-by #(Math/abs (- (:angle %) 180))))]
        (recur (conj acc (first sorted)) pts)))))
 
 (defn nested-hull
@@ -4024,7 +4061,7 @@ Splitting is needed as part of approximating bezier curve offsets with 'chains' 
         (let [next-t (+ t (/ (- target-l (arc-length curve t)) target-l))]
           (if (or
                (= (u/round t 4) (u/round next-t 4))
-               (< (abs (- target-l (arc-length curve t))) eps)
+               (< (Math/abs (- target-l (arc-length curve t))) eps)
                (< 300 n))
             next-t
             (recur next-t (inc n)))))))
@@ -4484,24 +4521,6 @@ Pattern and distribute are so similar, I wonder if I should remove one of them? 
                svg-data
                (svg svg-data))]
     (spit fname (html data))))
-
-(defn load-svg
-  "Loads the SVG `fname` and parses the XML into a hiccup data structure, keeping all elements.
-Use this function to load the SVG without throwing away any nodes, for example, if you want to keep meta and def tags."
-  [fname]
-  (-> fname
-      slurp
-      u/svg-str->hiccup))
-
-(defn load-svg-elems
-  "Loads the SVG `fname`, parses the XML into hiccup, and returns a sequence of the SVG elements in the file.
-Use this function to pull elements from an SVG that can be used directly with the other functions in this library."
-  ([fname] (load-svg-elems fname u/svg-element-keys))
-  ([fname key-set]
-   (-> fname
-       slurp
-       u/svg-str->hiccup
-       (u/get-elems key-set))))
 
 #+end_src
 
@@ -5072,11 +5091,12 @@ This is a WIP file for a more complex drawing to be used in tests. This will use
    (p/circle 150))))
 
 (def circle-curve-dist2
- (el/g
-  (el/circle 150)
-  (lo/distribute-on-curve
-   (repeatedly 40 rand-rect)
-   (p/circle 150))))
+ (-> (el/g
+       (el/circle 150)
+       (lo/distribute-on-curve
+         (repeatedly 40 rand-rect)
+         (p/circle 150)))
+     (tf/translate [150 150])))
 
 ;; Distribute on any curve available in parametric.cljc
 (def bez-curve (p/bezier [ [70 -20] [10 70] [200 -300] [300 0]]))
@@ -5571,7 +5591,7 @@ I have to build a js bundle with the svg-clj namespaces to pass into the sci con
 ;; Here is the existing context:
 ;; https://github.com/nextjournal/clerk/blob/d08c26043efe19a92fe33dd9eb4499e304e4cff7/src/nextjournal/clerk/sci_viewer.cljs#L1013-L1023
 
-(sci/require-cljs-analyzer-api)
+(sci.impl.cljs/require-cljs-analyzer-api)
 
 #+end_src
 
@@ -5966,7 +5986,6 @@ To continue:
             [nextjournal.markdown.transform :as md.transform]
             [nextjournal.clerk :as clerk]
             [nextjournal.clerk.config :as config]
-            [nextjournal.clerk.hashing :as hashing]
             [nextjournal.clerk.view :as view]
             [nextjournal.clerk.viewer :as v]
             [nextjournal.clerk.webserver :as webserver]

@@ -1,9 +1,10 @@
 (ns svg-clj.utils
-  (:require [clojure.data.xml :as xml]
-            [clojure.string :as str]
-            [clojure.zip :as zip]
-            #?(:cljs
-               [cljs.reader :refer [read-string]])))
+  (:require [clojure.string :as str]
+            #?(:cljs [cljs.reader :refer [read-string]])))
+
+(defn abs
+  [x]
+  (Math/abs x))
 
 (def ^:dynamic *eps*
   "Epsilon Value where any floating point value less than `*eps*` will be considered zero."
@@ -396,114 +397,3 @@ Put another way, the angle is measured following the 'right hand rule' around p2
   "Remaps value `t`, which is assumed to be between 0 and 1.0, to a sin curve."
   [t]
   (/ (- (Math/cos (* Math/PI t)) 1) -2))
-
-(defn str->number
-  "Turns a string `s` into a number if possible, otherwise returns `s`."
-  [s]
-  (let [n (try (read-string s)
-               (catch #?(:clj Exception
-                         :cljs js/Object) _ s))]
-    (if (number? n) n s)))
-
-(def numerical-attrs
-  "Set of SVG attributes which have numerical values."
-  #{;; circle, ellipse
-    :cx :cy :r :rx :ry
-    ;; image, rect
-    :width :height :x :y
-    ;; line
-    :x1 :y1 :x2 :y2})
-
-(defn cast-numerical-attrs
-  "Casts certain attribute values to numbers if they are strings.
-Attributes to be cast are defined in `numerical-attrs` and include `:cx`, `:cy`, `:width`, etc."
-  [attrs]
-  (if (empty? attrs)
-    {}
-    (apply merge
-           (map
-            (fn [[k v]]
-              (if (numerical-attrs k)
-                {k (str->number v)}
-                {k v}))
-            attrs))))
-
-(defn- fix-ns-tag
-  [t]
-  (let [namespace (namespace t)
-        name (name t)]
-    (if namespace
-      (-> namespace
-          (str/split #"\.")
-          first
-          (str ":" name)
-          keyword)
-      t)))
-
-(defn xml->hiccup
-  "Convert XML to hiccup."
-  [xml]
-  (if-let [t (:tag xml)]
-    (let [elem [(fix-ns-tag t)]
-          elem (conj elem (cast-numerical-attrs (:attrs xml)))]
-      (into elem (map xml->hiccup (remove string? (:content xml)))))
-    xml))
-
-(defn svg-str->hiccup
-  "Parses an SVG string into a Hiccup data structure, keeping all nodes."
-  [svg-str]
-  (-> svg-str
-      (xml/parse-str :namespace-aware false)
-      xml->hiccup))
-
-(defn- get-nodes
-  "Returns a list of nodes from `zipper` that return `true` from the `matcher` predicate fn.
-  The `matcher` fn expects a zipper location, `loc`, and returns `true` (or some value) or `false` (or nil)."
-  [zipper matcher]
-  (loop [loc zipper
-         acc []]
-    (if (zip/end? loc)
-      acc
-      (if (matcher loc)
-        (recur (zip/next loc) (conj acc (zip/node loc)))
-        (recur (zip/next loc) acc)))))
-
-(defn- elem-node?
-  [loc key-set]
-  (let [node (zip/node loc)]
-    (and (keyword? (first node))
-         (not (nil? (key-set (first node)))))))
-
-(defn- hiccup-zip
-  [tree]
-  (let [branch? vector?
-        children (fn [s] (remove #(or (map? %) (not (seqable? %))) s))
-        make-node (fn [node c]
-                    (let [[k maybe-attrs] (take 2 node)]
-                      (into (if (map? maybe-attrs) [k maybe-attrs] [k]) c)))]
-    (zip/zipper branch? children make-node tree)))
-
-(def svg-element-keys
-  "Set of SVG elements as keys."
-  #{:circle :ellipse
-    :line :rect
-    :polygon :polyline :path
-    :image :text :g})
-
-(defn get-elems
-  "Get SVG elements from `tree`, a Hiccup data structure.
-Optionally, pass in a set of keys  as `key-set` to use when matching nodes from the tree."
-  ([tree] (get-elems tree svg-element-keys))
-  ([tree key-set]
-   (let [zipper (hiccup-zip tree)]
-    (apply list (get-nodes zipper #(elem-node? % key-set))))))
-
-(defn svg-str->elems
-  "Parses an SVG string into a sequence of SVG elements compatible with this library.
-Elements are "
-  ([svg-str] (svg-str->elems svg-str svg-element-keys))
-  ([svg-str key-set]
-   (-> svg-str
-       (xml/parse-str :namespace-aware false)
-       xml->hiccup
-       (get-elems key-set))))

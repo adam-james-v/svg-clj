@@ -17,7 +17,7 @@
         E (+ (* A (+ ax bx)) (* B (+ ay by)))
         F (+ (* C (+ ax cx)) (* D (+ ay cy)))
         G (* 2 (- (* A (- cy by)) (* B (- cx bx))))]
-    (when (> (abs G) 0.000001)
+    (when (> (Math/abs G) 0.000001)
       (let [cx (/ (- (* D E) (* B F)) G)
             cy (/ (- (* A F) (* C E)) G)
             dx (- cx ax)
@@ -129,7 +129,7 @@
                  {:pt pt :angle a}))
            sorted (->> (map f pts)
                        (remove #(nil? (:angle %)))
-                       (sort-by #(abs (- (:angle %) 180))))]
+                       (sort-by #(Math/abs (- (:angle %) 180))))]
        (recur (conj acc (first sorted)) pts)))))
 
 (defn nested-hull

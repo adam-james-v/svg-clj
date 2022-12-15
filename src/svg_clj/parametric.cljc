@@ -439,7 +439,7 @@
         (let [next-t (+ t (/ (- target-l (arc-length curve t)) target-l))]
           (if (or
                (= (u/round t 4) (u/round next-t 4))
-               (< (abs (- target-l (arc-length curve t))) eps)
+               (< (Math/abs (- target-l (arc-length curve t))) eps)
                (< 300 n))
             next-t
             (recur next-t (inc n)))))))
