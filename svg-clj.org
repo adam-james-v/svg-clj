@@ -22,8 +22,7 @@
   reagent/reagent                {:mvn/version "1.1.1"}
   io.github.babashka/sci.configs {:git/sha "fcd367c6a6115c5c4e41f3a08ee5a8d5b3387a18"}
   io.github.nextjournal/viewers  {:git/sha "c88c97c9ad008b0c214e44523488fcfa0605e6d9"}
-  metosin/reitit-frontend        {:mvn/version "0.5.15"}
-  adam-james-v/eyebrowse         {:local/root "/Users/adam/dev/work/eyebrowse"}}
+  metosin/reitit-frontend        {:mvn/version "0.5.15"}}
 
  :aliases
  {:test
@@ -1115,15 +1114,13 @@ The following snippet does create an XML string where the namespace prefixes are
 (ns svg-clj.jvm-utils
   (:require [clojure.string :as str]
             [clojure.zip :as zip]
-            [clojure.data.xml :as xml]
-            #?(:cljs [cljs.reader :refer [read-string]])))
+            [clojure.data.xml :as xml]))
 
 (defn str->number
   "Turns a string `s` into a number if possible, otherwise returns `s`."
   [s]
   (let [n (try (read-string s)
-               (catch #?(:clj Exception
-                         :cljs js/Object) _ s))]
+               (catch Exception _ s))]
     (if (number? n) n s)))
 
 (def numerical-attrs

@@ -1,15 +1,13 @@
 (ns svg-clj.jvm-utils
   (:require [clojure.string :as str]
             [clojure.zip :as zip]
-            [clojure.data.xml :as xml]
-            #?(:cljs [cljs.reader :refer [read-string]])))
+            [clojure.data.xml :as xml]))
 
 (defn str->number
   "Turns a string `s` into a number if possible, otherwise returns `s`."
   [s]
   (let [n (try (read-string s)
-               (catch #?(:clj Exception
-                         :cljs js/Object) _ s))]
+               (catch Exception _ s))]
     (if (number? n) n s)))
 
 (def numerical-attrs
