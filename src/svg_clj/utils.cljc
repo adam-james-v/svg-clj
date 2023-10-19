@@ -2,7 +2,7 @@
   (:require [clojure.string :as str]
             #?(:cljs [cljs.reader :refer [read-string]])))
 
-(defn abs
+#_(defn abs
   [x]
   (Math/abs x))
 
@@ -272,7 +272,9 @@ Put another way, the angle is measured following the 'right hand rule' around p2
   [a b c]
   (let [ba (v- a b)
         bc (v- c b)]
-    (> *eps* (abs (cross*-k ba bc)))))
+    (if (every? #(= (count %) 3) [a b c])
+      (every? #(> *eps*(abs  %)) (cross* ba bc))
+      (> *eps* (abs (cross*-k ba bc))))))
 
 (defn corner-condition
   "Returns the type of corner at point `b`, given `a` and `c` endpoints.
@@ -323,20 +325,22 @@ Put another way, the angle is measured following the 'right hand rule' around p2
 (defn bounds-of-pts
   "Calculates the axis-aligned-bounding-box of `pts`."
   [pts]
-  (let [xmax (apply max (map first pts))
-        ymax (apply max (map second pts))
-        xmin (apply min (map first pts))
-        ymin (apply min (map second pts))]
-    (vector [xmin ymin]
-            [xmax ymin]
-            [xmax ymax]
-            [xmin ymax])))
+  (when (seq pts)
+    (let [xmax (apply max (map first pts))
+          ymax (apply max (map second pts))
+          xmin (apply min (map first pts))
+          ymin (apply min (map second pts))]
+      (vector [xmin ymin]
+              [xmax ymin]
+              [xmax ymax]
+              [xmin ymax]))))
 
 (defn bb-dims
   "Returns the dimensions of the bounding box defined by `pts`."
   [pts]
-  (let [[[xmin ymin] _ [xmax ymax] _] (bounds-of-pts pts)]
-    [(- xmax xmin) (- ymax ymin)]))
+  (when-let [bounds (bounds-of-pts pts)]
+    (let [[[xmin ymin] _ [xmax ymax] _] bounds]
+      [(- xmax xmin) (- ymax ymin)])))
 
 (defn offset-edge
   "Offset an edge defined by points `a` and `b` by distance `d` along the vector perpendicular to the edge."

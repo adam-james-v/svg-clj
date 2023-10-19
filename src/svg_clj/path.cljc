@@ -742,6 +742,15 @@
          (first cmds))]
     [:path (assoc props :d (cmds->path-string xf-cmds))]))
 
+(defn join-paths
+  "Joins a list of path elements together by concating the `:d` string, keeping props from last path in the list."
+  [& paths]
+  (let [ms (map (comp #(select-keys % [:d]) second) paths)
+        props (-> (last paths) second (dissoc :d))]
+    [:path (merge
+            (apply (partial merge-with str) ms)
+            props)]))
+
 (defn- get-subpaths
   [cmds]
   (->> cmds

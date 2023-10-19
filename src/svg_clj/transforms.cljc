@@ -410,7 +410,7 @@
 
 (defmethod rotate :g
   [[k props & content :as elem] deg]
-  (let [[gcx gcy] (u/centroid-of-pts (bounds elem))
+  (let [[gcx gcy] [0 0] #_(u/centroid-of-pts (bounds elem))
         xfcontent (for [child content]
                     (let [ch (translate child [(- gcx) (- gcy)])
                           ctr (if (= :g (first ch))
